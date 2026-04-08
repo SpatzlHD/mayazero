@@ -1,0 +1,199 @@
+@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap");
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --font-sans: "Outfit", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+}
+
+:root {
+  /* LIGHT MODE (Not strictly the obsidian, but clean) */
+  --bg-base: #f8fafc;
+  --surface: rgba(255, 255, 255, 0.7);
+  --surface-strong: rgba(255, 255, 255, 0.95);
+  --line: rgba(0, 0, 0, 0.08);
+  --sea-ink: #0f172a;
+  --sea-ink-soft: #64748b;
+  --cacao-neon: #E87A4E;
+  --maya-teal: #1A9A8D;
+  --inset-glint: rgba(255, 255, 255, 0.9);
+  --halo-glow: rgba(232, 122, 78, 0.05);
+}
+
+:root.dark {
+  /* OBSIDIAN & CACAO */
+  --bg-base: #050505;
+  --surface: rgba(18, 18, 20, 0.6);
+  --surface-strong: rgba(24, 24, 27, 0.9);
+  --line: rgba(255, 255, 255, 0.08);
+  --sea-ink: #f8fafc;
+  --sea-ink-soft: #94a3b8;
+  --cacao-neon: #E87A4E;
+  --maya-teal: #4fd1c5;
+  --inset-glint: rgba(255, 255, 255, 0.05);
+  --halo-glow: rgba(232, 122, 78, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --bg-base: #050505;
+    --surface: rgba(18, 18, 20, 0.6);
+    --surface-strong: rgba(24, 24, 27, 0.9);
+    --line: rgba(255, 255, 255, 0.08);
+    --sea-ink: #f8fafc;
+    --sea-ink-soft: #94a3b8;
+    --cacao-neon: #E87A4E;
+    --maya-teal: #4fd1c5;
+    --inset-glint: rgba(255, 255, 255, 0.05);
+    --halo-glow: rgba(232, 122, 78, 0.08);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  min-height: 100vh;
+}
+
+body {
+  margin: 0;
+  color: var(--sea-ink);
+  font-family: var(--font-sans);
+  background-color: var(--bg-base);
+  background-image: 
+    radial-gradient(circle at 10% 20%, var(--halo-glow) 0%, transparent 40%),
+    radial-gradient(circle at 90% 80%, rgba(26, 154, 141, 0.08) 0%, transparent 40%);
+  background-attachment: fixed;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Glassmorphic Surfaces */
+.glass-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12), 0 1px 0 var(--inset-glint) inset;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-radius: 24px;
+}
+
+.glass-panel-strong {
+  background: var(--surface-strong);
+  border: 1px solid var(--line);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2), 0 1px 0 var(--inset-glint) inset;
+  backdrop-filter: blur(32px);
+  -webkit-backdrop-filter: blur(32px);
+  border-radius: 20px;
+}
+
+/* Massive Typography */
+.terminal-title {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  background: linear-gradient(135deg, #fff, #94a3b8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+:root[data-theme="light"] .terminal-title {
+  background: linear-gradient(135deg, #000, #475569);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Base Utilities */
+.page-wrap {
+  width: min(1200px, calc(100% - 2rem));
+  margin-inline: auto;
+}
+
+.kicker {
+  color: var(--cacao-neon);
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+}
+
+.cacao-btn {
+  background: linear-gradient(135deg, #FF9B70, var(--cacao-neon));
+  color: white;
+  font-weight: 700;
+  border-radius: 999px;
+  box-shadow: 0 4px 16px rgba(232, 122, 78, 0.4);
+  transition: all 0.2s ease;
+  border: none;
+}
+.cacao-btn:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 6px 24px rgba(232, 122, 78, 0.6);
+}
+.cacao-btn:disabled {
+  opacity: 0.5;
+  filter: grayscale(0.8);
+  cursor: not-allowed;
+  transform: none;
+}
+
+.secondary-btn {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--sea-ink);
+  font-weight: 600;
+  border-radius: 999px;
+  transition: all 0.2s ease;
+}
+.secondary-btn:hover {
+  background: var(--surface-strong);
+  border-color: var(--sea-ink-soft);
+}
+
+/* Inputs */
+.super-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--sea-ink);
+  font-weight: 600;
+  width: 100%;
+}
+.super-input::placeholder {
+  color: var(--sea-ink-soft);
+  opacity: 0.5;
+}
+
+/* Animations */
+.rise-in {
+  animation: rise-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Custom Scrollbar for Terminals */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--sea-ink-soft);
+}

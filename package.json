@@ -1,0 +1,56 @@
+{
+  "name": "mayazero",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#/*": "./src/*"
+  },
+  "scripts": {
+    "dev": "vite dev --port 3000",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "copy:vultisig-wasm": "powershell -NoProfile -Command \"Get-ChildItem 'node_modules/@vultisig/sdk/dist' -Recurse -Filter *.wasm | Copy-Item -Destination 'public' -Force; Copy-Item 'node_modules/@trustwallet/wallet-core/dist/lib/wallet-core.wasm' -Destination 'public' -Force\""
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.1.18",
+    "@tanstack/react-devtools": "latest",
+    "@tanstack/react-router": "latest",
+    "@tanstack/react-router-devtools": "latest",
+    "@tanstack/router-plugin": "^1.132.0",
+    "@vultisig/sdk": "^0.12.0",
+    "install": "^0.13.0",
+    "lucide-react": "^0.545.0",
+    "npm": "^11.12.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-qr-code": "^2.0.18",
+    "rollup": "^4.60.1",
+    "tailwindcss": "^4.1.18",
+    "vite-plugin-top-level-await": "^1.6.0",
+    "vite-plugin-wasm": "^3.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/typography": "^0.5.16",
+    "@tanstack/devtools-vite": "latest",
+    "@tanstack/router-plugin": "latest",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.1.4",
+    "jsdom": "^28.1.0",
+    "typescript": "^5.7.2",
+    "vite": "^7.3.1",
+    "vite-plugin-node-polyfills": "^0.26.0",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.0.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "lightningcss"
+    ]
+  }
+}
