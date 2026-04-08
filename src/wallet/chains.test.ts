@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Chain } from '@vultisig/sdk'
 import {
   canSwitchChainInExtension,
+  getSupportedSessionChains,
   getExtensionProviderKey,
   resolveChainFromExtensionChainId,
 } from './chains'
@@ -29,5 +30,16 @@ describe('wallet chain registry', () => {
     expect(canSwitchChainInExtension(Chain.Kujira)).toBe(true)
     expect(canSwitchChainInExtension(Chain.MayaChain)).toBe(false)
     expect(canSwitchChainInExtension(Chain.Zcash)).toBe(false)
+  })
+
+  it('filters session chains down to the app-supported subset', () => {
+    expect(
+      getSupportedSessionChains([
+        Chain.Bitcoin,
+        Chain.Ethereum,
+        Chain.THORChain,
+        Chain.Solana,
+      ]),
+    ).toEqual([Chain.Bitcoin, Chain.Ethereum, Chain.THORChain])
   })
 })

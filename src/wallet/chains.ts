@@ -90,6 +90,8 @@ export const supportedWalletChains = Object.values(chainRegistry).map(
   ({ chain }) => chain,
 )
 
+const supportedWalletChainSet = new Set<WalletChain>(supportedWalletChains)
+
 export const extensionProviderChainMap = Object.values(chainRegistry).reduce<
   Record<ExtensionProviderKey, WalletChain[]>
 >(
@@ -165,4 +167,8 @@ export function resolveChainFromExtensionChainId(
 export function canSwitchChainInExtension(chain: WalletChain): boolean {
   const providerKey = getExtensionProviderKey(chain)
   return providerKey === 'ethereum' || providerKey === 'cosmos'
+}
+
+export function getSupportedSessionChains(chains: WalletChain[]): WalletChain[] {
+  return chains.filter((chain) => supportedWalletChainSet.has(chain))
 }

@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as VaultSetupRouteImport } from './routes/vault-setup'
 import { Route as SwapRouteImport } from './routes/swap'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as LiquidityRouteImport } from './routes/liquidity'
@@ -16,6 +17,11 @@ import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ChainsChainKeyRouteImport } from './routes/chains.$chainKey'
 
+const VaultSetupRoute = VaultSetupRouteImport.update({
+  id: '/vault-setup',
+  path: '/vault-setup',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SwapRoute = SwapRouteImport.update({
   id: '/swap',
   path: '/swap',
@@ -53,6 +59,7 @@ export interface FileRoutesByFullPath {
   '/liquidity': typeof LiquidityRoute
   '/settings': typeof SettingsRoute
   '/swap': typeof SwapRoute
+  '/vault-setup': typeof VaultSetupRoute
   '/chains/$chainKey': typeof ChainsChainKeyRoute
 }
 export interface FileRoutesByTo {
@@ -61,6 +68,7 @@ export interface FileRoutesByTo {
   '/liquidity': typeof LiquidityRoute
   '/settings': typeof SettingsRoute
   '/swap': typeof SwapRoute
+  '/vault-setup': typeof VaultSetupRoute
   '/chains/$chainKey': typeof ChainsChainKeyRoute
 }
 export interface FileRoutesById {
@@ -70,6 +78,7 @@ export interface FileRoutesById {
   '/liquidity': typeof LiquidityRoute
   '/settings': typeof SettingsRoute
   '/swap': typeof SwapRoute
+  '/vault-setup': typeof VaultSetupRoute
   '/chains/$chainKey': typeof ChainsChainKeyRoute
 }
 export interface FileRouteTypes {
@@ -80,6 +89,7 @@ export interface FileRouteTypes {
     | '/liquidity'
     | '/settings'
     | '/swap'
+    | '/vault-setup'
     | '/chains/$chainKey'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -88,6 +98,7 @@ export interface FileRouteTypes {
     | '/liquidity'
     | '/settings'
     | '/swap'
+    | '/vault-setup'
     | '/chains/$chainKey'
   id:
     | '__root__'
@@ -96,6 +107,7 @@ export interface FileRouteTypes {
     | '/liquidity'
     | '/settings'
     | '/swap'
+    | '/vault-setup'
     | '/chains/$chainKey'
   fileRoutesById: FileRoutesById
 }
@@ -105,11 +117,19 @@ export interface RootRouteChildren {
   LiquidityRoute: typeof LiquidityRoute
   SettingsRoute: typeof SettingsRoute
   SwapRoute: typeof SwapRoute
+  VaultSetupRoute: typeof VaultSetupRoute
   ChainsChainKeyRoute: typeof ChainsChainKeyRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/vault-setup': {
+      id: '/vault-setup'
+      path: '/vault-setup'
+      fullPath: '/vault-setup'
+      preLoaderRoute: typeof VaultSetupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/swap': {
       id: '/swap'
       path: '/swap'
@@ -161,6 +181,7 @@ const rootRouteChildren: RootRouteChildren = {
   LiquidityRoute: LiquidityRoute,
   SettingsRoute: SettingsRoute,
   SwapRoute: SwapRoute,
+  VaultSetupRoute: VaultSetupRoute,
   ChainsChainKeyRoute: ChainsChainKeyRoute,
 }
 export const routeTree = rootRouteImport

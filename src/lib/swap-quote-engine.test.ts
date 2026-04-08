@@ -169,7 +169,50 @@ describe('swap-quote-engine', () => {
     expect(url).toContain('amount=125000000')
     expect(url).toContain('affiliate=friend%2Fmaya1abc123%2Fmayazero')
     expect(url).toContain('affiliate_bps=%2F20%2F20')
-    expect(url).toContain('tolerance_bps=75')
+    expect(url).toContain('liquidity_tolerance_bps=75')
+  })
+
+  it('encodes Maya quote amounts in fixed 1e8 units instead of token decimals', () => {
+    const settings = createSettings()
+    const url = buildMayaQuoteUrl({
+      settings,
+      fromAsset: createAsset({ mayaAsset: 'MAYA.CACAO', decimals: 10 }),
+      toAsset: createAsset({ id: 'eth', ticker: 'ETH', mayaAsset: 'ETH.ETH', chain: Chain.Ethereum, decimals: 18 }),
+      destinationAddress: '0xreceiver',
+      amount: '10000',
+      slippageBps: '50',
+      effectiveAffiliates: [],
+    })
+
+    expect(url).toContain('amount=1000000000000')
+    expect(url).not.toContain('amount=100000000000000')
+  })
+
+  it('throws when Maya returns a structured quote error payload', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        error: 'failed to simulate swap',
+        recommended_min_amount_in: '123456789',
+      }),
+    }))
+
+    await expect(
+      quoteSwap({
+        wallet: {
+          execute: vi.fn(),
+          canExecute: () => false,
+        },
+        settings: createSettings(),
+        sessionId: 'vault-1',
+        fromAsset: createAsset({ mayaAsset: 'MAYA.CACAO' }),
+        toAsset: createAsset({ id: 'eth', ticker: 'ETH', mayaAsset: 'ETH.ETH', chain: Chain.Ethereum, decimals: 18 }),
+        fromAddress: 'maya1sender',
+        toAddress: '0xreceiver',
+        amount: '1',
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow(/failed to simulate swap.*123456789/i)
   })
 
   it('uses Vultisig referral input without unsupported fee fields', async () => {

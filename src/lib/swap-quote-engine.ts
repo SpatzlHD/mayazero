@@ -6,6 +6,7 @@ export const APP_SUPPORT_AFFILIATE = 'mayazero'
 const DEFAULT_SLIPPAGE_BPS = 50
 const MAX_AFFILIATE_BPS = 500
 const MAX_TOTAL_AFFILIATES = 5
+const MAYA_QUOTE_AMOUNT_DECIMALS = 8
 
 export type AffiliateDraft = {
   value: string
@@ -29,9 +30,11 @@ export type NormalizedQuoteFees = {
 }
 
 export type MayaQuoteResponse = {
+  error?: string
   expected_amount_out?: string
   memo?: string
   slippage_bps?: number | string
+  recommended_min_amount_in?: string
   fees?: {
     affiliate?: string
     asset?: string
@@ -47,6 +50,7 @@ export type SwapQuoteEngineResult =
       route: 'vultisig'
       rawQuote: VultisigQuoteResult
       estimatedOutput: string
+      outputDecimals: number
       fees: NormalizedQuoteFees
       memo?: string
       effectiveAffiliates: EffectiveAffiliate[]
@@ -58,6 +62,7 @@ export type SwapQuoteEngineResult =
       route: 'maya'
       rawQuote: MayaQuoteResponse
       estimatedOutput: string
+      outputDecimals: number
       fees: NormalizedQuoteFees
       memo?: string
       effectiveAffiliates: EffectiveAffiliate[]
@@ -109,7 +114,7 @@ export function resolveEffectiveAffiliates(
 
   if (userDrafts.length > allowedUserAffiliates) {
     throw new Error(
-      `A maximum of ${allowedUserAffiliates} custom affiliate${allowedUserAffiliates === 1 ? '' : 's'} can be set with the current support-fee configuration.`,
+      `A maximum of ${allowedUserAffiliates} custom affiliates can be set with the current support-fee configuration.`,
     )
   }
 
@@ -147,8 +152,8 @@ export function buildMayaQuoteUrl(params: {
     from_asset: params.fromAsset.mayaAsset,
     to_asset: params.toAsset.mayaAsset,
     destination: params.destinationAddress,
-    amount: decimalToBaseUnits(params.amount, params.fromAsset.decimals),
-    tolerance_bps: String(normalizeSlippageBps(params.slippageBps)),
+    amount: decimalToBaseUnits(params.amount, MAYA_QUOTE_AMOUNT_DECIMALS),
+    liquidity_tolerance_bps: String(normalizeSlippageBps(params.slippageBps)),
   })
 
   const effectiveAffiliates = params.effectiveAffiliates ?? []
@@ -242,6 +247,7 @@ async function quoteWithVultisig(params: {
     route: 'vultisig',
     rawQuote: quote,
     estimatedOutput: quote.estimatedOutput.toString(),
+    outputDecimals: params.toAsset.decimals,
     fees: {
       network: quote.fees.network.toString(),
       affiliate: quote.fees.affiliate?.toString(),
@@ -287,6 +293,13 @@ async function quoteWithMaya(params: {
   }
 
   const rawQuote = (await response.json()) as MayaQuoteResponse
+  if (rawQuote.error) {
+    const minimumAmountNote = rawQuote.recommended_min_amount_in
+      ? ` Recommended minimum inbound amount: ${rawQuote.recommended_min_amount_in}.`
+      : ''
+    throw new Error(`${rawQuote.error}.${minimumAmountNote}`)
+  }
+
   const affiliateFee = rawQuote.fees?.affiliate
   const networkFee = rawQuote.fees?.outbound
 
@@ -294,6 +307,7 @@ async function quoteWithMaya(params: {
     route: 'maya',
     rawQuote,
     estimatedOutput: rawQuote.expected_amount_out ?? '',
+    outputDecimals: MAYA_QUOTE_AMOUNT_DECIMALS,
     fees: {
       asset: rawQuote.fees?.asset,
       network: networkFee,

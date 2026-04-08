@@ -43,6 +43,21 @@ describe('MayaWalletManager', () => {
     expect(state.sessions).toHaveLength(2)
     expect(state.activeSessionId).toBe('vault-1')
     expect(state.activeChain).toBe(Chain.MayaChain)
+    expect(
+      state.sessions.find((session) => session.id === 'vault-1')?.chains,
+    ).toEqual(
+      expect.arrayContaining([
+        Chain.MayaChain,
+        Chain.THORChain,
+        Chain.Kujira,
+        Chain.Arbitrum,
+        Chain.Dash,
+        Chain.Zcash,
+      ]),
+    )
+    expect(
+      state.sessions.find((session) => session.id === 'vault-1')?.chains,
+    ).not.toContain(Chain.Solana)
   })
 
   it('rejects unsupported extension commands with a capability error', async () => {

@@ -18,6 +18,7 @@
     "@tanstack/react-router": "latest",
     "@tanstack/react-router-devtools": "latest",
     "@tanstack/router-plugin": "^1.132.0",
+    "@vercel/analytics": "^2.0.1",
     "@vultisig/sdk": "^0.12.0",
     "install": "^0.13.0",
     "lucide-react": "^0.545.0",

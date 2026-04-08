@@ -136,7 +136,7 @@ function PortfolioPage() {
           <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-[var(--sea-ink)]">
             Portfolio
           </h1>
-          <p className="text-[var(--sea-ink-soft)] font-medium mt-1 flex items-center gap-2">
+          <p className="text-(--sea-ink-soft) font-medium mt-1 flex items-center gap-2">
             {!activeSession ? (
               "Multi-chain Network Hub"
             ) : (

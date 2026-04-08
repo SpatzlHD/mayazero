@@ -5,6 +5,7 @@ import {
   getChainsForExtensionProvider,
   getExtensionProviderKey,
   resolveChainFromExtensionChainId,
+  supportedWalletChains,
   type ExtensionProviderKey,
 } from "./chains";
 import { WalletCapabilityError } from "./errors";
@@ -301,7 +302,7 @@ export class SdkVaultAdapter implements WalletSessionAdapter {
   async refreshSession(): Promise<WalletSession> {
     await this.vault.loadPreferences();
     const addresses = (await this.vault.addresses(
-      this.vault.chains,
+      this.getSessionChains(),
     )) as Partial<Record<WalletChain, string>>;
 
     return {
@@ -312,7 +313,7 @@ export class SdkVaultAdapter implements WalletSessionAdapter {
       status:
         this.vault.isEncrypted && !this.vault.isUnlocked() ? "locked" : "ready",
       capabilities: this.capabilities,
-      chains: [...this.vault.chains],
+      chains: this.getSessionChains(),
       addresses,
       accounts: toWalletAccounts(addresses),
       vaultMeta: {
@@ -343,7 +344,7 @@ export class SdkVaultAdapter implements WalletSessionAdapter {
           options.input as WalletCommandMap["accounts.connect"]["input"];
         const chain = input.chain;
         const addresses = (await this.vault.addresses(
-          chain ? [chain] : this.vault.chains,
+          chain ? [chain] : this.getSessionChains(),
         )) as Partial<Record<WalletChain, string>>;
         return {
           accounts: toWalletAccounts(addresses),
@@ -392,7 +393,7 @@ export class SdkVaultAdapter implements WalletSessionAdapter {
       }
       case "chain.get": {
         return {
-          chain: context.activeChain ?? this.vault.chains[0] ?? null,
+          chain: context.activeChain ?? this.getSessionChains()[0] ?? null,
         } as WalletCommandResult<K>;
       }
       case "chain.switch": {
@@ -570,6 +571,10 @@ export class SdkVaultAdapter implements WalletSessionAdapter {
         throw new WalletCapabilityError(command, this.id);
       }
     }
+  }
+
+  private getSessionChains(): WalletChain[] {
+    return [...supportedWalletChains];
   }
 }
 
