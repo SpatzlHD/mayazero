@@ -197,3 +197,22 @@ body {
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: var(--sea-ink-soft);
 }
+
+.beta-disclaimer-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.beta-disclaimer-panel::after {
+  content: "";
+  position: absolute;
+  inset: auto -20% -35% 35%;
+  height: 180px;
+  background:
+    radial-gradient(circle, rgba(232, 122, 78, 0.2) 0%, transparent 65%);
+  pointer-events: none;
+}
+
+.footer-legal-note {
+  max-width: 28rem;
+}

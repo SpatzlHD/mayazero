@@ -12,6 +12,7 @@ import { buildRootSeoHead } from "#/lib/seo";
 import { Toaster } from "sonner";
 import { GlobalPasswordDialog } from "#/components/GlobalPasswordDialog";
 import { TransactionJourneyHost } from "#/components/TransactionJourneyHost";
+import { BetaDisclaimer } from "#/components/BetaDisclaimer";
 
 import "../styles.css";
 
@@ -34,6 +35,7 @@ function RootComponent() {
               <Outlet />
               <Footer />
             </div>
+            <BetaDisclaimer />
             <GlobalPasswordDialog />
             <TransactionJourneyHost />
             <Toaster 

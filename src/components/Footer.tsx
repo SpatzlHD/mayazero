@@ -1,3 +1,5 @@
+import { BETA_DISCLAIMER_COPY } from "./BetaDisclaimer";
+
 export default function Footer() {
   const year = new Date().getFullYear();
 
@@ -16,6 +18,9 @@ export default function Footer() {
           <p className="m-0">
             Connect a vault, inspect balances, and move through protocol flows
             without losing wallet context.
+          </p>
+          <p className="footer-legal-note m-0 text-xs leading-6">
+            {BETA_DISCLAIMER_COPY}
           </p>
         </div>
       </div>
