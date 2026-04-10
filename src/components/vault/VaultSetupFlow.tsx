@@ -1,8 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { ShieldCheck, Zap, Lock, Mail, Users, ArrowRight, Loader2, CheckCircle2, WalletCards } from 'lucide-react'
-import QRCode from 'react-qr-code'
-import { useMayaWalletActions, useMayaWalletState } from '#/wallet'
+import {
+  createFastVaultJourneySteps,
+  createFastVaultVerifyJourneySteps,
+  createSecureVaultJourneySteps,
+  trackTransactionJourney,
+  useMayaWalletActions,
+  useMayaWalletState,
+} from '#/wallet'
 
 export function VaultSetupFlow() {
   const navigate = useNavigate()
@@ -24,12 +30,13 @@ export function VaultSetupFlow() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState('')
 
-  // Watch operations for Secure Vault QR code and device join progress
-  const activeSecureOp = state.operations.find(op => 
-    op.name === 'vault.create.secure' && op.status === 'pending'
+  const activeVaultJourney = state.journeys.find((journey) =>
+    journey.status === 'pending' || journey.status === 'attention'
+      ? journey.kind === 'vault.secure.create' || journey.kind === 'vault.fast.create'
+      : false,
   )
-  const qrPayload = activeSecureOp?.qrPayload
-  const deviceJoin = activeSecureOp?.deviceJoin
+  const qrPayload = activeVaultJourney?.qrPayload
+  const deviceJoin = activeVaultJourney?.deviceJoin
 
   async function handleFastSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -40,7 +47,21 @@ export function VaultSetupFlow() {
     setError('')
     setIsProcessing(true)
     try {
-      const res = await wallet.createFastVault({ name, email, password })
+      const res = await trackTransactionJourney(wallet, {
+        kind: 'vault.fast.create',
+        title: `Create Fast Vault: ${name}`,
+        source: 'fast-vault',
+        routePath: '/vault-setup',
+        steps: createFastVaultJourneySteps(),
+        run: async (journey) => {
+          journey.activateStep('creating', 'Creating the fast vault and provisioning verification.')
+          const result = await wallet.createFastVault({ name, email, password, journeyId: journey.journeyId })
+          journey.completeStep('creating', 'Fast vault created.')
+          journey.completeStep('verification-sent', `Verification code sent to ${email}.`)
+          journey.attentionStep('awaiting-code', 'Enter the verification code from your email to finish setup.')
+          return result
+        },
+      })
       setVaultId(res.vaultId)
       setStep(3) // Go to verification
     } catch (err: any) {
@@ -56,7 +77,24 @@ export function VaultSetupFlow() {
     setError('')
     setIsProcessing(true)
     try {
-      await wallet.verifyFastVault(vaultId, verificationCode)
+      await trackTransactionJourney(wallet, {
+        kind: 'vault.fast.verify',
+        title: `Verify Fast Vault: ${name || 'Vault'}`,
+        source: 'fast-vault',
+        routePath: '/vault-setup',
+        steps: createFastVaultVerifyJourneySteps(),
+        run: async (journey) => {
+          journey.activateStep('verifying', 'Verifying your email code.')
+          const result = await wallet.verifyFastVault(vaultId, verificationCode, {
+            journeyId: journey.journeyId,
+          })
+          journey.completeStep('verifying', 'Verification succeeded.')
+          journey.completeStep('refreshing-session', 'Wallet session refreshed.')
+          journey.completeStep('vault-ready', 'Fast vault is ready.')
+          journey.complete(result)
+          return result
+        },
+      })
       setStep(4) // Success
     } catch (err: any) {
       setError(err?.message || 'Failed to verify code')
@@ -75,10 +113,28 @@ export function VaultSetupFlow() {
     setIsProcessing(true)
     try {
       setStep(3) // Immediately show the QR code screen while waiting
-      const res = await wallet.createSecureVault({ 
-        name, 
-        devices, 
-        password: password || undefined 
+      const res = await trackTransactionJourney(wallet, {
+        kind: 'vault.secure.create',
+        title: `Create Secure Vault: ${name}`,
+        source: 'secure-vault',
+        routePath: '/vault-setup',
+        steps: createSecureVaultJourneySteps(),
+        run: async (journey) => {
+          journey.activateStep('creating-session', 'Creating multi-device vault session.')
+          const result = await wallet.createSecureVault({ 
+            name, 
+            devices, 
+            password: password || undefined,
+            journeyId: journey.journeyId,
+          })
+          journey.completeStep('creating-session', 'Secure vault session created.')
+          journey.completeStep('scan-qr', 'QR pairing completed.')
+          journey.completeStep('devices-joined', 'Required devices joined.')
+          journey.completeStep('keygen', 'MPC key generation completed.')
+          journey.completeStep('vault-ready', 'Secure vault is ready.')
+          journey.complete(result)
+          return result
+        },
       })
       setVaultId(res.vaultId)
       setStep(4) // Success, after threshold is reached
@@ -123,16 +179,22 @@ export function VaultSetupFlow() {
             <ArrowRight size={20} className="ml-auto text-[var(--sea-ink-soft)]" />
           </button>
 
-          <button 
+          <button
             type="button"
-            onClick={() => { setVaultType('secure'); setStep(2); setError('') }}
-            className={`w-full glass-panel-strong p-6 rounded-3xl flex items-center gap-5 transition-all text-left hover:-translate-y-1 ${vaultType === 'secure' ? 'border-[var(--cacao-neon)] shadow-[0_0_20px_rgba(232,122,78,0.2)]' : 'hover:border-[var(--sea-ink-soft)]'}`}
+            disabled
+            aria-disabled="true"
+            className="w-full glass-panel-strong p-6 rounded-3xl flex items-center gap-5 text-left opacity-60 cursor-not-allowed border-transparent"
           >
             <div className="w-12 h-12 rounded-full bg-[rgba(232,122,78,0.1)] flex items-center justify-center text-[var(--cacao-neon)] shrink-0">
               <ShieldCheck size={24} />
             </div>
-            <div>
-              <div className="font-bold text-lg text-[var(--sea-ink)] mb-1">Secure Vault</div>
+            <div className="flex-1">
+              <div className="flex items-center gap-3 mb-1">
+                <div className="font-bold text-lg text-[var(--sea-ink)]">Secure Vault</div>
+                <span className="rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-[var(--cacao-neon)]">
+                  Coming Soon
+                </span>
+              </div>
               <p className="text-sm text-[var(--sea-ink-soft)] font-medium">Multi-device N-of-M MPC. Maximum security for high-value assets.</p>
             </div>
             <ArrowRight size={20} className="ml-auto text-[var(--sea-ink-soft)]" />
@@ -282,12 +344,8 @@ export function VaultSetupFlow() {
            ) : (
              <>
                <p className="text-[var(--sea-ink-soft)] text-sm mb-4">
-                 Open the <span className="font-bold text-[var(--sea-ink)]">Vultisig mobile app</span> on your other devices and scan this QR code to join the vault creation session.
+                 Continue in the global transaction tracker. It now owns QR pairing, device joins, and signing feedback for secure vault setup.
                </p>
-
-               <div className="bg-white p-4 rounded-3xl inline-block shadow-2xl">
-                 <QRCode value={qrPayload} size={200} />
-               </div>
 
                <div className="mt-6 w-full max-w-sm">
                  <div className="text-[10px] uppercase font-bold text-[var(--sea-ink-soft)] tracking-wider mb-2 text-left">

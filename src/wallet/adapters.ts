@@ -19,6 +19,7 @@ import type {
   WalletOperation,
   WalletSession,
 } from "./types";
+import { redirect, useNavigate } from "@tanstack/react-router";
 
 type EventHandler = (...args: unknown[]) => void;
 
@@ -102,9 +103,38 @@ export type SdkVaultLike = {
     memo?: string;
     feeSettings?: Record<string, unknown>;
   }) => Promise<unknown>;
+  prepareSignAminoTx?: (params: {
+    chain: WalletCommandMap["tx.prepare.amino"]["input"]["chain"];
+    coin: WalletCommandMap["tx.prepare.amino"]["input"]["coin"];
+    msgs: WalletCommandMap["tx.prepare.amino"]["input"]["msgs"];
+    fee: WalletCommandMap["tx.prepare.amino"]["input"]["fee"];
+    memo?: string;
+  }) => Promise<unknown>;
+  extractMessageHashes?: (payload: unknown) => Promise<string[]>;
   sign: (
     payload: unknown,
     options?: {
+      signal?: AbortSignal;
+      onQRCodeReady?: (qrPayload: string) => void;
+      onDeviceJoined?: (
+        deviceId: string,
+        totalJoined: number,
+        required: number,
+      ) => void;
+      onProgress?: (step: {
+        step: string;
+        progress: number;
+        message: string;
+        mode?: string;
+      }) => void;
+    },
+  ) => Promise<unknown>;
+  signBytes: (
+    options: {
+      chain: WalletChain;
+      data: Uint8Array | string;
+    },
+    signingOptions?: {
       signal?: AbortSignal;
       onQRCodeReady?: (qrPayload: string) => void;
       onDeviceJoined?: (
@@ -124,6 +154,10 @@ export type SdkVaultLike = {
     chain: WalletChain;
     keysignPayload: unknown;
     signature: unknown;
+  }) => Promise<string>;
+  broadcastRawTx: (params: {
+    chain: WalletChain;
+    rawTx: string;
   }) => Promise<string>;
   getSwapQuote: (
     params: WalletCommandMap["swap.quote"]["input"],
@@ -238,8 +272,11 @@ const sdkCapabilities: WalletCommandName[] = [
   "message.sign",
   "portfolio.get",
   "tx.prepare.send",
+  "tx.prepare.amino",
   "tx.sign",
+  "tx.sign.bytes",
   "tx.broadcast",
+  "tx.broadcast.raw",
   "swap.quote",
   "swap.prepare",
   "tokens.discover",
@@ -346,6 +383,7 @@ export class SdkVaultAdapter implements WalletSessionAdapter {
         const addresses = (await this.vault.addresses(
           chain ? [chain] : this.getSessionChains(),
         )) as Partial<Record<WalletChain, string>>;
+
         return {
           accounts: toWalletAccounts(addresses),
         } as WalletCommandResult<K>;
@@ -464,32 +502,110 @@ export class SdkVaultAdapter implements WalletSessionAdapter {
             payload as WalletCommandMap["tx.prepare.send"]["output"]["payload"],
         } as WalletCommandResult<K>;
       }
+      case "tx.prepare.amino": {
+        const input =
+          options.input as WalletCommandMap["tx.prepare.amino"]["input"];
+        if (!this.vault.prepareSignAminoTx) {
+          throw new WalletCapabilityError(
+            command,
+            this.id,
+            "SDK vault does not support custom Cosmos amino transaction preparation",
+          );
+        }
+
+        const payload = await this.vault.prepareSignAminoTx(input);
+        return {
+          payload:
+            payload as WalletCommandMap["tx.prepare.amino"]["output"]["payload"],
+        } as WalletCommandResult<K>;
+      }
       case "tx.sign": {
         const input = options.input as WalletCommandMap["tx.sign"]["input"];
-        const signature = await this.vault.sign(input.payload, {
-          signal: options.signal,
-          onQRCodeReady: (qrPayload) => {
-            context.operation?.update({ qrPayload });
+        const chain =
+          input.chain ??
+          context.activeChain ??
+          this.getSessionChains()[0] ??
+          null;
+        if (!chain) {
+          throw new WalletCapabilityError(
+            command,
+            this.id,
+            "Unable to resolve chain for SDK signing",
+          );
+        }
+
+        const messageHashes = input.messageHashes
+          ? input.messageHashes
+          : this.vault.extractMessageHashes
+            ? await this.vault.extractMessageHashes(input.payload)
+            : undefined;
+
+        const signature = await this.vault.sign(
+          {
+            transaction: input.payload,
+            chain,
+            ...(messageHashes ? { messageHashes } : {}),
           },
-          onDeviceJoined: (deviceId, joined, required) => {
-            context.operation?.update({
-              deviceJoin: { deviceId, joined, required },
-            });
+          {
+            signal: options.signal,
+            onQRCodeReady: (qrPayload) => {
+              context.operation?.update({ qrPayload });
+            },
+            onDeviceJoined: (deviceId, joined, required) => {
+              context.operation?.update({
+                deviceJoin: { deviceId, joined, required },
+              });
+            },
+            onProgress: (step) => {
+              context.operation?.update({
+                progress: {
+                  step: step.step,
+                  value: step.progress,
+                  message: step.message,
+                  mode: step.mode,
+                },
+              });
+            },
           },
-          onProgress: (step) => {
-            context.operation?.update({
-              progress: {
-                step: step.step,
-                value: step.progress,
-                message: step.message,
-                mode: step.mode,
-              },
-            });
-          },
-        });
+        );
         return {
           signature:
             signature as WalletCommandMap["tx.sign"]["output"]["signature"],
+        } as WalletCommandResult<K>;
+      }
+      case "tx.sign.bytes": {
+        const input =
+          options.input as WalletCommandMap["tx.sign.bytes"]["input"];
+        const signature = await this.vault.signBytes(
+          {
+            chain: input.chain,
+            data: input.data,
+          },
+          {
+            signal: options.signal,
+            onQRCodeReady: (qrPayload) => {
+              context.operation?.update({ qrPayload });
+            },
+            onDeviceJoined: (deviceId, joined, required) => {
+              context.operation?.update({
+                deviceJoin: { deviceId, joined, required },
+              });
+            },
+            onProgress: (step) => {
+              context.operation?.update({
+                progress: {
+                  step: step.step,
+                  value: step.progress,
+                  message: step.message,
+                  mode: step.mode,
+                },
+              });
+            },
+          },
+        );
+        return {
+          signature:
+            signature as WalletCommandMap["tx.sign.bytes"]["output"]["signature"],
         } as WalletCommandResult<K>;
       }
       case "tx.broadcast": {
@@ -499,6 +615,15 @@ export class SdkVaultAdapter implements WalletSessionAdapter {
           chain: input.chain,
           keysignPayload: input.payload,
           signature: input.signature,
+        });
+        return { txHash } as WalletCommandResult<K>;
+      }
+      case "tx.broadcast.raw": {
+        const input =
+          options.input as WalletCommandMap["tx.broadcast.raw"]["input"];
+        const txHash = await this.vault.broadcastRawTx({
+          chain: input.chain,
+          rawTx: input.rawTx,
         });
         return { txHash } as WalletCommandResult<K>;
       }
@@ -1046,8 +1171,11 @@ export class ExtensionWalletAdapter implements WalletSessionAdapter {
       }
       case "portfolio.get":
       case "tx.prepare.send":
+      case "tx.prepare.amino":
       case "tx.sign":
+      case "tx.sign.bytes":
       case "tx.broadcast":
+      case "tx.broadcast.raw":
       case "swap.quote":
       case "swap.prepare":
       case "tokens.discover":
@@ -1133,6 +1261,8 @@ export class ExtensionWalletAdapter implements WalletSessionAdapter {
   }
 }
 
-export function createDefaultSdkClient(): SdkClientLike {
-  return new Vultisig() as unknown as SdkClientLike;
+export function createDefaultSdkClient(
+  options?: ConstructorParameters<typeof Vultisig>[0],
+): SdkClientLike {
+  return new Vultisig(options) as unknown as SdkClientLike;
 }

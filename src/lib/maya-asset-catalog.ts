@@ -66,6 +66,11 @@ export type MayaAssetCatalogOptions = {
   fallbackPriceFetcher?: (ids: string[]) => Promise<Record<string, number>>;
 };
 
+export type MayaChainIdentity = Pick<
+  MayaSupportedChain,
+  "family" | "iconId" | "key" | "name" | "ticker" | "walletChain"
+>;
+
 const DEFAULT_MIDGARD_URL = "https://midgard.mayachain.info";
 const DEFAULT_TTL_MS = 60_000;
 
@@ -287,6 +292,39 @@ export function getMayaSupportedChain(
   chainKey: string,
 ): MayaSupportedChain | undefined {
   return catalog.chains.find((chain) => chain.key === chainKey);
+}
+
+export function getMayaChainIdentity(chainKey: string): MayaChainIdentity {
+  const normalizedKey = chainKey.trim().toLowerCase();
+  const knownDefinition = Object.values(mayaChainDefinitions).find(
+    (definition) => definition.key === normalizedKey,
+  );
+
+  if (knownDefinition) {
+    return {
+      family: knownDefinition.family,
+      iconId: knownDefinition.iconId,
+      key: knownDefinition.key,
+      name: knownDefinition.name,
+      ticker: knownDefinition.ticker,
+      walletChain: knownDefinition.walletChain,
+    };
+  }
+
+  const fallbackName = normalizedKey
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+
+  return {
+    family: "unknown",
+    iconId: normalizedKey || "maya",
+    key: normalizedKey || chainKey,
+    name: fallbackName || chainKey,
+    ticker: chainKey.trim().toUpperCase() || "CHAIN",
+    walletChain: undefined,
+  };
 }
 
 async function loadMayaAssetCatalog(params: {

@@ -1,18 +1,22 @@
 export default function Footer() {
-  const year = new Date().getFullYear()
+  const year = new Date().getFullYear();
 
   return (
     <footer className="site-footer mt-20 px-4 pb-14 pt-10 text-[var(--sea-ink-soft)]">
       <div className="page-wrap flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
         <div className="max-w-xl">
-          <p className="island-kicker m-0">Maya Zero Interface</p>
+          <p className="island-kicker m-0">Maya Zero</p>
           <p className="brand-wordmark mt-3 text-2xl text-[var(--sea-ink)]">
-            A protocol-first surface for swaps, streaming plans, and liquidity operations.
+            One workspace for portfolio tracking, swaps, MAYANames, and
+            CACAOPool activity on Maya Protocol.
           </p>
         </div>
         <div className="grid gap-2 text-sm">
           <p className="m-0">&copy; {year} Maya Zero.</p>
-          <p className="m-0">Wallet connection stays present, but protocol actions stay in the foreground.</p>
+          <p className="m-0">
+            Connect a vault, inspect balances, and move through protocol flows
+            without losing wallet context.
+          </p>
         </div>
       </div>
       <div className="page-wrap mt-8 flex flex-wrap items-center gap-4 border-t border-[var(--line)] pt-6">
@@ -25,7 +29,7 @@ export default function Footer() {
           Maya Protocol Docs
         </a>
         <a
-          href="https://github.com/vultisig"
+          href="https://github.com/SpatzlHD/mayazero"
           target="_blank"
           rel="noreferrer"
           className="nav-link"
@@ -34,5 +38,5 @@ export default function Footer() {
         </a>
       </div>
     </footer>
-  )
+  );
 }

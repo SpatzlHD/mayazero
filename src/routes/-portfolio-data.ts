@@ -2,6 +2,7 @@ import type {
   AddressBalanceAsset,
   AddressBalanceRequest,
   AddressBalanceResponse,
+  WalletChain,
   WalletSession,
 } from '#/wallet'
 import type { MayaSupportedAsset, MayaSupportedChain } from '#/lib/maya-asset-catalog'
@@ -17,7 +18,11 @@ export type ChainAssetRow = {
   address: string | null
   status: 'ready' | 'missing-address' | 'unsupported'
   assetId: string
+  balanceBaseUnits: string | null
+  decimals: number
+  isNative: boolean
   tokenId?: string
+  walletChain?: WalletChain
 }
 
 export function createChainBalanceRequest(
@@ -77,7 +82,11 @@ export function buildChainAssetRows(params: {
         address,
         status,
         assetId: asset.asset,
+        balanceBaseUnits: null,
+        decimals: asset.decimals,
+        isNative: asset.isNative,
         tokenId: asset.tokenId,
+        walletChain: asset.walletChain,
       }
     }
 
@@ -99,9 +108,13 @@ export function buildChainAssetRows(params: {
       balance: formattedAmount,
       usd: formatUsd(usdValue),
       address,
+      balanceBaseUnits: matchedBalance?.amount ?? '0',
+      decimals: asset.decimals,
+      isNative: asset.isNative,
       status: 'ready' as const,
       assetId: asset.asset,
       tokenId: asset.tokenId,
+      walletChain: asset.walletChain,
     }
   })
 

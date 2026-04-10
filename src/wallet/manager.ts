@@ -15,6 +15,9 @@ import type {
   WalletCommandName,
   WalletCommandResult,
   WalletExecuteOptions,
+  WalletJourney,
+  WalletJourneyStep,
+  WalletJourneyStatus,
   WalletManagerOperationName,
   WalletOperation,
   WalletOperationName,
@@ -38,6 +41,12 @@ const defaultState: MayaWalletState = {
   activeSessionId: null,
   activeChain: null,
   operations: [],
+  journeys: [],
+  journeyDialog: {
+    isOpen: false,
+    activeJourneyId: null,
+  },
+  balanceRefreshTick: 0,
   balancesBySession: {},
   txStatusBySession: {},
 }
@@ -61,7 +70,12 @@ export class MayaWalletManager {
   private state: MayaWalletState
 
   constructor(options: MayaWalletManagerOptions = {}) {
-    this.sdk = options.sdk ?? createDefaultSdkClient()
+    this.sdk = options.sdk ?? createDefaultSdkClient({
+      passwordCache: { defaultTTL: 300000 },
+      onPasswordRequired: async (vaultId, vaultName) => {
+        return this.requestPassword(vaultId, vaultName)
+      }
+    })
     this.ownsSdk = !options.sdk
     this.extensionWindow =
       options.extensionWindow ??
@@ -85,6 +99,30 @@ export class MayaWalletManager {
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
+  }
+
+  requestPassword(vaultId: string, vaultName: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      this.patchState({
+        passwordRequest: { vaultId, vaultName, resolve, reject },
+      })
+    })
+  }
+
+  submitPassword(password: string): void {
+    const req = this.state.passwordRequest
+    if (req) {
+      req.resolve(password)
+      this.patchState({ passwordRequest: undefined })
+    }
+  }
+
+  cancelPasswordRequest(): void {
+    const req = this.state.passwordRequest
+    if (req) {
+      req.reject(new Error("Password request cancelled by user"))
+      this.patchState({ passwordRequest: undefined })
+    }
   }
 
   async initialize(): Promise<void> {
@@ -213,6 +251,144 @@ export class MayaWalletManager {
     this.persistPrefs()
   }
 
+  createJourney(input: {
+    kind: WalletJourney['kind']
+    title: string
+    sessionId?: string | null
+    source?: WalletJourney['source']
+    chain?: WalletJourney['chain']
+    routePath?: string
+    steps: WalletJourneyStep[]
+    requiresAttention?: boolean
+    openOnUpdate?: boolean
+  }): string {
+    const journey: WalletJourney = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      kind: input.kind,
+      title: input.title,
+      sessionId: input.sessionId ?? this.state.activeSessionId,
+      source: input.source,
+      chain: input.chain,
+      status: input.requiresAttention ? 'attention' : 'pending',
+      startedAt: Date.now(),
+      updatedAt: Date.now(),
+      routePath: input.routePath,
+      steps: input.steps,
+      requiresAttention: input.requiresAttention ?? false,
+      openOnUpdate: input.openOnUpdate ?? false,
+    }
+
+    this.patchState({
+      journeys: [journey, ...this.state.journeys].slice(0, 20),
+    })
+
+    return journey.id
+  }
+
+  patchJourney(
+    journeyId: string,
+    patch:
+      | Partial<WalletJourney>
+      | ((current: WalletJourney) => Partial<WalletJourney> | null),
+  ): void {
+    let didUpdate = false
+    const journeys = this.state.journeys.map((journey) => {
+      if (journey.id !== journeyId) {
+        return journey
+      }
+
+      const resolvedPatch =
+        typeof patch === 'function' ? patch(journey) : patch
+      if (!resolvedPatch) {
+        return journey
+      }
+
+      didUpdate = true
+      const nextStatus = resolvedPatch.status ?? journey.status
+      return {
+        ...journey,
+        ...resolvedPatch,
+        endedAt:
+          resolvedPatch.endedAt ??
+          (nextStatus === 'success' ||
+          nextStatus === 'error' ||
+          nextStatus === 'cancelled' ||
+          nextStatus === 'unconfirmed' ||
+          nextStatus === 'submitted_no_hash'
+            ? journey.endedAt ?? Date.now()
+            : journey.endedAt),
+        updatedAt: Date.now(),
+      }
+    })
+
+    if (didUpdate) {
+      this.patchState({ journeys })
+    }
+  }
+
+  completeJourney(
+    journeyId: string,
+    input: {
+      result?: unknown
+      status?: Exclude<WalletJourneyStatus, 'pending' | 'attention'>
+      requiresAttention?: boolean
+      openOnUpdate?: boolean
+    } = {},
+  ): void {
+    this.patchJourney(journeyId, {
+      status: input.status ?? 'success',
+      result: input.result,
+      endedAt: Date.now(),
+      requiresAttention: input.requiresAttention ?? false,
+      openOnUpdate: input.openOnUpdate ?? true,
+    })
+
+    const journey = this.state.journeys.find((item) => item.id === journeyId)
+    const nextStatus = input.status ?? 'success'
+    if (
+      journey &&
+      this.isBalanceRelevantJourney(journey) &&
+      nextStatus !== 'cancelled' &&
+      nextStatus !== 'error'
+    ) {
+      this.patchState({
+        balanceRefreshTick: this.state.balanceRefreshTick + 1,
+      })
+    }
+  }
+
+  dismissJourney(journeyId: string): void {
+    this.patchState({
+      journeys: this.state.journeys.filter((journey) => journey.id !== journeyId),
+      journeyDialog:
+        this.state.journeyDialog.activeJourneyId === journeyId
+          ? { isOpen: false, activeJourneyId: null }
+          : this.state.journeyDialog,
+    })
+  }
+
+  openJourneyDialog(journeyId?: string | null): void {
+    this.patchState({
+      journeyDialog: {
+        isOpen: true,
+        activeJourneyId:
+          journeyId ??
+          this.state.journeyDialog.activeJourneyId ??
+          this.state.journeys[0]?.id ??
+          null,
+      },
+    })
+  }
+
+  closeJourneyDialog(): void {
+    this.patchState({
+      journeyDialog: {
+        ...this.state.journeyDialog,
+        isOpen: false,
+      },
+    })
+  }
+
   canExecute(
     command: WalletCommandName,
     options?: {
@@ -271,7 +447,10 @@ export class MayaWalletManager {
       throw new WalletSessionNotFoundError(session.id)
     }
 
-    const operation = options.track === false ? undefined : this.beginOperation(command, session.id, options.input)
+    const operation =
+      options.track === false
+        ? undefined
+        : this.beginOperation(command, session.id, options.input, options.journey)
 
     try {
       const result = await adapter.execute(command, options, {
@@ -300,9 +479,13 @@ export class MayaWalletManager {
     name: string
     email: string
     password: string
+    journeyId?: string
     signal?: AbortSignal
   }): Promise<{ vaultId: string }> {
-    return this.runManagerOperation('vault.create.fast', null, async (operation) => {
+    return this.runManagerOperation(
+      'vault.create.fast',
+      null,
+      async (operation) => {
       const vaultId = await this.sdk.createFastVault({
         ...options,
         onProgress: (step) => {
@@ -317,16 +500,37 @@ export class MayaWalletManager {
       })
 
       return { vaultId }
-    })
+      },
+      options.journeyId
+        ? {
+            id: options.journeyId,
+            stepKey: 'creating',
+          }
+        : undefined,
+    )
   }
 
-  async verifyFastVault(vaultId: string, code: string): Promise<{ vaultId: string }> {
-    return this.runManagerOperation('vault.verify.fast', null, async () => {
+  async verifyFastVault(
+    vaultId: string,
+    code: string,
+    options?: { journeyId?: string },
+  ): Promise<{ vaultId: string }> {
+    return this.runManagerOperation(
+      'vault.verify.fast',
+      null,
+      async () => {
       const vault = await this.sdk.verifyVault(vaultId, code)
       await this.refreshSessions()
       await this.selectSession(vault.id)
       return { vaultId: vault.id }
-    })
+      },
+      options?.journeyId
+        ? {
+            id: options.journeyId,
+            stepKey: 'verifying',
+          }
+        : undefined,
+    )
   }
 
   async createSecureVault(options: {
@@ -334,9 +538,13 @@ export class MayaWalletManager {
     password?: string
     devices: number
     threshold?: number
+    journeyId?: string
     signal?: AbortSignal
   }): Promise<{ vaultId: string; sessionId: string }> {
-    return this.runManagerOperation('vault.create.secure', null, async (operation) => {
+    return this.runManagerOperation(
+      'vault.create.secure',
+      null,
+      async (operation) => {
       const result = await this.sdk.createSecureVault({
         ...options,
         onProgress: (step) => {
@@ -360,7 +568,14 @@ export class MayaWalletManager {
       await this.refreshSessions()
       await this.selectSession(result.vault.id)
       return { vaultId: result.vaultId, sessionId: result.sessionId }
-    })
+      },
+      options.journeyId
+        ? {
+            id: options.journeyId,
+            stepKey: 'creating-session',
+          }
+        : undefined,
+    )
   }
 
   async joinSecureVault(
@@ -443,6 +658,7 @@ export class MayaWalletManager {
     name: WalletOperationName,
     sessionId: string | null,
     input?: unknown,
+    journey?: { id: string; stepKey?: string },
   ): ManagerOperationController {
     const operation: WalletOperation = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -451,22 +667,37 @@ export class MayaWalletManager {
       status: 'pending',
       startedAt: Date.now(),
       input,
+      ...(journey
+        ? { journeyId: journey.id, journeyStepKey: journey.stepKey }
+        : {}),
     }
 
     this.patchState({
       operations: [operation, ...this.state.operations].slice(0, 20),
     })
 
+    if (journey) {
+      this.patchJourney(journey.id, (current) => ({
+        operationIds: current.operationIds?.includes(operation.id)
+          ? current.operationIds
+          : [...(current.operationIds ?? []), operation.id],
+      }))
+    }
+
     return {
       operation,
       update: (patch) => {
+        const nextOperation = {
+          ...operation,
+          ...patch,
+        }
         this.patchState({
           operations: this.state.operations.map((candidate) =>
-            candidate.id === operation.id
-              ? { ...candidate, ...patch }
-              : candidate,
+            candidate.id === operation.id ? nextOperation : candidate,
           ),
         })
+        Object.assign(operation, nextOperation)
+        this.applyJourneyOperationPatch(operation, patch)
       },
     }
   }
@@ -475,8 +706,9 @@ export class MayaWalletManager {
     name: WalletManagerOperationName,
     sessionId: string | null,
     handler: (operation?: ManagerOperationController) => Promise<T>,
+    journey?: { id: string; stepKey?: string },
   ): Promise<T> {
-    const operation = this.beginOperation(name, sessionId)
+    const operation = this.beginOperation(name, sessionId, undefined, journey)
     try {
       const result = await handler(operation)
       operation.update({
@@ -494,6 +726,186 @@ export class MayaWalletManager {
       this.patchState({ lastError: serializeWalletError(error) })
       throw error
     }
+  }
+
+  private applyJourneyOperationPatch(
+    operation: WalletOperation,
+    patch: Partial<WalletOperation>,
+  ): void {
+    if (!operation.journeyId) {
+      return
+    }
+
+    const stepKey =
+      patch.journeyStepKey ??
+      operation.journeyStepKey ??
+      this.resolveDefaultJourneyStepKey(operation.name)
+    const progressStatus =
+      patch.progress || patch.qrPayload !== undefined || patch.deviceJoin
+        ? stepKey
+          ? this.resolveJourneyStepStatus(operation.status)
+          : undefined
+        : undefined
+    const finalStatus =
+      patch.status && patch.status !== 'pending'
+        ? this.resolveJourneyOutcomeStatus(patch.status)
+        : undefined
+
+    this.patchJourney(operation.journeyId, (journey) => {
+      let nextSteps = stepKey
+        ? journey.steps.map((step) => {
+            if (step.key !== stepKey) {
+              return step
+            }
+
+            return {
+              ...step,
+              status:
+                finalStatus && patch.status
+                  ? this.resolveJourneyStepStatus(patch.status)
+                  : progressStatus ?? step.status,
+              message:
+                patch.progress?.message ??
+                patch.error?.message ??
+                step.message,
+              progress: patch.progress?.value ?? step.progress,
+            }
+          })
+        : journey.steps
+
+      if (operation.name === 'vault.create.secure') {
+        if (patch.qrPayload) {
+          nextSteps = nextSteps.map((step) =>
+            step.key === 'scan-qr'
+              ? {
+                  ...step,
+                  status: 'attention',
+                  message: 'Scan the QR code in the tracker to join the vault.',
+                }
+              : step,
+          )
+        }
+
+        if (patch.deviceJoin) {
+          nextSteps = nextSteps.map((step) =>
+            step.key === 'devices-joined'
+              ? {
+                  ...step,
+                  status:
+                    patch.deviceJoin.joined >= patch.deviceJoin.required
+                      ? 'success'
+                      : 'active',
+                  message: `${patch.deviceJoin.joined} of ${patch.deviceJoin.required} devices joined.`,
+                }
+              : step,
+          )
+        }
+
+        if (patch.progress?.message) {
+          nextSteps = nextSteps.map((step) =>
+            step.key === 'keygen'
+              ? {
+                  ...step,
+                  status: patch.status === 'success' ? 'success' : 'active',
+                  message: patch.progress?.message,
+                  progress: patch.progress?.value,
+                }
+              : step,
+          )
+        }
+      }
+
+      return {
+        steps: nextSteps,
+        qrPayload:
+          patch.qrPayload !== undefined ? patch.qrPayload : journey.qrPayload,
+        deviceJoin: patch.deviceJoin ?? journey.deviceJoin,
+        requiresAttention:
+          patch.qrPayload !== undefined
+            ? Boolean(patch.qrPayload)
+            : patch.deviceJoin
+              ? true
+              : finalStatus === 'error'
+                ? true
+                : journey.requiresAttention,
+        openOnUpdate:
+          patch.qrPayload !== undefined
+            ? Boolean(patch.qrPayload)
+            : patch.deviceJoin
+              ? true
+              : finalStatus === 'error'
+                ? true
+                : journey.openOnUpdate,
+        status:
+          finalStatus ??
+          (patch.qrPayload !== undefined || patch.deviceJoin
+            ? 'attention'
+            : journey.status),
+        error: patch.error ?? journey.error,
+      }
+    })
+  }
+
+  private resolveDefaultJourneyStepKey(
+    operationName: WalletOperationName,
+  ): string | undefined {
+    switch (operationName) {
+      case 'tx.sign':
+      case 'tx.sign.bytes':
+        return 'signing'
+      case 'tx.broadcast':
+      case 'tx.broadcast.raw':
+      case 'tx.send':
+        return 'broadcasting'
+      case 'vault.create.fast':
+        return 'creating'
+      case 'vault.verify.fast':
+        return 'verifying'
+      case 'vault.create.secure':
+        return 'creating-session'
+      default:
+        return undefined
+    }
+  }
+
+  private resolveJourneyStepStatus(
+    status: WalletOperation['status'],
+  ): WalletJourneyStep['status'] {
+    switch (status) {
+      case 'success':
+        return 'success'
+      case 'error':
+        return 'error'
+      case 'cancelled':
+        return 'cancelled'
+      default:
+        return 'active'
+    }
+  }
+
+  private resolveJourneyOutcomeStatus(
+    status: WalletOperation['status'],
+  ): WalletJourneyStatus {
+    switch (status) {
+      case 'success':
+        return 'success'
+      case 'error':
+        return 'error'
+      case 'cancelled':
+        return 'cancelled'
+      default:
+        return 'pending'
+    }
+  }
+
+  private isBalanceRelevantJourney(journey: WalletJourney): boolean {
+    return (
+      journey.kind === 'swap' ||
+      journey.kind === 'liquidity' ||
+      journey.kind === 'cacao-pool' ||
+      journey.kind === 'mayaname' ||
+      journey.kind === 'send'
+    )
   }
 
   private resolveSession(sessionId?: string): WalletSession {

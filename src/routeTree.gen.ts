@@ -12,7 +12,9 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as VaultSetupRouteImport } from './routes/vault-setup'
 import { Route as SwapRouteImport } from './routes/swap'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as MayanamesRouteImport } from './routes/mayanames'
 import { Route as LiquidityRouteImport } from './routes/liquidity'
+import { Route as CacaoPoolRouteImport } from './routes/cacao-pool'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ChainsChainKeyRouteImport } from './routes/chains.$chainKey'
@@ -32,9 +34,19 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MayanamesRoute = MayanamesRouteImport.update({
+  id: '/mayanames',
+  path: '/mayanames',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LiquidityRoute = LiquidityRouteImport.update({
   id: '/liquidity',
   path: '/liquidity',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CacaoPoolRoute = CacaoPoolRouteImport.update({
+  id: '/cacao-pool',
+  path: '/cacao-pool',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AboutRoute = AboutRouteImport.update({
@@ -56,7 +68,9 @@ const ChainsChainKeyRoute = ChainsChainKeyRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/cacao-pool': typeof CacaoPoolRoute
   '/liquidity': typeof LiquidityRoute
+  '/mayanames': typeof MayanamesRoute
   '/settings': typeof SettingsRoute
   '/swap': typeof SwapRoute
   '/vault-setup': typeof VaultSetupRoute
@@ -65,7 +79,9 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/cacao-pool': typeof CacaoPoolRoute
   '/liquidity': typeof LiquidityRoute
+  '/mayanames': typeof MayanamesRoute
   '/settings': typeof SettingsRoute
   '/swap': typeof SwapRoute
   '/vault-setup': typeof VaultSetupRoute
@@ -75,7 +91,9 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/cacao-pool': typeof CacaoPoolRoute
   '/liquidity': typeof LiquidityRoute
+  '/mayanames': typeof MayanamesRoute
   '/settings': typeof SettingsRoute
   '/swap': typeof SwapRoute
   '/vault-setup': typeof VaultSetupRoute
@@ -86,7 +104,9 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/about'
+    | '/cacao-pool'
     | '/liquidity'
+    | '/mayanames'
     | '/settings'
     | '/swap'
     | '/vault-setup'
@@ -95,7 +115,9 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/about'
+    | '/cacao-pool'
     | '/liquidity'
+    | '/mayanames'
     | '/settings'
     | '/swap'
     | '/vault-setup'
@@ -104,7 +126,9 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/about'
+    | '/cacao-pool'
     | '/liquidity'
+    | '/mayanames'
     | '/settings'
     | '/swap'
     | '/vault-setup'
@@ -114,7 +138,9 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
+  CacaoPoolRoute: typeof CacaoPoolRoute
   LiquidityRoute: typeof LiquidityRoute
+  MayanamesRoute: typeof MayanamesRoute
   SettingsRoute: typeof SettingsRoute
   SwapRoute: typeof SwapRoute
   VaultSetupRoute: typeof VaultSetupRoute
@@ -144,11 +170,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/mayanames': {
+      id: '/mayanames'
+      path: '/mayanames'
+      fullPath: '/mayanames'
+      preLoaderRoute: typeof MayanamesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/liquidity': {
       id: '/liquidity'
       path: '/liquidity'
       fullPath: '/liquidity'
       preLoaderRoute: typeof LiquidityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cacao-pool': {
+      id: '/cacao-pool'
+      path: '/cacao-pool'
+      fullPath: '/cacao-pool'
+      preLoaderRoute: typeof CacaoPoolRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/about': {
@@ -178,7 +218,9 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
+  CacaoPoolRoute: CacaoPoolRoute,
   LiquidityRoute: LiquidityRoute,
+  MayanamesRoute: MayanamesRoute,
   SettingsRoute: SettingsRoute,
   SwapRoute: SwapRoute,
   VaultSetupRoute: VaultSetupRoute,

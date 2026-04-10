@@ -1,7 +1,14 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { VaultSetupFlow } from '#/components/vault/VaultSetupFlow'
+import { buildPageSeoHead } from '#/lib/seo'
 
 export const Route = createFileRoute('/vault-setup')({
+  head: () =>
+    buildPageSeoHead({
+      title: 'Vault Setup',
+      description:
+        'Connect or prepare a vault session for MayaZero portfolio, swap, and liquidity actions.',
+    }),
   component: VaultSetupPage,
 })
 

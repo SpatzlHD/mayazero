@@ -27,7 +27,9 @@
     "react-dom": "^19.2.0",
     "react-qr-code": "^2.0.18",
     "rollup": "^4.60.1",
+    "sonner": "^2.0.7",
     "tailwindcss": "^4.1.18",
+    "viem": "^2.47.10",
     "vite-plugin-top-level-await": "^1.6.0",
     "vite-plugin-wasm": "^3.6.0"
   },

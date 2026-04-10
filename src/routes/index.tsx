@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import {
   ChevronRight,
   WalletCards,
@@ -6,7 +6,9 @@ import {
   Coins,
   Link2,
   Activity,
+  Droplets,
 } from "lucide-react";
+import { Chain } from "@vultisig/sdk";
 import { startTransition, useEffect, useMemo, useState } from "react";
 import { AssetIcon } from "#/components/ProtocolPrimitives";
 import { useSettings } from "#/provider/SettingsProvider";
@@ -14,10 +16,12 @@ import {
   fetchMayaAssetCatalog,
   type MayaAssetCatalog,
 } from "#/lib/maya-asset-catalog";
+import { fetchCacaoPoolPosition, formatCacaoBaseUnits } from "#/lib/cacao-pool";
 import {
   useActiveWalletSession,
   useMayaWalletActions,
   fetchAddressBalances,
+  useWalletBalanceRefreshTick,
 } from "#/wallet";
 import {
   getChainSessionStatus,
@@ -25,16 +29,29 @@ import {
   buildChainAssetRows,
   formatUsd,
 } from "./-portfolio-data";
+import { buildPageSeoHead } from "#/lib/seo";
 
-export const Route = createFileRoute("/")({ component: PortfolioPage });
+export const Route = createFileRoute("/")({
+  head: () =>
+    buildPageSeoHead({
+      title: "Portfolio",
+      description:
+        "Track Maya Protocol-supported balances across chains and review synced vault positions in one portfolio view.",
+    }),
+  component: PortfolioPage,
+});
 
 function PortfolioPage() {
   const wallet = useMayaWalletActions();
+  const navigate = useNavigate();
   const settings = useSettings();
   const activeSession = useActiveWalletSession();
+  const balanceRefreshTick = useWalletBalanceRefreshTick();
   const [catalog, setCatalog] = useState<MayaAssetCatalog | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isBalancesLoading, setIsBalancesLoading] = useState(false);
+  const [cacaoPoolUsd, setCacaoPoolUsd] = useState<number>(0);
+  const [isPoolLoading, setIsPoolLoading] = useState(false);
   const [chainBalancesUsd, setChainBalancesUsd] = useState<
     Record<string, number>
   >({});
@@ -112,7 +129,56 @@ function PortfolioPage() {
     return () => {
       cancelled = true;
     };
-  }, [catalog, activeSession, activeSessionKey]);
+  }, [catalog, activeSession, activeSessionKey, balanceRefreshTick]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPool() {
+      if (!catalog || !activeSession) {
+        setCacaoPoolUsd(0);
+        return;
+      }
+
+      const mayaAddress = activeSession.addresses[Chain.MayaChain];
+      if (!mayaAddress) return;
+
+      setIsPoolLoading(true);
+      try {
+        const position = await fetchCacaoPoolPosition(mayaAddress, {
+          midgardUrl: settings.midgardUrl,
+        });
+        if (cancelled) return;
+
+        if (position) {
+          const mayaChain = catalog.chains.find((c) => c.key === "mayachain");
+          const cacaoPriceUsd =
+            mayaChain?.assets.find((a) => a.isNative)?.priceUsd ?? 0;
+          const cacaoDepositNum = Number(
+            formatCacaoBaseUnits(position.cacaoDeposit),
+          );
+
+          setCacaoPoolUsd(cacaoDepositNum * cacaoPriceUsd);
+        } else {
+          setCacaoPoolUsd(0);
+        }
+      } catch (err) {
+        console.log("CACAOPool fetch skipped");
+      } finally {
+        if (!cancelled) setIsPoolLoading(false);
+      }
+    }
+
+    void loadPool();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    catalog,
+    activeSession,
+    activeSessionKey,
+    settings.midgardUrl,
+    balanceRefreshTick,
+  ]);
 
   const chainCards = useMemo(() => {
     return (catalog?.chains ?? []).map((chain) => {
@@ -123,10 +189,8 @@ function PortfolioPage() {
 
   const totalAssets = catalog?.assets.length ?? 0;
   const syncCount = chainCards.filter((c) => c.status === "ready").length;
-  const globalNetWorth = Object.values(chainBalancesUsd).reduce(
-    (a, b) => a + b,
-    0,
-  );
+  const globalNetWorth =
+    Object.values(chainBalancesUsd).reduce((a, b) => a + b, 0) + cacaoPoolUsd;
 
   return (
     <main className="page-wrap px-4 pb-20 pt-8 sm:pt-12 max-w-5xl mx-auto rise-in">
@@ -151,7 +215,7 @@ function PortfolioPage() {
         {!activeSession ? (
           <button
             className="cacao-btn px-6 py-3 text-sm flex items-center justify-center gap-2 shadow-lg hover:shadow-[0_0_20px_rgba(232,122,78,0.3)] transition-all"
-            onClick={() => void wallet.initialize()}
+            onClick={() => navigate({ to: "/vault-setup" })}
           >
             <WalletCards size={18} /> Connect Vault
           </button>
@@ -215,79 +279,180 @@ function PortfolioPage() {
         </div>
       </div>
 
-      {/* Loading State or Chains Grid */}
-      {isLoading ? (
-        <div className="flex flex-col items-center justify-center py-20 text-[var(--sea-ink-soft)] glass-panel rounded-3xl">
-          <div className="w-8 h-8 rounded-full border-t-2 border-[var(--cacao-neon)] animate-spin mb-4" />
-          <p className="font-medium animate-pulse">Syncing Networks...</p>
+      {/* Yield Positions Section */}
+      <div className="mb-12">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-xl bg-[var(--surface-strong)] border border-[var(--line)] shadow-sm flex items-center justify-center text-[var(--cacao-neon)]">
+            <Droplets size={20} />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold tracking-tight text-[var(--sea-ink)] leading-none mb-1">
+              Yield Positions
+            </h2>
+            <p className="text-[11px] font-bold text-[var(--sea-ink-soft)] uppercase tracking-wider">
+              Native & Liquidity
+            </p>
+          </div>
         </div>
-      ) : chainCards.length === 0 ? (
-        <div className="py-20 text-center text-[var(--sea-ink-soft)] font-medium glass-panel rounded-3xl">
-          No networks found.
-        </div>
-      ) : (
+
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {chainCards.map((chain) => (
-            <Link
-              key={chain.key}
-              to="/chains/$chainKey"
-              params={{ chainKey: chain.key }}
-              className="glass-panel p-5 rounded-3xl transition-all hover:-translate-y-1 hover:border-[var(--maya-teal)] hover:shadow-[0_10px_30px_-10px_rgba(26,154,141,0.2)] no-underline group flex flex-col justify-between relative overflow-hidden"
-            >
-              {isBalancesLoading &&
-              chain.status === "ready" &&
-              !(chain.key in chainBalancesUsd) ? (
-                <div className="absolute top-4 right-4 animate-pulse opacity-50">
-                  <Activity size={12} className="text-[var(--sea-ink-soft)]" />
-                </div>
-              ) : null}
+          <Link
+            to="/cacao-pool"
+            className="glass-panel p-5 rounded-3xl transition-all hover:-translate-y-1 hover:border-[var(--cacao-neon)]/50 hover:shadow-[0_10px_30px_-10px_rgba(232,122,78,0.2)] no-underline group flex flex-col justify-between relative overflow-hidden"
+          >
+            {isPoolLoading && (
+              <div className="absolute top-4 right-4 animate-pulse opacity-50">
+                <Activity size={12} className="text-[var(--sea-ink-soft)]" />
+              </div>
+            )}
 
-              <div className="flex items-start justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <AssetIcon
-                    assetId={chain.iconId}
-                    className="w-12 h-12 rounded-full border border-[var(--line)] shadow-sm bg-[var(--surface)] group-hover:scale-105 transition-transform"
-                  />
-                  <div>
-                    <div className="font-bold text-[var(--sea-ink)] text-lg leading-tight transition-colors group-hover:text-[var(--maya-teal)]">
-                      {chain.name}
+            <div className="flex items-start justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <AssetIcon
+                  assetId="cacao"
+                  className="w-12 h-12 rounded-full border border-[var(--line)] shadow-sm bg-[var(--surface)] group-hover:scale-105 transition-transform"
+                />
+                <div>
+                  <div className="font-bold text-[var(--sea-ink)] text-lg leading-tight transition-colors group-hover:text-[var(--cacao-neon)]">
+                    CACAOPool
+                  </div>
+                  {activeSession ? (
+                    <div className="font-bold text-[13px] text-[var(--sea-ink)] mt-0.5">
+                      {isPoolLoading ? "..." : formatUsd(cacaoPoolUsd)}
                     </div>
-                    {activeSession && chain.status === "ready" ? (
-                      <div className="font-bold text-[13px] text-[var(--sea-ink)] mt-0.5">
-                        {formatUsd(chainBalancesUsd[chain.key] ?? 0)}
-                      </div>
-                    ) : (
-                      <div className="text-[11px] text-[var(--sea-ink-soft)] font-bold uppercase tracking-wider mt-0.5">
-                        {chain.ticker}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="w-8 h-8 rounded-full border border-[var(--line)] bg-[var(--surface)] flex items-center justify-center text-[var(--sea-ink-soft)] group-hover:bg-[var(--maya-teal)] group-hover:text-[var(--bg-base)] group-hover:border-[var(--maya-teal)] transition-all">
-                  <ChevronRight size={16} />
+                  ) : (
+                    <div className="text-[11px] text-[var(--sea-ink-soft)] font-bold uppercase tracking-wider mt-0.5">
+                      Native Yield
+                    </div>
+                  )}
                 </div>
               </div>
+              <div className="w-8 h-8 rounded-full border border-[var(--line)] bg-[var(--surface)] flex items-center justify-center text-[var(--sea-ink-soft)] group-hover:bg-[var(--cacao-neon)] group-hover:text-[var(--bg-base)] group-hover:border-[var(--cacao-neon)] transition-all">
+                <ChevronRight size={16} />
+              </div>
+            </div>
 
-              <div className="flex items-center justify-between mt-auto">
-                <div className="text-[12px] font-medium text-[var(--sea-ink-soft)] flex items-center gap-1.5">
-                  <Coins size={12} /> {chain.assets.length} items
-                </div>
-                {activeSession && (
-                  <div
-                    className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded shadow-inner border border-transparent ${chain.status === "ready" ? "bg-[var(--maya-teal)]/10 text-[var(--maya-teal)] border-[var(--maya-teal)]/20" : "bg-[var(--surface-strong)] text-[var(--sea-ink-soft)]"}`}
-                  >
-                    {chain.status === "ready"
-                      ? "Connected"
-                      : chain.walletChain
-                        ? "Requires Sync"
-                        : "Catalog Only"}
-                  </div>
-                )}
+            <div className="flex items-center justify-between mt-auto">
+              <div className="text-[12px] font-medium text-[var(--sea-ink-soft)] flex items-center gap-1.5">
+                <Coins size={12} /> Protocol Pool
               </div>
-            </Link>
-          ))}
+              {activeSession && (
+                <div
+                  className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded shadow-inner border border-transparent ${cacaoPoolUsd > 0 ? "bg-[var(--maya-teal)]/10 text-[var(--maya-teal)] border-[var(--maya-teal)]/20" : "bg-[var(--surface-strong)] text-[var(--sea-ink-soft)]"}`}
+                >
+                  {cacaoPoolUsd > 0 ? "Active" : "Ready"}
+                </div>
+              )}
+            </div>
+          </Link>
+
+          <div className="glass-panel p-5 rounded-3xl opacity-60 border-dashed border-2 border-[var(--line)] flex flex-col items-center justify-center text-center select-none">
+            <div className="w-12 h-12 rounded-full bg-[var(--surface-strong)] border border-[var(--line)] flex items-center justify-center text-[var(--sea-ink-soft)] mb-3">
+              <Layers size={20} />
+            </div>
+            <div className="font-bold text-[var(--sea-ink)] text-lg">
+              LP Positions
+            </div>
+            <div className="text-[11px] text-[var(--sea-ink-soft)] font-bold uppercase tracking-wider mt-1">
+              Coming Soon
+            </div>
+          </div>
         </div>
-      )}
+      </div>
+
+      {/* Network Balances Section */}
+      <div>
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-xl bg-[var(--surface-strong)] border border-[var(--line)] shadow-sm flex items-center justify-center text-[var(--maya-teal)]">
+            <Layers size={20} />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold tracking-tight text-[var(--sea-ink)] leading-none mb-1">
+              Network Balances
+            </h2>
+            <p className="text-[11px] font-bold text-[var(--sea-ink-soft)] uppercase tracking-wider">
+              Layer 1 Assets
+            </p>
+          </div>
+        </div>
+
+        {/* Loading State or Chains Grid */}
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center py-20 text-[var(--sea-ink-soft)] glass-panel rounded-3xl">
+            <div className="w-8 h-8 rounded-full border-t-2 border-[var(--cacao-neon)] animate-spin mb-4" />
+            <p className="font-medium animate-pulse">Syncing Networks...</p>
+          </div>
+        ) : chainCards.length === 0 ? (
+          <div className="py-20 text-center text-[var(--sea-ink-soft)] font-medium glass-panel rounded-3xl">
+            No networks found.
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {chainCards.map((chain) => (
+              <Link
+                key={chain.key}
+                to="/chains/$chainKey"
+                params={{ chainKey: chain.key }}
+                className="glass-panel p-5 rounded-3xl transition-all hover:-translate-y-1 hover:border-[var(--maya-teal)] hover:shadow-[0_10px_30px_-10px_rgba(26,154,141,0.2)] no-underline group flex flex-col justify-between relative overflow-hidden"
+              >
+                {isBalancesLoading &&
+                chain.status === "ready" &&
+                !(chain.key in chainBalancesUsd) ? (
+                  <div className="absolute top-4 right-4 animate-pulse opacity-50">
+                    <Activity
+                      size={12}
+                      className="text-[var(--sea-ink-soft)]"
+                    />
+                  </div>
+                ) : null}
+
+                <div className="flex items-start justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <AssetIcon
+                      assetId={chain.iconId}
+                      className="w-12 h-12 rounded-full border border-[var(--line)] shadow-sm bg-[var(--surface)] group-hover:scale-105 transition-transform"
+                    />
+                    <div>
+                      <div className="font-bold text-[var(--sea-ink)] text-lg leading-tight transition-colors group-hover:text-[var(--maya-teal)]">
+                        {chain.name}
+                      </div>
+                      {activeSession && chain.status === "ready" ? (
+                        <div className="font-bold text-[13px] text-[var(--sea-ink)] mt-0.5">
+                          {formatUsd(chainBalancesUsd[chain.key] ?? 0)}
+                        </div>
+                      ) : (
+                        <div className="text-[11px] text-[var(--sea-ink-soft)] font-bold uppercase tracking-wider mt-0.5">
+                          {chain.ticker}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="w-8 h-8 rounded-full border border-[var(--line)] bg-[var(--surface)] flex items-center justify-center text-[var(--sea-ink-soft)] group-hover:bg-[var(--maya-teal)] group-hover:text-[var(--bg-base)] group-hover:border-[var(--maya-teal)] transition-all">
+                    <ChevronRight size={16} />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between mt-auto">
+                  <div className="text-[12px] font-medium text-[var(--sea-ink-soft)] flex items-center gap-1.5">
+                    <Coins size={12} /> {chain.assets.length} items
+                  </div>
+                  {activeSession && (
+                    <div
+                      className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded shadow-inner border border-transparent ${chain.status === "ready" ? "bg-[var(--maya-teal)]/10 text-[var(--maya-teal)] border-[var(--maya-teal)]/20" : "bg-[var(--surface-strong)] text-[var(--sea-ink-soft)]"}`}
+                    >
+                      {chain.status === "ready"
+                        ? "Connected"
+                        : chain.walletChain
+                          ? "Requires Sync"
+                          : "Catalog Only"}
+                    </div>
+                  )}
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
     </main>
   );
 }

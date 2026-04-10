@@ -104,6 +104,16 @@ export function createFakeVault(
         coin: params.coin,
         toAddress: params.receiver,
       })),
+    prepareSignAminoTx:
+      overrides.prepareSignAminoTx ??
+      (async (params) => ({
+        chain: params.chain,
+        msgs: params.msgs,
+        memo: params.memo,
+      })),
+    extractMessageHashes:
+      overrides.extractMessageHashes ??
+      (async () => ['0xmessagehash']),
     sign:
       overrides.sign ??
       (async (_payload, options) => {
@@ -117,9 +127,19 @@ export function createFakeVault(
           format: 'ECDSA',
         }
       }),
+    signBytes:
+      overrides.signBytes ??
+      (async () => ({
+        signature: '0xsigned',
+        recovery: 1,
+        format: 'ECDSA',
+      })),
     broadcastTx:
       overrides.broadcastTx ??
       (async ({ chain }) => `broadcast-${chain}`),
+    broadcastRawTx:
+      overrides.broadcastRawTx ??
+      (async ({ chain }) => `broadcast-raw-${chain}`),
     getSwapQuote:
       overrides.getSwapQuote ??
       (async (params) => ({

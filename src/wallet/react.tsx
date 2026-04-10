@@ -61,3 +61,8 @@ export function useActiveWalletSession() {
     [state.activeSessionId, state.sessions],
   )
 }
+
+export function useWalletBalanceRefreshTick() {
+  const state = useMayaWalletState()
+  return state.balanceRefreshTick
+}

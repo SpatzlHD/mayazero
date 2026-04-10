@@ -1,6 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { buildPageSeoHead } from '#/lib/seo'
 
 export const Route = createFileRoute('/about')({
+  head: () =>
+    buildPageSeoHead({
+      title: 'About',
+      description:
+        'Learn how MayaZero frames Maya Protocol portfolio, swap, liquidity, and wallet workflows.',
+    }),
   component: About,
 })
 

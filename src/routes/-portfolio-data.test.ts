@@ -157,13 +157,21 @@ describe('portfolio-data', () => {
 
     expect(rows.find((row) => row.symbol === 'ETH')).toMatchObject({
       balance: '1',
+      balanceBaseUnits: '1000000000000000000',
+      decimals: 18,
+      isNative: true,
       usd: '$3,000',
       status: 'ready',
+      walletChain: Chain.Ethereum,
     })
     expect(rows.find((row) => row.symbol === 'USDC')).toMatchObject({
       balance: '5',
+      balanceBaseUnits: '5000000',
+      decimals: 6,
+      isNative: false,
       usd: '$5.00',
       status: 'ready',
+      walletChain: Chain.Ethereum,
     })
     expect(totalUsdValue).toBe(3005)
   })

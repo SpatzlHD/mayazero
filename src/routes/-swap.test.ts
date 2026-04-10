@@ -7,12 +7,11 @@ describe('swap route helpers', () => {
       getSwapPrimaryAction({
         hasActiveSession: true,
         hasQuote: true,
-        canPrepareSwap: true,
-        hasPreparedSwap: false,
+        canSubmitSwap: true,
       }),
     ).toEqual({
-      kind: 'prepare',
-      label: 'Confirm Swap',
+      kind: 'submit',
+      label: 'Submit Swap',
       disabled: false,
     })
 
@@ -20,8 +19,7 @@ describe('swap route helpers', () => {
       getSwapPrimaryAction({
         hasActiveSession: true,
         hasQuote: true,
-        canPrepareSwap: false,
-        hasPreparedSwap: false,
+        canSubmitSwap: false,
       }),
     ).toEqual({
       kind: 'quote-only',
@@ -35,13 +33,14 @@ describe('swap route helpers', () => {
       getSwapPrimaryAction({
         hasActiveSession: true,
         hasQuote: true,
-        canPrepareSwap: true,
-        hasPreparedSwap: true,
+        canSubmitSwap: true,
+        isSubmitting: true,
+        submitStatus: 'approving',
       }),
     ).toEqual({
-      kind: 'prepare',
-      label: 'Transaction Ready',
-      disabled: false,
+      kind: 'submit',
+      label: 'Approving Token',
+      disabled: true,
     })
 
     expect(formatBaseUnits('1234500000000000000', 18)).toBe('1.2345')

@@ -30,6 +30,7 @@ export type ProtocolAsset = {
   blurb: string
   mayaAsset: string
   tokenId?: string
+  priceUsd?: string
 }
 
 const rawIcons = import.meta.glob('../assets/assets/icons/*.{png,svg}', { eager: true })
@@ -632,7 +633,17 @@ export function SelectionModal({
   isOpen: boolean
   onClose: () => void
   title: string
-  items: { id: string; label: string; iconMain: string; iconSub?: string; subtitle?: string }[]
+  items: {
+    id: string
+    label: string
+    iconMain: string
+    iconSub?: string
+    subtitle?: string
+    priceUsd?: string
+    balanceRaw?: string
+    chainBadge?: string
+    statusBadge?: string
+  }[]
   onSelect: (id: string) => void
 }) {
   const [search, setSearch] = useState('')
@@ -679,12 +690,37 @@ export function SelectionModal({
               onClick={() => { onSelect(item.id); onClose(); }}
             >
               <div className="relative flex items-center justify-center min-w-[3rem]">
-                 <AssetIcon assetId={item.iconMain} className="w-10 h-10 relative z-10 shadow-sm border border-[var(--line)]" />
+                 <AssetIcon assetId={item.iconMain} className="w-10 h-10 relative z-10 shadow-sm border border-[var(--line)] bg-[var(--bg-base)]" />
                  {item.iconSub && <AssetIcon assetId={item.iconSub} className="w-10 h-10 relative -ml-4 z-0 shadow-sm border-2 border-[var(--bg-base)] opacity-80 group-hover:opacity-100 transition-opacity" />}
               </div>
-              <div className="flex flex-col flex-1 pl-1">
-                <span className="font-bold text-[var(--sea-ink)] text-lg leading-tight group-hover:text-[var(--maya-teal)] transition-colors">{item.label}</span>
-                {item.subtitle && <span className="text-sm font-medium text-[var(--sea-ink-soft)] mt-0.5">{item.subtitle}</span>}
+              <div className="flex flex-col flex-1 pl-1 text-left">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-[var(--sea-ink)] text-lg leading-tight group-hover:text-[var(--maya-teal)] transition-colors">{item.label}</span>
+                  {item.chainBadge && (
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--sea-ink-soft)] bg-[var(--surface-strong)] px-1.5 py-0.5 rounded border border-[var(--line)]">
+                      {item.chainBadge}
+                    </span>
+                  )}
+                  {item.statusBadge && (
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/30">
+                      {item.statusBadge}
+                    </span>
+                  )}
+                </div>
+                {item.subtitle && <span className="text-xs font-medium text-[var(--sea-ink-soft)] mt-0.5">{item.subtitle}</span>}
+              </div>
+              
+              <div className="flex flex-col items-end pr-2 text-right">
+                {item.balanceRaw !== undefined ? (
+                  <span className={`font-bold text-base ${Number(item.balanceRaw) > 0 ? 'text-[var(--maya-teal)]' : 'text-[var(--sea-ink)]'}`}>
+                    {Number(item.balanceRaw) > 0 ? Number(item.balanceRaw).toFixed(4).replace(/\.?0+$/, '') : '0.00'}
+                  </span>
+                ) : null}
+                {item.priceUsd && (
+                  <span className="text-[11px] font-medium text-[var(--sea-ink-soft)] mt-0.5">
+                    ${Number(item.priceUsd) < 0.01 ? '<0.01' : Number(item.priceUsd).toFixed(2)}
+                  </span>
+                )}
               </div>
             </button>
           ))}

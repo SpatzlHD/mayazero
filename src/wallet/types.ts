@@ -20,6 +20,32 @@ export type WalletSource = 'sdk' | 'extension'
 export type WalletSessionKind = 'vault' | 'extension'
 export type WalletSessionStatus = 'ready' | 'locked' | 'unavailable'
 export type WalletOperationStatus = 'pending' | 'success' | 'error' | 'cancelled'
+export type WalletJourneyStatus =
+  | 'pending'
+  | 'attention'
+  | 'success'
+  | 'error'
+  | 'cancelled'
+  | 'unconfirmed'
+  | 'submitted_no_hash'
+export type WalletJourneyStepStatus =
+  | 'pending'
+  | 'active'
+  | 'success'
+  | 'error'
+  | 'cancelled'
+  | 'attention'
+  | 'unconfirmed'
+export type WalletJourneyKind =
+  | 'swap'
+  | 'liquidity'
+  | 'cacao-pool'
+  | 'mayaname'
+  | 'send'
+  | 'vault.fast.create'
+  | 'vault.fast.verify'
+  | 'vault.secure.create'
+export type WalletJourneySource = WalletSource | 'fast-vault' | 'secure-vault'
 export type WalletCommandName =
   | 'accounts.connect'
   | 'accounts.list'
@@ -35,8 +61,11 @@ export type WalletCommandName =
   | 'message.sign'
   | 'portfolio.get'
   | 'tx.prepare.send'
+  | 'tx.prepare.amino'
   | 'tx.sign'
+  | 'tx.sign.bytes'
   | 'tx.broadcast'
+  | 'tx.broadcast.raw'
   | 'swap.quote'
   | 'swap.prepare'
   | 'tokens.discover'
@@ -114,6 +143,51 @@ export type WalletOperation = {
     required: number
     deviceId?: string
   }
+  journeyId?: string
+  journeyStepKey?: string
+}
+
+export type WalletJourneyStep = {
+  key: string
+  label: string
+  status: WalletJourneyStepStatus
+  message?: string
+  progress?: number
+  txHash?: string
+  chain?: WalletChain
+}
+
+export type WalletJourney = {
+  id: string
+  kind: WalletJourneyKind
+  title: string
+  sessionId: string | null
+  source?: WalletJourneySource
+  chain?: WalletChain
+  status: WalletJourneyStatus
+  startedAt: number
+  endedAt?: number
+  updatedAt: number
+  steps: WalletJourneyStep[]
+  primaryTxHash?: string
+  secondaryTxHash?: string
+  routePath?: string
+  requiresAttention: boolean
+  openOnUpdate: boolean
+  result?: unknown
+  error?: SerializedWalletError
+  qrPayload?: string | null
+  deviceJoin?: {
+    joined: number
+    required: number
+    deviceId?: string
+  }
+  operationIds?: string[]
+}
+
+export type WalletJourneyDialogState = {
+  isOpen: boolean
+  activeJourneyId: string | null
 }
 
 export type WalletCommandMap = {
@@ -208,12 +282,48 @@ export type WalletCommandMap = {
     }
     output: { payload: KeysignPayload }
   }
+  'tx.prepare.amino': {
+    input: {
+      chain: WalletChain
+      coin: {
+        chain: WalletChain
+        address: string
+        decimals: number
+        ticker: string
+        logo?: string
+        isNativeToken?: boolean
+        hexPublicKey?: string
+        contractAddress?: string
+      }
+      msgs: Array<{
+        type: string
+        value: string
+      }>
+      fee: {
+        amount: Array<{
+          denom: string
+          amount: string
+        }>
+        gas: string
+      }
+      memo?: string
+    }
+    output: { payload: KeysignPayload }
+  }
   'tx.sign': {
-    input: { payload: KeysignPayload }
+    input: { payload: KeysignPayload; chain?: WalletChain; messageHashes?: string[] }
+    output: { signature: Signature }
+  }
+  'tx.sign.bytes': {
+    input: { chain: WalletChain; data: Uint8Array | string }
     output: { signature: Signature }
   }
   'tx.broadcast': {
     input: { chain: WalletChain; payload: KeysignPayload; signature: Signature }
+    output: { txHash: string }
+  }
+  'tx.broadcast.raw': {
+    input: { chain: WalletChain; rawTx: string }
     output: { txHash: string }
   }
   'swap.quote': {
@@ -304,6 +414,10 @@ export type WalletExecuteOptions<K extends WalletCommandName> = {
   sessionId?: string
   signal?: AbortSignal
   track?: boolean
+  journey?: {
+    id: string
+    stepKey?: string
+  }
 }
 
 export type WalletCommandResult<K extends WalletCommandName> =
@@ -322,7 +436,16 @@ export type MayaWalletState = {
   activeSessionId: string | null
   activeChain: WalletChain | null
   operations: WalletOperation[]
+  journeys: WalletJourney[]
+  journeyDialog: WalletJourneyDialogState
+  balanceRefreshTick: number
   balancesBySession: Partial<Record<string, Record<string, Balance>>>
   txStatusBySession: Partial<Record<string, Record<string, unknown>>>
   lastError?: SerializedWalletError
+  passwordRequest?: {
+    vaultId: string
+    vaultName: string
+    resolve: (password: string) => void
+    reject: (error: Error) => void
+  }
 }
