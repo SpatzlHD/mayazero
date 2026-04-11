@@ -19,7 +19,6 @@ import type {
   WalletOperation,
   WalletSession,
 } from "./types";
-import { redirect, useNavigate } from "@tanstack/react-router";
 
 type EventHandler = (...args: unknown[]) => void;
 
@@ -497,6 +496,7 @@ export class SdkVaultAdapter implements WalletSessionAdapter {
         const input =
           options.input as WalletCommandMap["tx.prepare.send"]["input"];
         const payload = await this.vault.prepareSendTx(input);
+
         return {
           payload:
             payload as WalletCommandMap["tx.prepare.send"]["output"]["payload"],
