@@ -131,7 +131,8 @@ export function isAnalyticsEnabledInBrowser(env = import.meta.env): boolean {
     windowLike: window as AnalyticsWindowLike,
   });
 
-  return isAnalyticsRuntimeEnabled({
+  console.log("Detected browser privacy settings:", privacy);
+  const data = isAnalyticsRuntimeEnabled({
     isProduction: env.PROD,
     hostname: window.location.hostname,
     allowedHosts: env.VITE_ANALYTICS_ALLOWED_HOSTS,
@@ -139,6 +140,8 @@ export function isAnalyticsEnabledInBrowser(env = import.meta.env): boolean {
     globalPrivacyControl: privacy.globalPrivacyControl,
     analyticsOptOut: isAnalyticsOptOutEnabled(),
   });
+  console.log("Is analytics enabled in this environment?", data);
+  return data;
 }
 
 export function isAnalyticsOptOutEnabled(
