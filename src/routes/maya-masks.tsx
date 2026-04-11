@@ -1,5 +1,5 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Chain } from '@vultisig/sdk'
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Chain } from "@vultisig/sdk";
 import {
   Activity,
   AlertCircle,
@@ -10,106 +10,106 @@ import {
   ShieldCheck,
   Wallet,
   WalletCards,
-} from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
-import { AssetIcon } from '#/components/ProtocolPrimitives'
-import { fetchMayaMasks, type MayaMaskHolding } from '#/lib/maya-masks'
-import { buildPageSeoHead } from '#/lib/seo'
-import { useActiveWalletSession } from '#/wallet'
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AssetIcon } from "#/components/ProtocolPrimitives";
+import { fetchMayaMasks, type MayaMaskHolding } from "#/lib/maya-masks";
+import { buildPageSeoHead } from "#/lib/seo";
+import { useActiveWalletSession } from "#/wallet";
 
 export const MAYA_MASKS_CONTRACT_ADDRESS =
-  '0xe00d8f3dCA2ac474F4D7F177570f77de0774e754'
+  "0xe00d8f3dCA2ac474F4D7F177570f77de0774e754";
 
-export const Route = createFileRoute('/maya-masks')({
+export const Route = createFileRoute("/maya-masks")({
   head: () =>
     buildPageSeoHead({
-      title: 'Maya Masks',
+      title: "Maya Masks",
       description:
-        'View all Maya Masks NFTs held by the connected Ethereum address in MayaZero.',
+        "View all Maya Masks NFTs held by the connected Ethereum address in MayaZero.",
     }),
   component: MayaMasksRoute,
-})
+});
 
 type MayaMasksViewState =
-  | 'disconnected'
-  | 'connect-eth'
-  | 'loading'
-  | 'empty'
-  | 'ready'
-  | 'error'
+  | "disconnected"
+  | "connect-eth"
+  | "loading"
+  | "empty"
+  | "ready"
+  | "error";
 
 type MayaMasksPageProps = {
-  loadMayaMasks?: typeof fetchMayaMasks
-}
+  loadMayaMasks?: typeof fetchMayaMasks;
+};
 
 type MayaMasksPageContentProps = {
-  viewState: MayaMasksViewState
-  sessionLabel: string
-  ethAddress: string
-  contractAddress: string
-  masks: MayaMaskHolding[]
-  errorMessage: string | null
-  isRefreshing: boolean
-  onConnectWallet: () => void
-  onRefresh: () => void
-}
+  viewState: MayaMasksViewState;
+  sessionLabel: string;
+  ethAddress: string;
+  contractAddress: string;
+  masks: MayaMaskHolding[];
+  errorMessage: string | null;
+  isRefreshing: boolean;
+  onConnectWallet: () => void;
+  onRefresh: () => void;
+};
 
 function MayaMasksRoute() {
-  return <MayaMasksPage />
+  return <MayaMasksPage />;
 }
 
 export function MayaMasksPage({
   loadMayaMasks = fetchMayaMasks,
 }: MayaMasksPageProps) {
-  const navigate = useNavigate()
-  const activeSession = useActiveWalletSession()
-  const ethAddress = activeSession?.addresses[Chain.Ethereum] ?? ''
-  const [masks, setMasks] = useState<MayaMaskHolding[]>([])
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [isRefreshing, setIsRefreshing] = useState(false)
+  const navigate = useNavigate();
+  const activeSession = useActiveWalletSession();
+  const ethAddress = activeSession?.addresses[Chain.Ethereum] ?? "";
+  const [masks, setMasks] = useState<MayaMaskHolding[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
 
     async function load() {
       if (!activeSession || !ethAddress) {
-        setMasks([])
-        setErrorMessage(null)
-        setIsLoading(false)
-        return
+        setMasks([]);
+        setErrorMessage(null);
+        setIsLoading(false);
+        return;
       }
 
-      setIsLoading(true)
-      setErrorMessage(null)
+      setIsLoading(true);
+      setErrorMessage(null);
 
       try {
-        const response = await loadMayaMasks(ethAddress)
+        const response = await loadMayaMasks(ethAddress);
         if (!cancelled) {
-          setMasks(response.masks)
+          setMasks(response.masks);
         }
       } catch (error) {
         if (!cancelled) {
-          setMasks([])
+          setMasks([]);
           setErrorMessage(
             error instanceof Error
               ? error.message
-              : 'Failed to load Maya Masks.',
-          )
+              : "Failed to load Maya Masks.",
+          );
         }
       } finally {
         if (!cancelled) {
-          setIsLoading(false)
+          setIsLoading(false);
         }
       }
     }
 
-    void load()
+    void load();
 
     return () => {
-      cancelled = true
-    }
-  }, [activeSession, ethAddress, loadMayaMasks])
+      cancelled = true;
+    };
+  }, [activeSession, ethAddress, loadMayaMasks]);
 
   const viewState = useMemo(
     () =>
@@ -121,44 +121,44 @@ export function MayaMasksPage({
         maskCount: masks.length,
       }),
     [activeSession, ethAddress, errorMessage, isLoading, masks.length],
-  )
+  );
 
   async function refreshMasks() {
     if (!ethAddress) {
-      return
+      return;
     }
 
-    setIsRefreshing(true)
-    setErrorMessage(null)
+    setIsRefreshing(true);
+    setErrorMessage(null);
 
     try {
-      const response = await loadMayaMasks(ethAddress)
-      setMasks(response.masks)
+      const response = await loadMayaMasks(ethAddress);
+      setMasks(response.masks);
     } catch (error) {
-      setMasks([])
+      setMasks([]);
       setErrorMessage(
-        error instanceof Error ? error.message : 'Failed to load Maya Masks.',
-      )
+        error instanceof Error ? error.message : "Failed to load Maya Masks.",
+      );
     } finally {
-      setIsRefreshing(false)
+      setIsRefreshing(false);
     }
   }
 
   return (
     <MayaMasksPageContent
       viewState={viewState}
-      sessionLabel={activeSession?.label || 'Vault'}
+      sessionLabel={activeSession?.label || "Vault"}
       ethAddress={ethAddress}
       contractAddress={MAYA_MASKS_CONTRACT_ADDRESS}
       masks={masks}
       errorMessage={errorMessage}
       isRefreshing={isRefreshing}
-      onConnectWallet={() => navigate({ to: '/vault-setup' })}
+      onConnectWallet={() => navigate({ to: "/vault-setup" })}
       onRefresh={() => {
-        void refreshMasks()
+        void refreshMasks();
       }}
     />
-  )
+  );
 }
 
 export function MayaMasksPageContent(props: MayaMasksPageContentProps) {
@@ -168,20 +168,20 @@ export function MayaMasksPageContent(props: MayaMasksPageContentProps) {
         <div>
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.2em] text-[var(--cacao-neon)]">
             <Theater size={14} />
-            Ethereum NFT Inventory
+            MayaMask Inventory
           </div>
           <h1 className="text-4xl sm:text-5xl font-bold tracking-tight text-[var(--sea-ink)]">
             Maya Masks
           </h1>
           <p className="mt-3 max-w-2xl text-base text-[var(--sea-ink-soft)]">
             Track the Maya Masks collection held by the connected Ethereum
-            address without exposing the Alchemy API key in the browser.
+            address!
           </p>
         </div>
 
-        {props.viewState === 'ready' ||
-        props.viewState === 'empty' ||
-        props.viewState === 'error' ? (
+        {props.viewState === "ready" ||
+        props.viewState === "empty" ||
+        props.viewState === "error" ? (
           <button
             type="button"
             className="secondary-btn px-5 py-3 flex items-center gap-2 self-start sm:self-auto"
@@ -198,7 +198,7 @@ export function MayaMasksPageContent(props: MayaMasksPageContentProps) {
         ) : null}
       </section>
 
-      {props.viewState === 'disconnected' ? (
+      {props.viewState === "disconnected" ? (
         <StateGate
           icon={WalletCards}
           title="Connect a wallet session"
@@ -208,7 +208,7 @@ export function MayaMasksPageContent(props: MayaMasksPageContentProps) {
         />
       ) : null}
 
-      {props.viewState === 'connect-eth' ? (
+      {props.viewState === "connect-eth" ? (
         <StateGate
           icon={Wallet}
           title="Sync an Ethereum address"
@@ -218,7 +218,7 @@ export function MayaMasksPageContent(props: MayaMasksPageContentProps) {
         />
       ) : null}
 
-      {props.viewState === 'loading' ? (
+      {props.viewState === "loading" ? (
         <div className="glass-panel-strong rounded-[2rem] p-10 flex flex-col items-center gap-4 text-center">
           <div className="w-12 h-12 rounded-full border-2 border-[var(--line)] border-t-[var(--maya-teal)] animate-spin" />
           <div>
@@ -226,13 +226,13 @@ export function MayaMasksPageContent(props: MayaMasksPageContentProps) {
               Loading Maya Masks
             </h2>
             <p className="mt-2 text-[var(--sea-ink-soft)]">
-              Querying the connected Ethereum address through the Vercel proxy.
+              Fetching MayaMasks...
             </p>
           </div>
         </div>
       ) : null}
 
-      {props.viewState === 'empty' ? (
+      {props.viewState === "empty" ? (
         <section className="space-y-6">
           <SummaryCards
             ethAddress={props.ethAddress}
@@ -254,7 +254,7 @@ export function MayaMasksPageContent(props: MayaMasksPageContentProps) {
         </section>
       ) : null}
 
-      {props.viewState === 'error' ? (
+      {props.viewState === "error" ? (
         <section className="space-y-6">
           <SummaryCards
             ethAddress={props.ethAddress}
@@ -275,7 +275,7 @@ export function MayaMasksPageContent(props: MayaMasksPageContentProps) {
         </section>
       ) : null}
 
-      {props.viewState === 'ready' ? (
+      {props.viewState === "ready" ? (
         <section className="space-y-6">
           <SummaryCards
             ethAddress={props.ethAddress}
@@ -312,7 +312,8 @@ export function MayaMasksPageContent(props: MayaMasksPageContentProps) {
                     </p>
                   </div>
                   <p className="min-h-[3rem] text-sm text-[var(--sea-ink-soft)]">
-                    {mask.description || 'No collection description returned for this token.'}
+                    {mask.description ||
+                      "No collection description returned for this token."}
                   </p>
                 </div>
               </article>
@@ -321,13 +322,13 @@ export function MayaMasksPageContent(props: MayaMasksPageContentProps) {
         </section>
       ) : null}
     </main>
-  )
+  );
 }
 
 function SummaryCards(props: {
-  ethAddress: string
-  contractAddress: string
-  totalCount: number
+  ethAddress: string;
+  contractAddress: string;
+  totalCount: number;
 }) {
   return (
     <>
@@ -372,17 +373,17 @@ function SummaryCards(props: {
         </article>
       </div>
     </>
-  )
+  );
 }
 
 function StateGate(props: {
-  icon: LucideIcon
-  title: string
-  body: string
-  actionLabel: string
-  onAction: () => void
+  icon: LucideIcon;
+  title: string;
+  body: string;
+  actionLabel: string;
+  onAction: () => void;
 }) {
-  const Icon = props.icon
+  const Icon = props.icon;
 
   return (
     <article className="glass-panel-strong w-full max-w-2xl mx-auto p-10 rounded-[3rem] text-center">
@@ -403,19 +404,19 @@ function StateGate(props: {
         {props.actionLabel}
       </button>
     </article>
-  )
+  );
 }
 
 export function getMayaMasksViewState(input: {
-  hasSession: boolean
-  hasEthAddress: boolean
-  isLoading: boolean
-  errorMessage: string | null
-  maskCount: number
+  hasSession: boolean;
+  hasEthAddress: boolean;
+  isLoading: boolean;
+  errorMessage: string | null;
+  maskCount: number;
 }): MayaMasksViewState {
-  if (!input.hasSession) return 'disconnected'
-  if (!input.hasEthAddress) return 'connect-eth'
-  if (input.isLoading) return 'loading'
-  if (input.errorMessage) return 'error'
-  return input.maskCount > 0 ? 'ready' : 'empty'
+  if (!input.hasSession) return "disconnected";
+  if (!input.hasEthAddress) return "connect-eth";
+  if (input.isLoading) return "loading";
+  if (input.errorMessage) return "error";
+  return input.maskCount > 0 ? "ready" : "empty";
 }
