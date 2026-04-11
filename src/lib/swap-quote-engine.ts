@@ -11,7 +11,7 @@ import {
 import type { SettingsState } from "#/provider/SettingsProvider";
 import type { MayaWalletManager, WalletCommandMap } from "#/wallet";
 
-const DEFAULT_SLIPPAGE_BPS = 30;
+const DEFAULT_SLIPPAGE_BPS = 0;
 const MAX_AFFILIATE_BPS = 500;
 const MAX_TOTAL_AFFILIATES = 5;
 const MAYA_QUOTE_EXTERNAL_INPUT_DECIMALS = 8;
@@ -516,8 +516,15 @@ function toQuoteCoin(asset: ProtocolAsset, address: string) {
 }
 
 function normalizeSlippageBps(value?: string): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SLIPPAGE_BPS;
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return DEFAULT_SLIPPAGE_BPS;
+  }
+
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) && parsed >= 0
+    ? parsed
+    : DEFAULT_SLIPPAGE_BPS;
 }
 
 function decimalToBaseUnits(value: string, decimals: number): string {

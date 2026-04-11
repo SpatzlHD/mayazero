@@ -208,7 +208,7 @@ function SwapTerminalPage() {
     fromAssetId: "cacao",
     toAssetId: "eth",
     amount: "",
-    slippageBps: "50",
+    slippageBps: "0",
     autoApprove: true,
     streamingEnabled: true,
     streamingInterval: "3",

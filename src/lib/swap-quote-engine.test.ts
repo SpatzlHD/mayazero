@@ -195,6 +195,37 @@ describe('swap-quote-engine', () => {
     expect(url).toContain('liquidity_tolerance_bps=75')
   })
 
+  it('preserves zero slippage so Maya can control memo min-out behavior', () => {
+    const settings = createSettings()
+    const url = buildMayaQuoteUrl({
+      settings,
+      fromAsset: createAsset({ mayaAsset: 'MAYA.CACAO', decimals: 10 }),
+      toAsset: createAsset({ id: 'eth', ticker: 'ETH', mayaAsset: 'ARB.ETH', chain: Chain.Arbitrum, decimals: 18 }),
+      destinationAddress: '0xc405bC3b5Ed526042d53c2b46A28869Ca0042E75',
+      amount: '1',
+      slippageBps: '0',
+      effectiveAffiliates: [],
+    })
+    const search = new URL(url).searchParams
+
+    expect(search.get('liquidity_tolerance_bps')).toBe('0')
+  })
+
+  it('defaults omitted slippage to zero', () => {
+    const settings = createSettings()
+    const url = buildMayaQuoteUrl({
+      settings,
+      fromAsset: createAsset({ mayaAsset: 'MAYA.CACAO', decimals: 10 }),
+      toAsset: createAsset({ id: 'eth', ticker: 'ETH', mayaAsset: 'ETH.ETH', chain: Chain.Ethereum, decimals: 18 }),
+      destinationAddress: '0xreceiver',
+      amount: '1',
+      effectiveAffiliates: [],
+    })
+    const search = new URL(url).searchParams
+
+    expect(search.get('liquidity_tolerance_bps')).toBe('0')
+  })
+
   it('keeps m0 in the quote even when no other affiliate drafts are provided', () => {
     const settings = createSettings()
     const url = buildMayaQuoteUrl({
