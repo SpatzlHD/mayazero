@@ -402,7 +402,7 @@ export function TransactionJourneyActivityButton() {
       onClick={() => wallet.openJourneyDialog()}
     >
       <Activity size={16} />
-      <span className="hidden md:inline font-semibold text-sm">Activity</span>
+      <span className="hidden xl:inline font-semibold text-sm">Activity</span>
       {pendingCount > 0 ? (
         <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 rounded-full bg-[var(--cacao-neon)] text-white text-[10px] font-bold flex items-center justify-center">
           {pendingCount}

@@ -1,0 +1,15 @@
+{
+  "routes": [
+    {
+      "src": "/[^/]+/wallet-core\\.wasm",
+      "dest": "/wallet-core.wasm"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/.*",
+      "dest": "/index.html"
+    }
+  ]
+}
