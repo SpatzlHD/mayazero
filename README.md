@@ -25,6 +25,16 @@ This project uses [Vitest](https://vitest.dev/) for testing. You can run the tes
 npm run test
 ```
 
+## Environment
+
+Vercel deployment for the Maya Masks page requires a server-side Alchemy key:
+
+```bash
+ALCHEMY_API_KEY=your_alchemy_api_key
+```
+
+This value is read only inside the Vercel function at `/api/maya-masks`. Do not expose it as a `VITE_` variable.
+
 ## Styling
 
 This project uses [Tailwind CSS](https://tailwindcss.com/) for styling.

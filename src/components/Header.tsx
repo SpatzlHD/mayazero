@@ -20,6 +20,7 @@ export default function Header() {
     { to: "/", label: "Portfolio" },
     { to: "/swap", label: "Swap terminal" },
     { to: "/mayanames", label: "MAYANames" },
+    { to: "/maya-masks", label: "Maya Masks" },
     { to: "/cacao-pool", label: "CACAOPool" },
     { to: "/liquidity", label: "LP studio" },
     { to: "/settings", label: "Settings" },
