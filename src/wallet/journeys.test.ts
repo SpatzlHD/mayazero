@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Chain } from '@vultisig/sdk'
+import { trackAnalyticsEvent } from '#/analytics'
 import { MayaWalletManager } from './manager'
 import {
   createExecutionJourneySteps,
   createSecureVaultJourneySteps,
+  trackTransactionJourney,
   waitForJourneyTransactionSettlement,
 } from './journeys'
 import {
@@ -13,7 +15,19 @@ import {
   createMemoryStorage,
 } from './test-utils'
 
+vi.mock('#/analytics', async () => {
+  const actual = await vi.importActual<typeof import('#/analytics')>('#/analytics')
+  return {
+    ...actual,
+    trackAnalyticsEvent: vi.fn(),
+  }
+})
+
 describe('wallet journeys', () => {
+  beforeEach(() => {
+    vi.mocked(trackAnalyticsEvent).mockClear()
+  })
+
   it('creates, patches, completes, and dismisses journeys', () => {
     const manager = new MayaWalletManager({
       sdk: createFakeSdkClient().sdk,
@@ -205,5 +219,117 @@ describe('wallet journeys', () => {
     })
 
     expect(manager.getState().balanceRefreshTick).toBe(1)
+  })
+
+  it('bridges journey lifecycle analytics across final statuses', async () => {
+    const statuses = [
+      'success',
+      'error',
+      'unconfirmed',
+      'submitted_no_hash',
+    ] as const
+
+    for (const status of statuses) {
+      const manager = new MayaWalletManager({
+        sdk: createFakeSdkClient().sdk,
+        extensionWindow: createFakeExtensionWindow(),
+        prefsStorage: createMemoryStorage(),
+      })
+
+      vi.mocked(trackAnalyticsEvent).mockClear()
+
+      await trackTransactionJourney(manager, {
+        kind: 'swap',
+        title: 'Track swap analytics',
+        source: 'sdk',
+        chain: Chain.Ethereum,
+        routePath: '/swap',
+        analytics: {
+          action: 'submit',
+          route: '/swap',
+          subject: 'swap',
+          has_referral: true,
+        },
+        steps: createExecutionJourneySteps({
+          source: 'sdk',
+          finalLabel: 'Swap Complete',
+        }),
+        run: async (journey) => {
+          journey.setPrimaryTxHash('0xsecret')
+          journey.complete({ txHash: '0xsecret', mayaname: 'friend' }, status)
+          return { txHash: '0xsecret', mayaname: 'friend' }
+        },
+      })
+
+      expect(vi.mocked(trackAnalyticsEvent).mock.calls).toEqual([
+        [
+          {
+            type: 'journey_started',
+            action: 'submit',
+            route: '/swap',
+            subject: 'swap',
+            source: 'sdk',
+            chain: Chain.Ethereum,
+            has_referral: true,
+          },
+        ],
+        [
+          {
+            type: 'journey_finished',
+            action: 'submit',
+            route: '/swap',
+            status,
+            subject: 'swap',
+            source: 'sdk',
+            chain: Chain.Ethereum,
+            has_referral: true,
+          },
+        ],
+      ])
+      expect(JSON.stringify(vi.mocked(trackAnalyticsEvent).mock.calls)).not.toContain('0xsecret')
+      expect(JSON.stringify(vi.mocked(trackAnalyticsEvent).mock.calls)).not.toContain('friend')
+    }
+  })
+
+  it('maps aborted journeys to cancelled analytics outcomes', async () => {
+    const manager = new MayaWalletManager({
+      sdk: createFakeSdkClient().sdk,
+      extensionWindow: createFakeExtensionWindow(),
+      prefsStorage: createMemoryStorage(),
+    })
+
+    await expect(
+      trackTransactionJourney(manager, {
+        kind: 'send',
+        title: 'Aborted send',
+        source: 'extension',
+        chain: Chain.Ethereum,
+        routePath: '/chains/ethereum',
+        analytics: {
+          action: 'send',
+          route: '/chains/:chainKey',
+          subject: 'asset_send',
+        },
+        steps: createExecutionJourneySteps({
+          source: 'extension',
+          finalLabel: 'Transfer Complete',
+        }),
+        run: async () => {
+          throw new DOMException('Aborted', 'AbortError')
+        },
+      }),
+    ).rejects.toBeInstanceOf(DOMException)
+
+    expect(vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)).toEqual([
+      {
+        type: 'journey_finished',
+        action: 'send',
+        route: '/chains/:chainKey',
+        status: 'cancelled',
+        subject: 'asset_send',
+        source: 'extension',
+        chain: Chain.Ethereum,
+      },
+    ])
   })
 })

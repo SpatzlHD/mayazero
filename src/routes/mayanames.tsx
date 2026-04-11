@@ -518,6 +518,11 @@ export function MayaNamesPage({
     memo: string;
     successMessage: string;
     preferredSelection?: string;
+    analytics?: {
+      action: "register" | "renew";
+      route: "/mayanames";
+      subject: "mayaname";
+    };
   }) {
     if (!activeSession || !support.supported) {
       return;
@@ -533,6 +538,7 @@ export function MayaNamesPage({
         source: activeSession.source,
         chain: Chain.MayaChain,
         routePath: "/mayanames",
+        ...(input.analytics ? { analytics: input.analytics } : {}),
         steps: createExecutionJourneySteps({
           source: activeSession.source,
           finalLabel: "MAYAName Updated",
@@ -654,6 +660,11 @@ export function MayaNamesPage({
       }),
       successMessage: `Submitted MAYAName registration for ${trimmedName}.`,
       preferredSelection: trimmedName,
+      analytics: {
+        action: "register",
+        route: "/mayanames",
+        subject: "mayaname",
+      },
     });
   }
 
@@ -719,6 +730,11 @@ export function MayaNamesPage({
       }),
       successMessage: `Submitted renewal for ${managedRecord.name}.`,
       preferredSelection: managedRecord.name,
+      analytics: {
+        action: "renew",
+        route: "/mayanames",
+        subject: "mayaname",
+      },
     });
   }
 

@@ -1,5 +1,9 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
 import {
+  isAnalyticsOptOutEnabled,
+  syncAnalyticsOptOutPreference,
+} from '#/analytics/runtime'
+import {
   DEFAULT_SUPPORT_REFERRER_BPS,
   clearStoredReferralSupport,
   resetSupportReferrerPreferences,
@@ -14,6 +18,7 @@ export interface SettingsState {
   tendermintUrl: string
   useZeroPercentFee: boolean
   useVultisigSwap: boolean
+  analyticsDisabled: boolean
   supportFeePercent: number
   referralMayaName: string
   supportReferrerEnabled: boolean
@@ -62,6 +67,7 @@ const defaultSettings = {
   tendermintUrl: 'https://tendermint.mayachain.info',
   useZeroPercentFee: true,
   useVultisigSwap: false,
+  analyticsDisabled: false,
   supportFeePercent: 0.1, // 0.1% support fee
   referralMayaName: '',
   supportReferrerEnabled: false,
@@ -83,6 +89,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     persistSettings(
       typeof localStorage !== 'undefined' ? localStorage : undefined,
       settings,
+    )
+    syncAnalyticsOptOutPreference(
+      typeof localStorage !== 'undefined' ? localStorage : undefined,
+      settings.analyticsDisabled,
     )
   }, [settings])
 
@@ -173,16 +183,25 @@ export function useSettings() {
 export function loadStoredSettings(
   storage?: Pick<Storage, 'getItem'>,
 ): SettingsPersistedState {
+  const analyticsDisabled = isAnalyticsOptOutEnabled(storage)
+
   try {
     const stored = storage?.getItem('maya-settings')
     if (stored) {
-      return { ...defaultSettings, ...JSON.parse(stored) }
+      return {
+        ...defaultSettings,
+        analyticsDisabled,
+        ...JSON.parse(stored),
+      }
     }
   } catch {
     // Ignored
   }
 
-  return defaultSettings
+  return {
+    ...defaultSettings,
+    analyticsDisabled,
+  }
 }
 
 export function persistSettings(

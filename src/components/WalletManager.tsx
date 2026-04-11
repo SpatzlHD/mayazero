@@ -351,6 +351,9 @@ export function WalletManagerMenuContent({
               <Plus size={14} />
               Create Vault
             </button>
+            <p className="text-xs text-[var(--sea-ink-soft)]">
+              Export is available for the active SDK vault.
+            </p>
           </div>
         )}
       </div>

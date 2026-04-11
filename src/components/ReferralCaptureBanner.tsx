@@ -3,6 +3,11 @@ import { useLocation } from "@tanstack/react-router";
 import { Check, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import {
+  trackAnalyticsEvent,
+  type AnalyticsEvent,
+  type ReferralCaptureOutcome,
+} from "#/analytics";
+import {
   type MayaNameValidationResult,
   validateMayaName,
 } from "#/lib/mayaname";
@@ -23,6 +28,17 @@ export type ReferralCaptureAction =
   | { type: "store"; incoming: string }
   | { type: "pending"; current: string; incoming: string }
   | { type: "ignore"; reason: "invalid" | "unreachable" };
+
+export function buildReferralCaptureAnalyticsEvent(input: {
+  currentReferral: string;
+  outcome: ReferralCaptureOutcome;
+}): AnalyticsEvent {
+  return {
+    type: "referral_capture",
+    outcome: input.outcome,
+    had_existing_referral: Boolean(input.currentReferral.trim()),
+  };
+}
 
 export function ReferralCaptureBanner() {
   const location = useLocation({
@@ -79,6 +95,13 @@ export function ReferralCaptureBannerContent(props: ReferralBannerProps) {
 
       if (action.type === "ignore") {
         setHandledLocationKey(locationKey);
+        trackAnalyticsEvent(
+          buildReferralCaptureAnalyticsEvent({
+            currentReferral: referralMayaName,
+            outcome:
+              action.reason === "invalid" ? "invalid" : "unreachable",
+          }),
+        );
         toast.error(
           action.reason === "invalid"
             ? `Invalid referral MAYAName: ${referralParam}`
@@ -92,6 +115,12 @@ export function ReferralCaptureBannerContent(props: ReferralBannerProps) {
         setHandledLocationKey(locationKey);
         setReferralMayaName(action.incoming);
         setPendingDecision(null);
+        trackAnalyticsEvent(
+          buildReferralCaptureAnalyticsEvent({
+            currentReferral: referralMayaName,
+            outcome: "stored",
+          }),
+        );
         stripReferralQueryParam(props.pathname, props.search, props.hash);
         return;
       }
@@ -158,6 +187,12 @@ export function ReferralCaptureBannerContent(props: ReferralBannerProps) {
                 setHandledLocationKey(locationKey);
                 setReferralMayaName(pendingDecision.incoming);
                 setPendingDecision(null);
+                trackAnalyticsEvent(
+                  buildReferralCaptureAnalyticsEvent({
+                    currentReferral: referralMayaName,
+                    outcome: "replaced",
+                  }),
+                );
                 stripReferralQueryParam(props.pathname, props.search, props.hash);
               }}
             >
@@ -170,6 +205,12 @@ export function ReferralCaptureBannerContent(props: ReferralBannerProps) {
               onClick={() => {
                 setHandledLocationKey(locationKey);
                 setPendingDecision(null);
+                trackAnalyticsEvent(
+                  buildReferralCaptureAnalyticsEvent({
+                    currentReferral: referralMayaName,
+                    outcome: "kept_current",
+                  }),
+                );
                 stripReferralQueryParam(props.pathname, props.search, props.hash);
               }}
             >

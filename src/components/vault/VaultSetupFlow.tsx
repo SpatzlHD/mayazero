@@ -52,6 +52,11 @@ export function VaultSetupFlow() {
         title: `Create Fast Vault: ${name}`,
         source: 'fast-vault',
         routePath: '/vault-setup',
+        analytics: {
+          action: 'fast_create',
+          route: '/vault-setup',
+          subject: 'vault',
+        },
         steps: createFastVaultJourneySteps(),
         run: async (journey) => {
           journey.activateStep('creating', 'Creating the fast vault and provisioning verification.')
@@ -82,6 +87,11 @@ export function VaultSetupFlow() {
         title: `Verify Fast Vault: ${name || 'Vault'}`,
         source: 'fast-vault',
         routePath: '/vault-setup',
+        analytics: {
+          action: 'fast_verify',
+          route: '/vault-setup',
+          subject: 'vault',
+        },
         steps: createFastVaultVerifyJourneySteps(),
         run: async (journey) => {
           journey.activateStep('verifying', 'Verifying your email code.')
@@ -118,6 +128,11 @@ export function VaultSetupFlow() {
         title: `Create Secure Vault: ${name}`,
         source: 'secure-vault',
         routePath: '/vault-setup',
+        analytics: {
+          action: 'secure_create',
+          route: '/vault-setup',
+          subject: 'vault',
+        },
         steps: createSecureVaultJourneySteps(),
         run: async (journey) => {
           journey.activateStep('creating-session', 'Creating multi-device vault session.')

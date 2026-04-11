@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildReferralCaptureAnalyticsEvent,
   buildReferralCaptureAction,
   getIncomingReferralParam,
   stripReferralQueryParamFromUrl,
@@ -50,5 +51,29 @@ describe("ReferralCaptureBanner helpers", () => {
     expect(
       stripReferralQueryParamFromUrl("/swap", "?ref=bad&foo=bar", "section"),
     ).toBe("/swap?foo=bar#section");
+  });
+
+  it("maps referral outcomes into coarse analytics events without leaking the name", () => {
+    expect(
+      buildReferralCaptureAnalyticsEvent({
+        currentReferral: "friend",
+        outcome: "replaced",
+      }),
+    ).toEqual({
+      type: "referral_capture",
+      outcome: "replaced",
+      had_existing_referral: true,
+    });
+
+    expect(
+      buildReferralCaptureAnalyticsEvent({
+        currentReferral: "",
+        outcome: "stored",
+      }),
+    ).toEqual({
+      type: "referral_capture",
+      outcome: "stored",
+      had_existing_referral: false,
+    });
   });
 });

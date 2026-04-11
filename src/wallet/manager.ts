@@ -7,6 +7,7 @@ import {
   type SdkClientLike,
   type WalletSessionAdapter,
 } from './adapters'
+import { toChainCountBucket, trackAnalyticsEvent } from '#/analytics'
 import { canSwitchChainInExtension, getExtensionProviderKey } from './chains'
 import { serializeWalletError, WalletSessionNotFoundError } from './errors'
 import type {
@@ -463,6 +464,14 @@ export class MayaWalletManager {
         endedAt: Date.now(),
       })
       this.applyCommandSideEffects(command, session.id, options.input, result)
+      if (command === 'accounts.connect') {
+        trackAnalyticsEvent({
+          type: 'wallet_connected',
+          source: session.source,
+          session_kind: session.kind,
+          chain_count_bucket: toChainCountBucket(session.chains.length),
+        })
+      }
       return result
     } catch (error) {
       operation?.update({

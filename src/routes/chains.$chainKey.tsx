@@ -300,7 +300,12 @@ function ChainDetailPage() {
       sessionId: activeSession.id,
       source: activeSession.source,
       chain: sendAsset.chain,
-      routePath: `/chains/${chain.chainKey}`,
+      routePath: '/chains/:chainKey',
+      analytics: {
+        action: 'send',
+        route: '/chains/:chainKey',
+        subject: 'asset_send',
+      },
       steps: createExecutionJourneySteps({
         source: activeSession.source,
         finalLabel: 'Transfer Complete',

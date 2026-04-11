@@ -555,6 +555,12 @@ function SwapTerminalPage() {
         source: journeySource,
         chain: fromAsset.chain,
         routePath: "/swap",
+        analytics: {
+          action: "submit",
+          route: "/swap",
+          subject: "swap",
+          has_referral: hasStoredReferral,
+        },
         steps: journeySteps,
         run: async (journey) => {
           journey.activateStep(

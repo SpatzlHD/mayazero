@@ -1,4 +1,9 @@
 import { serializeWalletError } from './errors'
+import {
+  trackAnalyticsEvent,
+  type JourneyAnalyticsContext,
+  type JourneyStatus,
+} from '#/analytics'
 import type { MayaWalletManager } from './manager'
 import type {
   WalletChain,
@@ -41,6 +46,7 @@ export async function trackTransactionJourney<T>(
     source?: WalletJourneySource
     chain?: WalletChain
     routePath?: string
+    analytics?: JourneyAnalyticsContext
     steps: WalletJourneyStep[]
     run: (controller: JourneyController) => Promise<T>
   },
@@ -54,6 +60,40 @@ export async function trackTransactionJourney<T>(
     routePath: input.routePath,
     steps: input.steps,
   })
+  if (input.analytics) {
+    trackAnalyticsEvent({
+      type: 'journey_started',
+      action: input.analytics.action,
+      route: input.analytics.route,
+      subject: input.analytics.subject,
+      ...(input.source ? { source: input.source } : {}),
+      ...(input.chain ? { chain: input.chain } : {}),
+      ...(input.analytics.has_referral !== undefined
+        ? { has_referral: input.analytics.has_referral }
+        : {}),
+    })
+  }
+
+  let hasTrackedOutcome = false
+  const emitJourneyOutcome = (status: JourneyStatus) => {
+    if (!input.analytics || hasTrackedOutcome) {
+      return
+    }
+
+    hasTrackedOutcome = true
+    trackAnalyticsEvent({
+      type: 'journey_finished',
+      action: input.analytics.action,
+      route: input.analytics.route,
+      status,
+      subject: input.analytics.subject,
+      ...(input.source ? { source: input.source } : {}),
+      ...(input.chain ? { chain: input.chain } : {}),
+      ...(input.analytics.has_referral !== undefined
+        ? { has_referral: input.analytics.has_referral }
+        : {}),
+    })
+  }
 
   const controller: JourneyController = {
     journeyId,
@@ -120,6 +160,7 @@ export async function trackTransactionJourney<T>(
         requiresAttention: status === 'error',
         openOnUpdate: true,
       })
+      emitJourneyOutcome(status)
     },
     setPrimaryTxHash: (txHash) => {
       manager.patchJourney(journeyId, {
@@ -134,7 +175,11 @@ export async function trackTransactionJourney<T>(
   }
 
   try {
-    return await input.run(controller)
+    const result = await input.run(controller)
+    if (!hasTrackedOutcome && input.analytics) {
+      emitJourneyOutcome('success')
+    }
+    return result
   } catch (error) {
     const journey = manager.getState().journeys.find((item) => item.id === journeyId)
     if (journey && journey.status !== 'error') {
@@ -145,6 +190,11 @@ export async function trackTransactionJourney<T>(
         openOnUpdate: true,
       })
     }
+    emitJourneyOutcome(
+      error instanceof DOMException && error.name === 'AbortError'
+        ? 'cancelled'
+        : 'error',
+    )
     throw error
   }
 }

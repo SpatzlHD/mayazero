@@ -7,7 +7,7 @@ import { SettingsProvider } from "#/provider/SettingsProvider";
 import Footer from "#/components/Footer";
 import Header from "#/components/Header";
 import { ReferralCaptureBanner } from "#/components/ReferralCaptureBanner";
-import { Analytics } from "@vercel/analytics/react";
+import { AppAnalytics } from "#/analytics";
 import { buildRootSeoHead } from "#/lib/seo";
 import { Toaster } from "sonner";
 import { GlobalPasswordDialog } from "#/components/GlobalPasswordDialog";
@@ -25,9 +25,9 @@ function RootComponent() {
   return (
     <>
       <HeadContent />
-      <Analytics />
       <PreferencesProvider>
         <SettingsProvider>
+          <AppAnalytics />
           <MayaWalletProvider>
             <div className="app-shell">
               <Header />

@@ -35,6 +35,7 @@ function SettingsPage() {
     tendermintUrl: settings.tendermintUrl,
     useZeroPercentFee: settings.useZeroPercentFee,
     useVultisigSwap: settings.useVultisigSwap,
+    analyticsDisabled: settings.analyticsDisabled,
     supportFeePercent: settings.supportFeePercent,
     referralMayaName: settings.referralMayaName,
   })
@@ -293,6 +294,43 @@ function SettingsPage() {
                 </div>
               </label>
               */}
+            </div>
+          </section>
+
+          <section>
+            <h3 className="kicker mb-4 text-[var(--sea-ink-soft)] mt-8">Analytics</h3>
+            <div className="flex flex-col gap-3 p-4 bg-[var(--chip-bg)] border border-[var(--line)] rounded-xl">
+              <label className="flex items-center gap-3 p-4 bg-[var(--bg-base)] border rounded-xl transition-colors cursor-pointer border-[var(--line)] hover:border-[var(--cacao-neon)]">
+                <input
+                  type="checkbox"
+                  className="w-5 h-5 accent-[var(--cacao-neon)] bg-[var(--surface)] border-[var(--line)] cursor-pointer"
+                  checked={!formConfig.analyticsDisabled}
+                  onChange={(event) =>
+                    setFormConfig((current) => ({
+                      ...current,
+                      analyticsDisabled: !event.target.checked,
+                    }))
+                  }
+                />
+                <div className="flex flex-col">
+                  <span className="font-bold text-[var(--sea-ink)]">Allow minimal analytics</span>
+                  <span className="text-xs text-[var(--sea-ink-soft)]">
+                    Turn this off to opt out of Vercel Analytics pageviews and custom journey events on this browser.
+                  </span>
+                </div>
+              </label>
+              <span className="text-xs uppercase font-bold text-[var(--sea-ink-soft)]">
+                Privacy-Preserving Telemetry
+              </span>
+              <p className="text-sm text-[var(--sea-ink)] leading-relaxed">
+                MayaZero only emits minimal analytics on approved production hosts. Query strings and URL hashes are stripped before pageviews are sent.
+              </p>
+              <p className="text-sm text-[var(--sea-ink)] leading-relaxed">
+                Wallet addresses, transaction hashes, vault identifiers, MAYANames, memos, and other sensitive payloads are never sent to Vercel Analytics.
+              </p>
+              <p className="text-sm text-[var(--sea-ink)] leading-relaxed">
+                Browser privacy signals like Do Not Track and Global Privacy Control disable analytics automatically, and MayaZero does not create its own analytics identifier in local storage or cookies.
+              </p>
             </div>
           </section>
         </div>

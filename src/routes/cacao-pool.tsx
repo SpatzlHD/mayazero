@@ -222,6 +222,11 @@ export function CacaoPoolPage({
         source: activeSession.source,
         chain: Chain.MayaChain,
         routePath: "/cacao-pool",
+        analytics: {
+          action: "deposit",
+          route: "/cacao-pool",
+          subject: "cacao_pool",
+        },
         steps: createExecutionJourneySteps({
           source: activeSession.source,
           finalLabel: "Deposit Complete",

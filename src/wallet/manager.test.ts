@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Chain } from '@vultisig/sdk'
+import { trackAnalyticsEvent } from '#/analytics'
 import { WalletCapabilityError } from './errors'
 import { MayaWalletManager } from './manager'
 import {
@@ -9,7 +10,19 @@ import {
   createFakeVault,
 } from './test-utils'
 
+vi.mock('#/analytics', async () => {
+  const actual = await vi.importActual<typeof import('#/analytics')>('#/analytics')
+  return {
+    ...actual,
+    trackAnalyticsEvent: vi.fn(),
+  }
+})
+
 describe('MayaWalletManager', () => {
+  beforeEach(() => {
+    vi.mocked(trackAnalyticsEvent).mockClear()
+  })
+
   it('initializes, discovers sdk and extension sessions, and restores preferences', async () => {
     const storage = createMemoryStorage()
     storage.setItem(
@@ -248,6 +261,45 @@ describe('MayaWalletManager', () => {
       [Chain.Arbitrum]: '0xabc',
       [Chain.MayaChain]: 'maya1abc',
       [Chain.Bitcoin]: 'bc1qabc',
+    })
+  })
+
+  it('emits wallet_connected analytics only for explicit connect calls', async () => {
+    const storage = createMemoryStorage()
+    const vault = createFakeVault({
+      id: 'analytics-vault',
+      name: 'Analytics Vault',
+      chains: [Chain.Ethereum, Chain.MayaChain],
+    })
+    const { sdk } = createFakeSdkClient({
+      vaults: [vault],
+      activeVaultId: vault.id,
+    })
+    const manager = new MayaWalletManager({
+      sdk,
+      extensionWindow: createFakeExtensionWindow(),
+      prefsStorage: storage,
+    })
+
+    await manager.initialize()
+    await manager.selectSession(vault.id)
+
+    await manager.execute('accounts.list', {
+      input: { chain: Chain.Ethereum },
+      sessionId: vault.id,
+    })
+    expect(trackAnalyticsEvent).not.toHaveBeenCalled()
+
+    await manager.execute('accounts.connect', {
+      input: { chain: Chain.MayaChain },
+      sessionId: vault.id,
+    })
+
+    expect(trackAnalyticsEvent).toHaveBeenCalledWith({
+      type: 'wallet_connected',
+      source: 'sdk',
+      session_kind: 'vault',
+      chain_count_bucket: '4_plus',
     })
   })
 })

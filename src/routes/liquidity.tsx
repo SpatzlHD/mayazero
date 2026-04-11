@@ -365,6 +365,7 @@ function LiquidityTerminalPage() {
   }
 
   async function trackLiquidityJourney(input: {
+    action: "deposit" | "withdraw";
     title: string;
     chain: Chain;
     submit: (journeyId: string) => Promise<{ txHash: string | null }>;
@@ -381,6 +382,11 @@ function LiquidityTerminalPage() {
       source: activeSession.source,
       chain: input.chain,
       routePath: "/liquidity",
+      analytics: {
+        action: input.action,
+        route: "/liquidity",
+        subject: "liquidity",
+      },
       steps: createExecutionJourneySteps({
         source: activeSession.source,
         finalLabel: "Liquidity Update Complete",
@@ -507,6 +513,7 @@ function LiquidityTerminalPage() {
             );
           }
           await trackLiquidityJourney({
+            action: "deposit",
             title: `Complete Symmetric Deposit: ${selectedPool.symbol}`,
             chain: cacaoStep.chain,
             submit: (journeyId) =>
@@ -548,6 +555,7 @@ function LiquidityTerminalPage() {
               sessionId: activeSession.id,
             };
             await trackLiquidityJourney({
+              action: "deposit",
               title: `Start Symmetric Deposit: ${selectedPool.symbol}`,
               chain: assetStep.chain,
               submit: (journeyId) =>
@@ -564,6 +572,7 @@ function LiquidityTerminalPage() {
           } else {
             const activeStep = steps[0]!;
             await trackLiquidityJourney({
+              action: "deposit",
               title:
                 depositMode === "asset"
                   ? `Deposit ${selectedPool.symbol} Liquidity`
@@ -588,6 +597,7 @@ function LiquidityTerminalPage() {
             ? (selectedPool.walletChain ?? Chain.MayaChain)
             : Chain.MayaChain;
         await trackLiquidityJourney({
+          action: "withdraw",
           title: `Withdraw Liquidity: ${selectedPool.symbol}`,
           chain: withdrawChain,
           submit: (journeyId) =>

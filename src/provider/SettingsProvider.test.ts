@@ -6,6 +6,7 @@ import {
   setStoredReferralMayaName,
 } from "./SettingsProvider";
 import { DEFAULT_SUPPORT_REFERRER_BPS } from "#/lib/swap-affiliates";
+import { syncAnalyticsOptOutPreference } from "#/analytics/runtime";
 
 function createStorage(seed?: Record<string, string>) {
   const store = new Map(Object.entries(seed ?? {}));
@@ -17,6 +18,9 @@ function createStorage(seed?: Record<string, string>) {
     setItem(key: string, value: string) {
       store.set(key, value);
     },
+    removeItem(key: string) {
+      store.delete(key);
+    },
   };
 }
 
@@ -25,6 +29,7 @@ describe("SettingsProvider helpers", () => {
     const storage = createStorage({
       "maya-settings": JSON.stringify({
         mayanodeUrl: "https://mayanode.test",
+        analyticsDisabled: true,
         referralMayaName: "friend",
         supportReferrerEnabled: true,
         supportReferrerBps: "25",
@@ -37,6 +42,7 @@ describe("SettingsProvider helpers", () => {
 
     expect(loadStoredSettings(storage)).toMatchObject({
       mayanodeUrl: "https://mayanode.test",
+      analyticsDisabled: true,
       referralMayaName: "friend",
       supportReferrerEnabled: true,
       supportReferrerBps: "25",
@@ -51,10 +57,17 @@ describe("SettingsProvider helpers", () => {
     const storage = createStorage();
     persistSettings(
       storage,
-      setStoredReferralMayaName(loadStoredSettings(storage), "alpha"),
+      setStoredReferralMayaName(
+        {
+          ...loadStoredSettings(storage),
+          analyticsDisabled: true,
+        },
+        "alpha",
+      ),
     );
 
     expect(JSON.parse(storage.getItem("maya-settings") ?? "{}")).toMatchObject({
+      analyticsDisabled: true,
       referralMayaName: "alpha",
       supportReferrerEnabled: false,
       supportReferrerBps: DEFAULT_SUPPORT_REFERRER_BPS,
@@ -128,6 +141,26 @@ describe("SettingsProvider helpers", () => {
       interfaceSupportSwapEnabled: true,
       interfaceSupportSwapBps: "35",
       interfaceSupportBannerDismissed: true,
+    });
+  });
+
+  it("syncs the Vercel opt-out flag into localStorage", () => {
+    const storage = createStorage();
+
+    syncAnalyticsOptOutPreference(storage, true);
+    expect(storage.getItem("va-disable")).toBe("1");
+
+    syncAnalyticsOptOutPreference(storage, false);
+    expect(storage.getItem("va-disable")).toBeNull();
+  });
+
+  it("prefers an existing Vercel opt-out flag when loading settings", () => {
+    const storage = createStorage({
+      "va-disable": "1",
+    });
+
+    expect(loadStoredSettings(storage)).toMatchObject({
+      analyticsDisabled: true,
     });
   });
 });
