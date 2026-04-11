@@ -1,11 +1,12 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
     {
-      "source": "/[^/]+/wallet-core\\.wasm",
+      "source": "/:prefix/wallet-core.wasm",
       "destination": "/wallet-core.wasm"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/:path*",
       "destination": "/index.html"
     }
   ]
