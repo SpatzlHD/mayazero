@@ -15,6 +15,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as MayanamesRouteImport } from './routes/mayanames'
 import { Route as MayaMasksRouteImport } from './routes/maya-masks'
 import { Route as LiquidityRouteImport } from './routes/liquidity'
+import { Route as ChangelogRouteImport } from './routes/changelog'
 import { Route as CacaoPoolRouteImport } from './routes/cacao-pool'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
@@ -50,6 +51,11 @@ const LiquidityRoute = LiquidityRouteImport.update({
   path: '/liquidity',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ChangelogRoute = ChangelogRouteImport.update({
+  id: '/changelog',
+  path: '/changelog',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CacaoPoolRoute = CacaoPoolRouteImport.update({
   id: '/cacao-pool',
   path: '/cacao-pool',
@@ -75,6 +81,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/cacao-pool': typeof CacaoPoolRoute
+  '/changelog': typeof ChangelogRoute
   '/liquidity': typeof LiquidityRoute
   '/maya-masks': typeof MayaMasksRoute
   '/mayanames': typeof MayanamesRoute
@@ -87,6 +94,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/cacao-pool': typeof CacaoPoolRoute
+  '/changelog': typeof ChangelogRoute
   '/liquidity': typeof LiquidityRoute
   '/maya-masks': typeof MayaMasksRoute
   '/mayanames': typeof MayanamesRoute
@@ -100,6 +108,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/cacao-pool': typeof CacaoPoolRoute
+  '/changelog': typeof ChangelogRoute
   '/liquidity': typeof LiquidityRoute
   '/maya-masks': typeof MayaMasksRoute
   '/mayanames': typeof MayanamesRoute
@@ -114,6 +123,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/cacao-pool'
+    | '/changelog'
     | '/liquidity'
     | '/maya-masks'
     | '/mayanames'
@@ -126,6 +136,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/cacao-pool'
+    | '/changelog'
     | '/liquidity'
     | '/maya-masks'
     | '/mayanames'
@@ -138,6 +149,7 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/cacao-pool'
+    | '/changelog'
     | '/liquidity'
     | '/maya-masks'
     | '/mayanames'
@@ -151,6 +163,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
   CacaoPoolRoute: typeof CacaoPoolRoute
+  ChangelogRoute: typeof ChangelogRoute
   LiquidityRoute: typeof LiquidityRoute
   MayaMasksRoute: typeof MayaMasksRoute
   MayanamesRoute: typeof MayanamesRoute
@@ -204,6 +217,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LiquidityRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/changelog': {
+      id: '/changelog'
+      path: '/changelog'
+      fullPath: '/changelog'
+      preLoaderRoute: typeof ChangelogRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/cacao-pool': {
       id: '/cacao-pool'
       path: '/cacao-pool'
@@ -239,6 +259,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   CacaoPoolRoute: CacaoPoolRoute,
+  ChangelogRoute: ChangelogRoute,
   LiquidityRoute: LiquidityRoute,
   MayaMasksRoute: MayaMasksRoute,
   MayanamesRoute: MayanamesRoute,

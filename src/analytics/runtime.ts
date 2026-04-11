@@ -115,12 +115,16 @@ export function isAnalyticsRuntimeEnabled(input: {
   return true;
 }
 
-export function isAnalyticsEnabledInBrowser(
-  env = import.meta.env,
-): boolean {
+export function isAnalyticsEnabledInBrowser(env = import.meta.env): boolean {
   if (typeof window === "undefined") {
     return false;
   }
+
+  console.log("Checking analytics runtime conditions:", {
+    isProduction: env.PROD,
+    hostname: window.location.hostname,
+    allowedHosts: env.VITE_ANALYTICS_ALLOWED_HOSTS,
+  });
 
   const privacy = getBrowserAnalyticsPrivacy({
     navigatorLike: window.navigator,
@@ -142,7 +146,8 @@ export function isAnalyticsOptOutEnabled(
 ): boolean {
   try {
     const resolvedStorage =
-      storage ?? (typeof localStorage !== "undefined" ? localStorage : undefined);
+      storage ??
+      (typeof localStorage !== "undefined" ? localStorage : undefined);
     return resolvedStorage?.getItem(ANALYTICS_OPT_OUT_STORAGE_KEY) === "1";
   } catch {
     return false;

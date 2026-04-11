@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { BETA_DISCLAIMER_COPY } from "./BetaDisclaimer";
 
 export default function Footer() {
@@ -25,6 +26,9 @@ export default function Footer() {
         </div>
       </div>
       <div className="page-wrap mt-8 flex flex-wrap items-center gap-4 border-t border-[var(--line)] pt-6">
+        <Link to="/changelog" className="nav-link">
+          Changelog
+        </Link>
         <a
           href="https://docs.mayaprotocol.com"
           target="_blank"

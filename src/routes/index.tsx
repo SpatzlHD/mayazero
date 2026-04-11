@@ -7,6 +7,7 @@ import {
   Link2,
   Activity,
   Droplets,
+  X,
 } from "lucide-react";
 import { Chain } from "@vultisig/sdk";
 import { startTransition, useEffect, useMemo, useState } from "react";
@@ -30,6 +31,10 @@ import {
   formatUsd,
 } from "./-portfolio-data";
 import { buildPageSeoHead } from "#/lib/seo";
+import { changelogEntries, type ChangelogEntry, type ChangelogLink } from "#/content/changelog";
+
+export const DISMISSED_CHANGELOG_ENTRY_STORAGE_KEY =
+  "maya-home-dismissed-changelog-entry";
 
 export const Route = createFileRoute("/")({
   head: () =>
@@ -55,6 +60,13 @@ function PortfolioPage() {
   const [chainBalancesUsd, setChainBalancesUsd] = useState<
     Record<string, number>
   >({});
+  const [dismissedChangelogEntryId, setDismissedChangelogEntryId] = useState<
+    string | null
+  >(() =>
+    loadDismissedChangelogEntryId(
+      typeof localStorage !== "undefined" ? localStorage : undefined,
+    ),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -191,6 +203,23 @@ function PortfolioPage() {
   const syncCount = chainCards.filter((c) => c.status === "ready").length;
   const globalNetWorth =
     Object.values(chainBalancesUsd).reduce((a, b) => a + b, 0) + cacaoPoolUsd;
+  const latestChangelogEntry = changelogEntries[0];
+  const shouldShowChangelogPreview = shouldShowHomeChangelogPreview(
+    latestChangelogEntry,
+    dismissedChangelogEntryId,
+  );
+
+  const dismissLatestChangelogEntry = () => {
+    if (!latestChangelogEntry) {
+      return;
+    }
+
+    setDismissedChangelogEntryId(latestChangelogEntry.id);
+    persistDismissedChangelogEntryId(
+      typeof localStorage !== "undefined" ? localStorage : undefined,
+      latestChangelogEntry.id,
+    );
+  };
 
   return (
     <main className="page-wrap px-4 pb-20 pt-8 sm:pt-12 max-w-5xl mx-auto rise-in">
@@ -278,6 +307,13 @@ function PortfolioPage() {
           </div>
         </div>
       </div>
+
+      {shouldShowChangelogPreview && latestChangelogEntry ? (
+        <HomeChangelogPreview
+          entry={latestChangelogEntry}
+          onDismiss={dismissLatestChangelogEntry}
+        />
+      ) : null}
 
       {/* Yield Positions Section */}
       <div className="mb-12">
@@ -455,4 +491,102 @@ function PortfolioPage() {
       </div>
     </main>
   );
+}
+
+export function HomeChangelogPreview({
+  entry,
+  onDismiss,
+}: {
+  entry: ChangelogEntry;
+  onDismiss?: () => void;
+}) {
+  return (
+    <section className="glass-panel mb-12 overflow-hidden p-6 sm:p-7">
+      <div className="flex items-start justify-between gap-4">
+        <div className="max-w-3xl">
+          <p className="kicker mb-2">What&apos;s new</p>
+          <h2 className="text-2xl font-bold tracking-tight text-[var(--sea-ink)] sm:text-3xl">
+            {entry.title}
+          </h2>
+          <p className="mt-2 text-sm font-bold uppercase tracking-[0.2em] text-[var(--maya-teal)]">
+            Updated on {entry.date}
+          </p>
+        </div>
+        {onDismiss ? (
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--line)] bg-[var(--surface-strong)] text-[var(--sea-ink-soft)] transition-all hover:border-[var(--cacao-neon)]/40 hover:text-[var(--cacao-neon)]"
+            aria-label="Dismiss what's new"
+            title="Dismiss what's new"
+          >
+            <X size={16} />
+          </button>
+        ) : null}
+      </div>
+
+      <div className="mt-4 max-w-3xl">
+        <ul className="space-y-2 pl-5 text-sm leading-7 text-[var(--sea-ink-soft)] sm:text-base">
+          {entry.items.slice(0, 2).map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+
+        <div className="mt-5 flex flex-wrap gap-3">
+          {entry.links?.map((link) => (
+            <HomeChangelogLink key={`${entry.id}:${link.href}`} link={link} />
+          ))}
+          <Link
+            to="/changelog"
+            className="inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-2 text-sm font-semibold text-[var(--sea-ink)] no-underline transition-all hover:border-[var(--cacao-neon)]/40 hover:text-[var(--cacao-neon)]"
+          >
+            View full changelog
+            <ChevronRight size={16} />
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function HomeChangelogLink({ link }: { link: ChangelogLink }) {
+  const isExternal = /^https?:\/\//.test(link.href);
+
+  return (
+    <a
+      href={link.href}
+      {...(isExternal ? { target: "_blank", rel: "noreferrer" } : {})}
+      className="inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface)] px-4 py-2 text-sm font-semibold text-[var(--sea-ink)] no-underline transition-all hover:border-[var(--cacao-neon)]/40 hover:text-[var(--cacao-neon)]"
+    >
+      {link.label}
+    </a>
+  );
+}
+
+export function loadDismissedChangelogEntryId(
+  storage?: Pick<Storage, "getItem">,
+): string | null {
+  try {
+    return storage?.getItem(DISMISSED_CHANGELOG_ENTRY_STORAGE_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function persistDismissedChangelogEntryId(
+  storage: Pick<Storage, "setItem"> | undefined,
+  entryId: string,
+) {
+  try {
+    storage?.setItem(DISMISSED_CHANGELOG_ENTRY_STORAGE_KEY, entryId);
+  } catch {
+    // Ignored
+  }
+}
+
+export function shouldShowHomeChangelogPreview(
+  latestEntry: ChangelogEntry | undefined,
+  dismissedEntryId: string | null,
+) {
+  return Boolean(latestEntry && latestEntry.id !== dismissedEntryId);
 }

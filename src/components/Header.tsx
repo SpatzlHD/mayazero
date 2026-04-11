@@ -19,10 +19,11 @@ export default function Header() {
   const navLinks = [
     { to: "/", label: "Portfolio" },
     { to: "/swap", label: "Swap terminal" },
+
+    { to: "/liquidity", label: "LP studio" },
+    { to: "/cacao-pool", label: "CACAOPool" },
     { to: "/mayanames", label: "MAYANames" },
     { to: "/maya-masks", label: "Maya Masks" },
-    { to: "/cacao-pool", label: "CACAOPool" },
-    { to: "/liquidity", label: "LP studio" },
     { to: "/settings", label: "Settings" },
   ];
 
