@@ -44,7 +44,6 @@ type WalletManagerMenuContentProps = {
   activeSessionId: string | null;
   availableChains: Chain[];
   actionChain: Chain;
-  canConnect: boolean;
   canFetchData: boolean;
   canExport: boolean;
   showDebugControls: boolean;
@@ -66,7 +65,6 @@ type WalletManagerMenuContentProps = {
   onCreateVault: () => void;
   onSessionClick: (sessionId: string, status: string) => void;
   onSelectChain: (chain: Chain) => void;
-  onConnect: () => void;
   onRefreshData: () => void;
   onToggleVaultLock: () => void;
   onInitialize: () => void;
@@ -120,7 +118,6 @@ export function WalletManagerMenuContent({
   activeSessionId,
   availableChains,
   actionChain,
-  canConnect,
   canFetchData,
   canExport,
   showDebugControls,
@@ -142,7 +139,6 @@ export function WalletManagerMenuContent({
   onCreateVault,
   onSessionClick,
   onSelectChain,
-  onConnect,
   onRefreshData,
   onToggleVaultLock,
   onInitialize,
@@ -312,8 +308,8 @@ export function WalletManagerMenuContent({
                   <span className="font-bold">No active vault</span>
                 </div>
                 <p className="mt-1 text-xs font-medium text-[var(--sea-ink-soft)]">
-                  Create a vault to manage addresses, balances, and secure
-                  backups.
+                  Create or import a vault to manage addresses, balances, and
+                  secure backups.
                 </p>
               </>
             )}
@@ -326,13 +322,13 @@ export function WalletManagerMenuContent({
         </div>
         {canExport ? (
           <div className="grid grid-cols-2 items-start gap-3 mt-4">
-            <button
-              className="cacao-btn py-3 flex items-center justify-center gap-2 self-start"
-              onClick={onCreateVault}
-            >
-              <Plus size={14} />
-              Create Vault
-            </button>
+              <button
+                className="cacao-btn py-3 flex items-center justify-center gap-2 self-start"
+                onClick={onCreateVault}
+              >
+                <Plus size={14} />
+                Create / Import
+              </button>
 
             <button
               className="secondary-btn py-3 flex items-center justify-center gap-2"
@@ -344,13 +340,13 @@ export function WalletManagerMenuContent({
           </div>
         ) : (
           <div className="grid grid-cols-1 items-start gap-3 mt-4">
-            <button
-              className="cacao-btn py-3 flex items-center justify-center gap-2 self-start"
-              onClick={onCreateVault}
-            >
-              <Plus size={14} />
-              Create Vault
-            </button>
+              <button
+                className="cacao-btn py-3 flex items-center justify-center gap-2 self-start"
+                onClick={onCreateVault}
+              >
+                <Plus size={14} />
+                Create / Import
+              </button>
             <p className="text-xs text-[var(--sea-ink-soft)]">
               Export is available for the active SDK vault.
             </p>
@@ -502,7 +498,7 @@ export function WalletManagerMenuContent({
             className="w-full p-2.5 rounded-lg text-xs font-bold bg-[var(--maya-teal)] text-[var(--bg-base)] shadow-[0_0_10px_rgba(26,154,141,0.2)] hover:scale-[1.02] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
           >
             <ShieldCheck size={14} />
-            Create New Vault
+            Create or Import Vault
           </button>
         </div>
       )}
@@ -573,9 +569,6 @@ export function WalletManager() {
       ? state.activeChain
       : (availableChains[0] ?? activeSession?.chains[0] ?? Chain.MayaChain);
 
-  const canConnect = wallet.canExecute("accounts.connect", {
-    sessionId: activeSession?.id,
-  });
   const canFetchData = wallet.canExecute("addresses.list", {
     sessionId: activeSession?.id,
   });
@@ -625,12 +618,6 @@ export function WalletManager() {
     try {
       await action();
     } catch {}
-  }
-
-  async function connectSessionAccounts() {
-    await wallet.execute("accounts.connect", {
-      input: {},
-    });
   }
 
   async function loadAllData() {
@@ -791,7 +778,6 @@ export function WalletManager() {
           activeSessionId={state.activeSessionId}
           availableChains={availableChains}
           actionChain={actionChain}
-          canConnect={canConnect}
           canFetchData={canFetchData}
           canExport={canExport}
           showDebugControls={showDebugControls}
@@ -816,9 +802,6 @@ export function WalletManager() {
           }}
           onSelectChain={(chain) => {
             void runWalletAction(() => wallet.selectChain(chain));
-          }}
-          onConnect={() => {
-            void runWalletAction(connectSessionAccounts);
           }}
           onRefreshData={() => {
             void runWalletAction(loadAllData);

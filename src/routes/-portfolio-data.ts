@@ -109,7 +109,7 @@ export function buildChainAssetRows(params: {
       usd: formatUsd(usdValue),
       address,
       balanceBaseUnits: matchedBalance?.amount ?? '0',
-      decimals: asset.decimals,
+      decimals: matchedBalance?.decimals ?? asset.decimals,
       isNative: asset.isNative,
       status: 'ready' as const,
       assetId: asset.asset,

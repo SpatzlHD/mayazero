@@ -119,7 +119,6 @@ function createMenuProps(
     availableChains:
       overrides.availableChains ?? [Chain.Ethereum, Chain.MayaChain],
     actionChain: overrides.actionChain ?? Chain.Ethereum,
-    canConnect: overrides.canConnect ?? true,
     canFetchData: overrides.canFetchData ?? true,
     canExport: overrides.canExport ?? true,
     showDebugControls: overrides.showDebugControls ?? false,
@@ -141,7 +140,6 @@ function createMenuProps(
     onCreateVault: overrides.onCreateVault ?? vi.fn(),
     onSessionClick: overrides.onSessionClick ?? vi.fn(),
     onSelectChain: overrides.onSelectChain ?? vi.fn(),
-    onConnect: overrides.onConnect ?? vi.fn(),
     onRefreshData: overrides.onRefreshData ?? vi.fn(),
     onToggleVaultLock: overrides.onToggleVaultLock ?? vi.fn(),
     onInitialize: overrides.onInitialize ?? vi.fn(),
@@ -155,7 +153,7 @@ describe("WalletManagerMenuContent", () => {
     const text = collectText(tree);
 
     expect(text).toContain("Active Vault");
-    expect(text).toContain("Create Vault");
+    expect(text).toContain("Create / Import");
     expect(text).toContain("Export Vault");
     expect(text).toContain("Switch Wallet Session");
     expect(text).toContain("Refresh Data");
@@ -164,7 +162,7 @@ describe("WalletManagerMenuContent", () => {
   it("wires the create vault button to the supplied callback", () => {
     const onCreateVault = vi.fn();
     const tree = WalletManagerMenuContent(createMenuProps({ onCreateVault }));
-    const button = findButtonByText(tree, /create vault/i);
+    const button = findButtonByText(tree, /create \/ import/i);
 
     expect(button).toBeTruthy();
 
@@ -259,7 +257,7 @@ describe("WalletManagerMenuContent", () => {
 
     expect(text).toContain("No active vault");
     expect(text).toContain("No active session detected.");
-    expect(text).toContain("Create New Vault");
+    expect(text).toContain("Create or Import Vault");
   });
 
   it("shows and wires debug controls only when requested", () => {

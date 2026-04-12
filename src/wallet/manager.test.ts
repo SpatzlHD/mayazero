@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Chain } from '@vultisig/sdk'
 import { trackAnalyticsEvent } from '#/analytics'
+import { supportedWalletChains } from './chains'
 import { WalletCapabilityError } from './errors'
+import { createFastVaultImportJourneySteps } from './journeys'
 import { MayaWalletManager } from './manager'
 import {
   createFakeExtensionWindow,
@@ -159,6 +161,80 @@ describe('MayaWalletManager', () => {
     expect(secureOperation?.status).toBe('success')
     expect(secureOperation?.qrPayload).toBe('vultisig://qr-payload')
     expect(secureOperation?.deviceJoin?.required).toBe(2)
+  })
+
+  it('creates a fast vault from seedphrase with Maya-supported chain discovery only', async () => {
+    const storage = createMemoryStorage()
+    const { sdk, getLastSeedphraseImportOptions } = createFakeSdkClient()
+    const manager = new MayaWalletManager({
+      sdk,
+      extensionWindow: createFakeExtensionWindow(),
+      prefsStorage: storage,
+    })
+    await manager.initialize()
+
+    const journeyId = manager.createJourney({
+      kind: 'vault.fast.import',
+      title: 'Import Fast Vault',
+      source: 'fast-vault',
+      routePath: '/vault-setup',
+      steps: createFastVaultImportJourneySteps(),
+    })
+
+    const result = await manager.createFastVaultFromSeedphrase({
+      mnemonic:
+        'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
+      name: 'Imported Vault',
+      email: 'user@example.com',
+      password: 'StrongPassword123!',
+      journeyId,
+    })
+
+    expect(result.vaultId).toBe('pending-imported-fast-vault')
+    expect(getLastSeedphraseImportOptions()).toMatchObject({
+      discoverChains: true,
+      chainsToScan: supportedWalletChains,
+      name: 'Imported Vault',
+      email: 'user@example.com',
+    })
+
+    const operation = manager
+      .getState()
+      .operations.find((candidate) => candidate.name === 'vault.create.fast.import')
+    expect(operation?.status).toBe('success')
+    expect(operation?.progress).toMatchObject({
+      message: 'Creating imported fast vault',
+    })
+
+    const journey = manager
+      .getState()
+      .journeys.find((candidate) => candidate.id === journeyId)
+    expect(journey?.steps.find((step) => step.key === 'discovering-chains')).toMatchObject({
+      status: 'success',
+      message: 'Discovering balances',
+    })
+    expect(journey?.steps.find((step) => step.key === 'creating')).toMatchObject({
+      status: 'success',
+      message: 'Creating imported fast vault',
+    })
+  })
+
+  it('verifies an imported fast vault and selects it as the active session', async () => {
+    const storage = createMemoryStorage()
+    const { sdk } = createFakeSdkClient()
+    const manager = new MayaWalletManager({
+      sdk,
+      extensionWindow: createFakeExtensionWindow(),
+      prefsStorage: storage,
+    })
+    await manager.initialize()
+
+    await manager.verifyFastVault('pending-imported-fast-vault', '123456')
+
+    expect(manager.getState().activeSessionId).toBe('pending-imported-fast-vault')
+    expect(
+      manager.getState().sessions.some((session) => session.id === 'pending-imported-fast-vault'),
+    ).toBe(true)
   })
 
   it('persists new selections across manager instances', async () => {

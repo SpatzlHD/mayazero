@@ -180,6 +180,34 @@ export type SdkClientLike = {
   listVaults: () => Promise<SdkVaultLike[]>;
   setActiveVault: (vault: SdkVaultLike | null) => Promise<void>;
   getActiveVault: () => Promise<SdkVaultLike | null>;
+  validateSeedphrase: (mnemonic: string) => Promise<{
+    valid: boolean;
+    wordCount: number;
+    invalidWords?: string[];
+    error?: string;
+  }>;
+  discoverChainsFromSeedphrase: (
+    mnemonic: string,
+    chains?: Chain[],
+    onProgress?: (progress: {
+      phase: string;
+      chain?: Chain;
+      chainsProcessed: number;
+      chainsTotal: number;
+      chainsWithBalance: Chain[];
+      message: string;
+    }) => void,
+  ) => Promise<{
+    results: Array<{
+      chain: Chain;
+      address: string;
+      balance: string;
+      decimals: number;
+      symbol: string;
+      hasBalance: boolean;
+    }>;
+    usePhantomSolanaPath: boolean;
+  }>;
   createFastVault: (options: {
     name: string;
     email: string;
@@ -190,6 +218,30 @@ export type SdkClientLike = {
       message: string;
     }) => void;
     signal?: AbortSignal;
+  }) => Promise<string>;
+  createFastVaultFromSeedphrase: (options: {
+    mnemonic: string;
+    name: string;
+    email: string;
+    password: string;
+    chains?: Chain[];
+    discoverChains?: boolean;
+    chainsToScan?: Chain[];
+    signal?: AbortSignal;
+    onProgress?: (step: {
+      step: string;
+      progress: number;
+      message: string;
+    }) => void;
+    onChainDiscovery?: (progress: {
+      phase: string;
+      chain?: Chain;
+      chainsProcessed: number;
+      chainsTotal: number;
+      chainsWithBalance: Chain[];
+      message: string;
+    }) => void;
+    usePhantomSolanaPath?: boolean;
   }) => Promise<string>;
   verifyVault: (vaultId: string, code: string) => Promise<SdkVaultLike>;
   createSecureVault: (options: {

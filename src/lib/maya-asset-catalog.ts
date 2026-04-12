@@ -73,6 +73,9 @@ export type MayaChainIdentity = Pick<
 
 const DEFAULT_MIDGARD_URL = "https://midgard.mayachain.info";
 const DEFAULT_TTL_MS = 60_000;
+const hardcodedAssetDecimals: Record<string, number> = {
+  "eth.moca-0x53312f85bba24c8cb99cffc13bf82420157230d3": 18,
+};
 
 const mayaChainDefinitions: Record<string, MayaChainDefinition> = {
   MAYA: {
@@ -469,13 +472,14 @@ function createPoolAsset(pool: MayaPoolRecord): MayaSupportedAsset | null {
     : undefined;
   const nativeSymbol = definition.nativeAsset?.symbol.toUpperCase();
   const isNative = !tokenId && nativeSymbol === symbol;
-  const decimals = normalizeDecimals(
+  const assetKey = pool.asset.toLowerCase();
+  const decimals = hardcodedAssetDecimals[assetKey] ?? normalizeDecimals(
     pool.nativeDecimal,
     isNative ? definition.nativeAsset?.decimals : undefined,
   );
 
   return {
-    id: pool.asset.toLowerCase(),
+    id: assetKey,
     asset: pool.asset,
     symbol,
     name: symbol,

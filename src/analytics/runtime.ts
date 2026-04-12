@@ -120,19 +120,12 @@ export function isAnalyticsEnabledInBrowser(env = import.meta.env): boolean {
     return false;
   }
 
-  console.log("Checking analytics runtime conditions:", {
-    isProduction: env.PROD,
-    hostname: window.location.hostname,
-    allowedHosts: env.VITE_ANALYTICS_ALLOWED_HOSTS,
-  });
-
   const privacy = getBrowserAnalyticsPrivacy({
     navigatorLike: window.navigator,
     windowLike: window as AnalyticsWindowLike,
   });
 
-  console.log("Detected browser privacy settings:", privacy);
-  const data = isAnalyticsRuntimeEnabled({
+  return isAnalyticsRuntimeEnabled({
     isProduction: env.PROD,
     hostname: window.location.hostname,
     allowedHosts: env.VITE_ANALYTICS_ALLOWED_HOSTS,
@@ -140,8 +133,6 @@ export function isAnalyticsEnabledInBrowser(env = import.meta.env): boolean {
     globalPrivacyControl: privacy.globalPrivacyControl,
     analyticsOptOut: isAnalyticsOptOutEnabled(),
   });
-  console.log("Is analytics enabled in this environment?", data);
-  return data;
 }
 
 export function isAnalyticsOptOutEnabled(

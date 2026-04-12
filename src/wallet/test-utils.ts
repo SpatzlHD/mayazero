@@ -201,6 +201,9 @@ export function createFakeSdkClient(options?: {
   let activeVaultId: string | null =
     options?.activeVaultId ?? vaults[0]?.id ?? null
   let initializeCount = 0
+  let lastSeedphraseImportOptions:
+    | Parameters<SdkClientLike['createFastVaultFromSeedphrase']>[0]
+    | null = null
 
   const sdk: SdkClientLike = {
     initialize: async () => {
@@ -213,6 +216,33 @@ export function createFakeSdkClient(options?: {
     },
     getActiveVault: async () =>
       vaults.find((vault) => vault.id === activeVaultId) ?? null,
+    validateSeedphrase: async (mnemonic) => ({
+      valid: mnemonic.trim().split(/\s+/).length >= 3,
+      wordCount: mnemonic.trim().split(/\s+/).length,
+      ...(mnemonic.trim().split(/\s+/).length >= 3
+        ? {}
+        : { error: 'Seedphrase is invalid.' }),
+    }),
+    discoverChainsFromSeedphrase: async (_mnemonic, chains = [], onProgress) => {
+      onProgress?.({
+        phase: 'complete',
+        chainsProcessed: chains.length,
+        chainsTotal: chains.length,
+        chainsWithBalance: chains,
+        message: 'Discovery complete',
+      })
+      return {
+        results: chains.map((chain) => ({
+          chain,
+          address: `${chain.toLowerCase()}-address`,
+          balance: '1',
+          decimals: 8,
+          symbol: chain.slice(0, 3).toUpperCase(),
+          hasBalance: true,
+        })),
+        usePhantomSolanaPath: false,
+      }
+    },
     createFastVault: async ({ onProgress }) => {
       onProgress?.({
         step: 'initializing',
@@ -220,6 +250,22 @@ export function createFakeSdkClient(options?: {
         message: 'Creating fast vault',
       })
       return 'pending-fast-vault'
+    },
+    createFastVaultFromSeedphrase: async (input) => {
+      lastSeedphraseImportOptions = input
+      input.onChainDiscovery?.({
+        phase: 'fetching',
+        chainsProcessed: input.chainsToScan?.length ?? 0,
+        chainsTotal: input.chainsToScan?.length ?? 0,
+        chainsWithBalance: input.chainsToScan ?? [],
+        message: 'Discovering balances',
+      })
+      input.onProgress?.({
+        step: 'creating-fast-vault',
+        progress: 65,
+        message: 'Creating imported fast vault',
+      })
+      return 'pending-imported-fast-vault'
     },
     verifyVault: async (vaultId) => {
       const verified = createFakeVault({
@@ -295,6 +341,7 @@ export function createFakeSdkClient(options?: {
     sdk,
     getInitializeCount: () => initializeCount,
     getVaults: () => vaults,
+    getLastSeedphraseImportOptions: () => lastSeedphraseImportOptions,
   }
 }
 

@@ -386,6 +386,17 @@ export function createFastVaultJourneySteps(): WalletJourneyStep[] {
   ]
 }
 
+export function createFastVaultImportJourneySteps(): WalletJourneyStep[] {
+  return [
+    createJourneyStep('decrypting-keystore', 'Decrypting Keystore'),
+    createJourneyStep('validating-seed', 'Validating Seedphrase'),
+    createJourneyStep('discovering-chains', 'Discovering Chains'),
+    createJourneyStep('creating', 'Creating Vault'),
+    createJourneyStep('verification-sent', 'Verification Email Sent'),
+    createJourneyStep('awaiting-code', 'Awaiting Code'),
+  ]
+}
+
 export function createFastVaultVerifyJourneySteps(): WalletJourneyStep[] {
   return [
     createJourneyStep('verifying', 'Verifying Code'),

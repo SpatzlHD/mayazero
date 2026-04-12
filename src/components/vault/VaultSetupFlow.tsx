@@ -1,74 +1,228 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { ShieldCheck, Zap, Lock, Mail, Users, ArrowRight, Loader2, CheckCircle2, WalletCards } from 'lucide-react'
 import {
+  ArrowRight,
+  CheckCircle2,
+  KeyRound,
+  Loader2,
+  Lock,
+  Mail,
+  ShieldCheck,
+  Upload,
+  WalletCards,
+  Zap,
+} from 'lucide-react'
+import {
+  createFastVaultImportJourneySteps,
   createFastVaultJourneySteps,
   createFastVaultVerifyJourneySteps,
-  createSecureVaultJourneySteps,
   trackTransactionJourney,
   useMayaWalletActions,
   useMayaWalletState,
 } from '#/wallet'
+import {
+  decryptXChainKeystoreMnemonic,
+  normalizeMnemonic,
+} from '#/wallet/import-utils'
+
+type SetupMode = 'fast' | 'seed' | 'keystore'
+
+type StatusStep = {
+  key: string
+  label: string
+  status: string
+  message?: string
+}
+
+function SetupFields(props: {
+  name: string
+  email: string
+  password: string
+  isProcessing: boolean
+  onNameChange: (value: string) => void
+  onEmailChange: (value: string) => void
+  onPasswordChange: (value: string) => void
+}) {
+  return (
+    <div className="space-y-4">
+      <Field label="Vault Name">
+        <input
+          type="text"
+          required
+          value={props.name}
+          onChange={(event) => props.onNameChange(event.target.value)}
+          placeholder="My Wallet"
+          className="super-input"
+          disabled={props.isProcessing}
+        />
+      </Field>
+      <Field label="Email">
+        <div className="flex items-center gap-2">
+          <Mail size={16} className="text-[var(--sea-ink-soft)] shrink-0" />
+          <input
+            type="email"
+            required
+            value={props.email}
+            onChange={(event) => props.onEmailChange(event.target.value)}
+            placeholder="user@example.com"
+            className="super-input"
+            disabled={props.isProcessing}
+          />
+        </div>
+      </Field>
+      <Field label="Vault Password">
+        <div className="flex items-center gap-2">
+          <Lock size={16} className="text-[var(--sea-ink-soft)] shrink-0" />
+          <input
+            type="password"
+            required
+            value={props.password}
+            onChange={(event) => props.onPasswordChange(event.target.value)}
+            placeholder="Strong password"
+            className="super-input"
+            disabled={props.isProcessing}
+          />
+        </div>
+      </Field>
+    </div>
+  )
+}
+
+function Field(props: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <label className="text-[10px] uppercase font-bold text-[var(--sea-ink-soft)] tracking-wider mb-2 block">
+        {props.label}
+      </label>
+      <div className="bg-[var(--surface-strong)] border border-[var(--line)] rounded-xl p-3 focus-within:border-[var(--maya-teal)] transition-colors">
+        {props.children}
+      </div>
+    </div>
+  )
+}
+
+function StatusPanel(props: {
+  message: string
+  steps: StatusStep[]
+  isProcessing: boolean
+}) {
+  if (!props.message && !props.steps.length && !props.isProcessing) {
+    return null
+  }
+
+  return (
+    <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 space-y-3">
+      <div className="flex items-center gap-2 text-[var(--sea-ink)]">
+        {props.isProcessing ? (
+          <Loader2 size={16} className="animate-spin text-[var(--maya-teal)]" />
+        ) : (
+          <ShieldCheck size={16} className="text-[var(--maya-teal)]" />
+        )}
+        <span className="text-sm font-bold">Vault Status</span>
+      </div>
+      {props.message && (
+        <p className="text-sm text-[var(--sea-ink-soft)]">{props.message}</p>
+      )}
+      {props.steps.length > 0 && (
+        <div className="space-y-2">
+          {props.steps.map((step) => (
+            <div
+              key={step.key}
+              className="rounded-xl bg-[var(--surface-strong)] px-3 py-2"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-bold text-[var(--sea-ink)]">
+                  {step.label}
+                </span>
+                <span className="text-[10px] uppercase font-black tracking-[0.16em] text-[var(--sea-ink-soft)]">
+                  {step.status}
+                </span>
+              </div>
+              {step.message && (
+                <p className="text-xs text-[var(--sea-ink-soft)] mt-1">
+                  {step.message}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export function VaultSetupFlow() {
   const navigate = useNavigate()
   const wallet = useMayaWalletActions()
   const state = useMayaWalletState()
 
+  const [mode, setMode] = useState<SetupMode | null>(null)
   const [step, setStep] = useState(1)
-  const [vaultType, setVaultType] = useState<'fast' | 'secure' | null>(null)
-
-  // Form State
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [devices, setDevices] = useState(3)
-  
-  // Verification State
+  const [mnemonic, setMnemonic] = useState('')
+  const [keystoreFile, setKeystoreFile] = useState<File | null>(null)
+  const [keystorePassword, setKeystorePassword] = useState('')
   const [vaultId, setVaultId] = useState<string | null>(null)
   const [verificationCode, setVerificationCode] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
   const [error, setError] = useState('')
 
-  const activeVaultJourney = state.journeys.find((journey) =>
-    journey.status === 'pending' || journey.status === 'attention'
-      ? journey.kind === 'vault.secure.create' || journey.kind === 'vault.fast.create'
-      : false,
+  const activeJourney = state.journeys.find(
+    (journey) =>
+      (journey.status === 'pending' || journey.status === 'attention') &&
+      (journey.kind === 'vault.fast.create' ||
+        journey.kind === 'vault.fast.import' ||
+        journey.kind === 'vault.fast.verify'),
   )
-  const qrPayload = activeVaultJourney?.qrPayload
-  const deviceJoin = activeVaultJourney?.deviceJoin
+  const activeOperation = state.operations.find(
+    (operation) =>
+      operation.status === 'pending' &&
+      (operation.name === 'vault.create.fast' ||
+        operation.name === 'vault.create.fast.import' ||
+        operation.name === 'vault.verify.fast'),
+  )
+  const progressMessage =
+    activeOperation?.progress?.message ??
+    activeJourney?.steps.find((item) => item.status === 'active')?.message ??
+    activeJourney?.steps.find((item) => item.status === 'attention')?.message ??
+    ''
+  const visibleSteps =
+    activeJourney?.steps.filter((item) => item.status !== 'pending') ?? []
 
-  async function handleFastSubmit(e: React.FormEvent) {
+  async function submitFastVault(e: React.FormEvent) {
     e.preventDefault()
     if (!name || !email || !password) {
       setError('Please fill in all fields')
       return
     }
+
     setError('')
     setIsProcessing(true)
     try {
-      const res = await trackTransactionJourney(wallet, {
+      const result = await trackTransactionJourney(wallet, {
         kind: 'vault.fast.create',
         title: `Create Fast Vault: ${name}`,
         source: 'fast-vault',
         routePath: '/vault-setup',
-        analytics: {
-          action: 'fast_create',
-          route: '/vault-setup',
-          subject: 'vault',
-        },
+        analytics: { action: 'fast_create', route: '/vault-setup', subject: 'vault' },
         steps: createFastVaultJourneySteps(),
         run: async (journey) => {
-          journey.activateStep('creating', 'Creating the fast vault and provisioning verification.')
-          const result = await wallet.createFastVault({ name, email, password, journeyId: journey.journeyId })
+          const next = await wallet.createFastVault({
+            name,
+            email,
+            password,
+            journeyId: journey.journeyId,
+          })
           journey.completeStep('creating', 'Fast vault created.')
           journey.completeStep('verification-sent', `Verification code sent to ${email}.`)
           journey.attentionStep('awaiting-code', 'Enter the verification code from your email to finish setup.')
-          return result
+          return next
         },
       })
-      setVaultId(res.vaultId)
-      setStep(3) // Go to verification
+      setVaultId(result.vaultId)
+      setStep(3)
     } catch (err: any) {
       setError(err?.message || 'Failed to create vault')
     } finally {
@@ -76,9 +230,105 @@ export function VaultSetupFlow() {
     }
   }
 
-  async function handleFastVerify(e: React.FormEvent) {
+  async function submitSeedImport(e: React.FormEvent) {
     e.preventDefault()
-    if (!vaultId || !verificationCode) return
+    const normalized = normalizeMnemonic(mnemonic)
+    if (!name || !email || !password || !normalized) {
+      setError('Please fill in all fields')
+      return
+    }
+
+    setError('')
+    setIsProcessing(true)
+    try {
+      const result = await trackTransactionJourney(wallet, {
+        kind: 'vault.fast.import',
+        title: `Import Fast Vault: ${name}`,
+        source: 'fast-vault',
+        routePath: '/vault-setup',
+        analytics: { action: 'fast_create', route: '/vault-setup', subject: 'vault' },
+        steps: createFastVaultImportJourneySteps(),
+        run: async (journey) => {
+          journey.completeStep('decrypting-keystore', 'Manual seedphrase entry selected.')
+          const next = await wallet.createFastVaultFromSeedphrase({
+            mnemonic: normalized,
+            name,
+            email,
+            password,
+            journeyId: journey.journeyId,
+          })
+          journey.completeStep('verification-sent', `Verification code sent to ${email}.`)
+          journey.attentionStep('awaiting-code', 'Enter the verification code from your email to finish setup.')
+          return next
+        },
+      })
+      setMnemonic('')
+      setVaultId(result.vaultId)
+      setStep(3)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to import seedphrase')
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  async function submitKeystoreImport(e: React.FormEvent) {
+    e.preventDefault()
+    if (!name || !email || !password || !keystorePassword || !keystoreFile) {
+      setError('Please fill in all fields')
+      return
+    }
+
+    setError('')
+    setIsProcessing(true)
+    try {
+      const result = await trackTransactionJourney(wallet, {
+        kind: 'vault.fast.import',
+        title: `Import Fast Vault: ${name}`,
+        source: 'fast-vault',
+        routePath: '/vault-setup',
+        analytics: { action: 'fast_create', route: '/vault-setup', subject: 'vault' },
+        steps: createFastVaultImportJourneySteps(),
+        run: async (journey) => {
+          journey.updateStep('decrypting-keystore', {
+            status: 'active',
+            message: 'Decrypting uploaded keystore locally.',
+          })
+          const rawKeystore = await keystoreFile.text()
+          const decryptedMnemonic = await decryptXChainKeystoreMnemonic(
+            rawKeystore,
+            keystorePassword,
+          )
+          journey.completeStep('decrypting-keystore', 'Keystore decrypted locally.')
+          const next = await wallet.createFastVaultFromSeedphrase({
+            mnemonic: decryptedMnemonic,
+            name,
+            email,
+            password,
+            journeyId: journey.journeyId,
+          })
+          journey.completeStep('verification-sent', `Verification code sent to ${email}.`)
+          journey.attentionStep('awaiting-code', 'Enter the verification code from your email to finish setup.')
+          return next
+        },
+      })
+      setKeystoreFile(null)
+      setKeystorePassword('')
+      setVaultId(result.vaultId)
+      setStep(3)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to import keystore')
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  async function submitVerification(e: React.FormEvent) {
+    e.preventDefault()
+    if (!vaultId || !verificationCode) {
+      return
+    }
+
     setError('')
     setIsProcessing(true)
     try {
@@ -87,14 +337,9 @@ export function VaultSetupFlow() {
         title: `Verify Fast Vault: ${name || 'Vault'}`,
         source: 'fast-vault',
         routePath: '/vault-setup',
-        analytics: {
-          action: 'fast_verify',
-          route: '/vault-setup',
-          subject: 'vault',
-        },
+        analytics: { action: 'fast_verify', route: '/vault-setup', subject: 'vault' },
         steps: createFastVaultVerifyJourneySteps(),
         run: async (journey) => {
-          journey.activateStep('verifying', 'Verifying your email code.')
           const result = await wallet.verifyFastVault(vaultId, verificationCode, {
             journeyId: journey.journeyId,
           })
@@ -105,57 +350,10 @@ export function VaultSetupFlow() {
           return result
         },
       })
-      setStep(4) // Success
+      setVerificationCode('')
+      setStep(4)
     } catch (err: any) {
       setError(err?.message || 'Failed to verify code')
-    } finally {
-      setIsProcessing(false)
-    }
-  }
-
-  async function handleSecureSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!name || devices < 2) {
-      setError('Please provide a name and at least 2 devices')
-      return
-    }
-    setError('')
-    setIsProcessing(true)
-    try {
-      setStep(3) // Immediately show the QR code screen while waiting
-      const res = await trackTransactionJourney(wallet, {
-        kind: 'vault.secure.create',
-        title: `Create Secure Vault: ${name}`,
-        source: 'secure-vault',
-        routePath: '/vault-setup',
-        analytics: {
-          action: 'secure_create',
-          route: '/vault-setup',
-          subject: 'vault',
-        },
-        steps: createSecureVaultJourneySteps(),
-        run: async (journey) => {
-          journey.activateStep('creating-session', 'Creating multi-device vault session.')
-          const result = await wallet.createSecureVault({ 
-            name, 
-            devices, 
-            password: password || undefined,
-            journeyId: journey.journeyId,
-          })
-          journey.completeStep('creating-session', 'Secure vault session created.')
-          journey.completeStep('scan-qr', 'QR pairing completed.')
-          journey.completeStep('devices-joined', 'Required devices joined.')
-          journey.completeStep('keygen', 'MPC key generation completed.')
-          journey.completeStep('vault-ready', 'Secure vault is ready.')
-          journey.complete(result)
-          return result
-        },
-      })
-      setVaultId(res.vaultId)
-      setStep(4) // Success, after threshold is reached
-    } catch (err: any) {
-      setError(err?.message || 'Failed to create secure vault')
-      setStep(2) // Go back on error
     } finally {
       setIsProcessing(false)
     }
@@ -164,9 +362,9 @@ export function VaultSetupFlow() {
   return (
     <div className="max-w-xl mx-auto w-full rise-in">
       <div className="mb-8 text-center">
-        <h2 className="terminal-title">Create Vault</h2>
+        <h2 className="terminal-title">Create or Import Vault</h2>
         <p className="text-[var(--sea-ink-soft)] font-medium mt-2">
-          Secure, multi-chain MPC wallet creation
+          Fast Vultisig vault setup with seedphrase and xchain keystore import.
         </p>
       </div>
 
@@ -176,240 +374,171 @@ export function VaultSetupFlow() {
         </div>
       )}
 
-      {/* STEP 1: SELECT TYPE */}
       {step === 1 && (
         <div className="space-y-4">
-          <button 
-            type="button"
-            onClick={() => { setVaultType('fast'); setStep(2); setError('') }}
-            className={`w-full glass-panel-strong p-6 rounded-3xl flex items-center gap-5 transition-all text-left hover:-translate-y-1 ${vaultType === 'fast' ? 'border-[var(--maya-teal)] shadow-[0_0_20px_rgba(26,154,141,0.2)]' : 'hover:border-[var(--sea-ink-soft)]'}`}
-          >
-            <div className="w-12 h-12 rounded-full bg-[rgba(26,154,141,0.1)] flex items-center justify-center text-[var(--maya-teal)] shrink-0">
-              <Zap size={24} />
-            </div>
-            <div>
-              <div className="font-bold text-lg text-[var(--sea-ink)] mb-1">Fast Vault</div>
-              <p className="text-sm text-[var(--sea-ink-soft)] font-medium">Server-assisted 2-of-2 MPC. Perfect for quick setup and everyday use.</p>
-            </div>
-            <ArrowRight size={20} className="ml-auto text-[var(--sea-ink-soft)]" />
-          </button>
-
-          <button
-            type="button"
-            disabled
-            aria-disabled="true"
-            className="w-full glass-panel-strong p-6 rounded-3xl flex items-center gap-5 text-left opacity-60 cursor-not-allowed border-transparent"
-          >
+          <ModeCard title="New Fast Vault" body="Create a brand new Fast Vault." icon={<Zap size={24} />} onClick={() => { setMode('fast'); setStep(2); setError('') }} />
+          <ModeCard title="Import Seedphrase" body="Paste an existing mnemonic and import it as a Fast Vault." icon={<KeyRound size={24} />} onClick={() => { setMode('seed'); setStep(2); setError('') }} />
+          <ModeCard title="Import Keystore" body="Upload an xchain keystore, decrypt it locally, and create a Fast Vault." icon={<Upload size={24} />} onClick={() => { setMode('keystore'); setStep(2); setError('') }} />
+          <button type="button" disabled aria-disabled="true" className="w-full glass-panel-strong p-6 rounded-3xl flex items-center gap-5 text-left opacity-60 cursor-not-allowed border-transparent">
             <div className="w-12 h-12 rounded-full bg-[rgba(232,122,78,0.1)] flex items-center justify-center text-[var(--cacao-neon)] shrink-0">
               <ShieldCheck size={24} />
             </div>
             <div className="flex-1">
-              <div className="flex items-center gap-3 mb-1">
-                <div className="font-bold text-lg text-[var(--sea-ink)]">Secure Vault</div>
-                <span className="rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-1 text-[10px] font-black uppercase tracking-[0.24em] text-[var(--cacao-neon)]">
-                  Coming Soon
-                </span>
-              </div>
-              <p className="text-sm text-[var(--sea-ink-soft)] font-medium">Multi-device N-of-M MPC. Maximum security for high-value assets.</p>
+              <div className="font-bold text-lg text-[var(--sea-ink)] mb-1">Secure Vault</div>
+              <p className="text-sm text-[var(--sea-ink-soft)] font-medium">Still disabled in this setup flow.</p>
             </div>
-            <ArrowRight size={20} className="ml-auto text-[var(--sea-ink-soft)]" />
           </button>
         </div>
       )}
 
-      {/* STEP 2: SETUP DETAILS */}
-      {step === 2 && vaultType === 'fast' && (
-        <form onSubmit={handleFastSubmit} className="glass-panel p-6 sm:p-8 rounded-3xl space-y-6">
-          <div className="flex items-center gap-3 mb-2">
-            <Zap size={20} className="text-[var(--maya-teal)]" />
-            <h3 className="text-xl font-bold text-[var(--sea-ink)]">Fast Vault Setup</h3>
-          </div>
-          
-          <div className="space-y-4">
-            <div>
-              <label className="text-[10px] uppercase font-bold text-[var(--sea-ink-soft)] tracking-wider mb-2 block">Vault Name</label>
-              <div className="bg-[var(--surface-strong)] border border-[var(--line)] rounded-xl p-3 flex items-center focus-within:border-[var(--maya-teal)] transition-colors">
-                <input 
-                  type="text" required value={name} onChange={e => setName(e.target.value)}
-                  placeholder="My Wallet" className="super-input" disabled={isProcessing}
-                />
-              </div>
-            </div>
-            <div>
-              <label className="text-[10px] uppercase font-bold text-[var(--sea-ink-soft)] tracking-wider mb-2 block">Email <span className="opacity-60 lowercase font-normal">(for verifying code)</span></label>
-              <div className="bg-[var(--surface-strong)] border border-[var(--line)] rounded-xl p-3 flex items-center gap-2 focus-within:border-[var(--maya-teal)] transition-colors">
-                <Mail size={16} className="text-[var(--sea-ink-soft)] shrink-0" />
-                <input 
-                  type="email" required value={email} onChange={e => setEmail(e.target.value)}
-                  placeholder="user@example.com" className="super-input" disabled={isProcessing}
-                />
-              </div>
-            </div>
-            <div>
-              <label className="text-[10px] uppercase font-bold text-[var(--sea-ink-soft)] tracking-wider mb-2 block">Encryption Password</label>
-              <div className="bg-[var(--surface-strong)] border border-[var(--line)] rounded-xl p-3 flex items-center gap-2 focus-within:border-[var(--maya-teal)] transition-colors">
-                <Lock size={16} className="text-[var(--sea-ink-soft)] shrink-0" />
-                <input 
-                  type="password" required value={password} onChange={e => setPassword(e.target.value)}
-                  placeholder="Strong password" className="super-input" disabled={isProcessing}
-                />
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex gap-3 pt-2">
-            <button type="button" disabled={isProcessing} onClick={() => setStep(1)} className="secondary-btn px-6 py-3 shrink-0">Back</button>
-            <button type="submit" disabled={isProcessing} className="cacao-btn flex-1 py-3 flex justify-center items-center gap-2">
-              {isProcessing ? <Loader2 size={18} className="animate-spin" /> : 'Create Vault'}
-            </button>
-          </div>
-        </form>
+      {step === 2 && mode === 'fast' && (
+        <SetupForm title="Fast Vault Setup" icon={<Zap size={20} className="text-[var(--maya-teal)]" />} onSubmit={submitFastVault} isProcessing={isProcessing} onBack={() => setStep(1)} submitLabel="Create Vault">
+          <SetupFields name={name} email={email} password={password} isProcessing={isProcessing} onNameChange={setName} onEmailChange={setEmail} onPasswordChange={setPassword} />
+          <StatusPanel message={progressMessage} steps={visibleSteps} isProcessing={isProcessing} />
+        </SetupForm>
       )}
 
-      {step === 2 && vaultType === 'secure' && (
-        <form onSubmit={handleSecureSubmit} className="glass-panel p-6 sm:p-8 rounded-3xl space-y-6">
-          <div className="flex items-center gap-3 mb-2">
-            <ShieldCheck size={20} className="text-[var(--cacao-neon)]" />
-            <h3 className="text-xl font-bold text-[var(--sea-ink)]">Secure Vault Setup</h3>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <label className="text-[10px] uppercase font-bold text-[var(--sea-ink-soft)] tracking-wider mb-2 block">Vault Name</label>
-              <div className="bg-[var(--surface-strong)] border border-[var(--line)] rounded-xl p-3 flex items-center focus-within:border-[var(--cacao-neon)] transition-colors">
-                <input 
-                  type="text" required value={name} onChange={e => setName(e.target.value)}
-                  placeholder="Team Wallet" className="super-input" disabled={isProcessing}
-                />
-              </div>
-            </div>
-            <div>
-              <label className="text-[10px] uppercase font-bold text-[var(--sea-ink-soft)] tracking-wider mb-2 block">Total Devices</label>
-              <div className="bg-[var(--surface-strong)] border border-[var(--line)] rounded-xl p-3 flex items-center gap-2 focus-within:border-[var(--cacao-neon)] transition-colors">
-                <Users size={16} className="text-[var(--sea-ink-soft)] shrink-0" />
-                <input 
-                  type="number" min={2} max={10} required value={devices.toString()} onChange={e => setDevices(parseInt(e.target.value) || 2)}
-                  className="super-input" disabled={isProcessing}
-                />
-              </div>
-              <p className="text-xs text-[var(--sea-ink-soft)] mt-1 ml-1 opacity-70">
-                Minimum 2 devices required.
-              </p>
-            </div>
-            <div>
-              <label className="text-[10px] uppercase font-bold text-[var(--sea-ink-soft)] tracking-wider mb-2 block">Encryption Password <span className="opacity-60 lowercase font-normal">(optional)</span></label>
-              <div className="bg-[var(--surface-strong)] border border-[var(--line)] rounded-xl p-3 flex items-center gap-2 focus-within:border-[var(--cacao-neon)] transition-colors">
-                <Lock size={16} className="text-[var(--sea-ink-soft)] shrink-0" />
-                <input 
-                  type="password" value={password} onChange={e => setPassword(e.target.value)}
-                  placeholder="Optional password" className="super-input" disabled={isProcessing}
-                />
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex gap-3 pt-2">
-            <button type="button" disabled={isProcessing} onClick={() => setStep(1)} className="secondary-btn px-6 py-3 shrink-0">Back</button>
-            <button type="submit" disabled={isProcessing} className="cacao-btn flex-1 py-3 flex justify-center items-center gap-2">
-              {isProcessing ? <Loader2 size={18} className="animate-spin" /> : 'Generate Session'}
-            </button>
-          </div>
-        </form>
+      {step === 2 && mode === 'seed' && (
+        <SetupForm title="Import from Seedphrase" icon={<KeyRound size={20} className="text-[var(--maya-teal)]" />} onSubmit={submitSeedImport} isProcessing={isProcessing} onBack={() => setStep(1)} submitLabel="Import Vault">
+          <SetupFields name={name} email={email} password={password} isProcessing={isProcessing} onNameChange={setName} onEmailChange={setEmail} onPasswordChange={setPassword} />
+          <Field label="Seedphrase">
+            <textarea
+              required
+              value={mnemonic}
+              onChange={(event) => setMnemonic(event.target.value)}
+              placeholder="Enter your 12 or 24 word seedphrase"
+              className="super-input min-h-28 resize-none"
+              disabled={isProcessing}
+            />
+          </Field>
+          <StatusPanel message={progressMessage} steps={visibleSteps} isProcessing={isProcessing} />
+        </SetupForm>
       )}
 
-      {/* STEP 3: VERIFICATION / PAIRING */}
-      {step === 3 && vaultType === 'fast' && (
-        <form onSubmit={handleFastVerify} className="glass-panel p-6 sm:p-8 rounded-3xl text-center space-y-6">
-          <div className="mx-auto w-16 h-16 bg-[rgba(26,154,141,0.1)] rounded-full flex items-center justify-center mb-4 text-[var(--maya-teal)]">
+      {step === 2 && mode === 'keystore' && (
+        <SetupForm title="Import from Keystore" icon={<Upload size={20} className="text-[var(--maya-teal)]" />} onSubmit={submitKeystoreImport} isProcessing={isProcessing} onBack={() => setStep(1)} submitLabel="Decrypt & Import">
+          <SetupFields name={name} email={email} password={password} isProcessing={isProcessing} onNameChange={setName} onEmailChange={setEmail} onPasswordChange={setPassword} />
+          <Field label="XChain Keystore File">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <Upload size={16} className="text-[var(--sea-ink-soft)] shrink-0" />
+              <span className="text-sm font-medium text-[var(--sea-ink)] truncate">
+                {keystoreFile?.name || 'Choose keystore JSON file'}
+              </span>
+              <input type="file" accept="application/json,.json" className="hidden" disabled={isProcessing} onChange={(event) => setKeystoreFile(event.target.files?.[0] ?? null)} />
+            </label>
+          </Field>
+          <Field label="Keystore Password">
+            <div className="flex items-center gap-2">
+              <Lock size={16} className="text-[var(--sea-ink-soft)] shrink-0" />
+              <input
+                type="password"
+                required
+                value={keystorePassword}
+                onChange={(event) => setKeystorePassword(event.target.value)}
+                placeholder="Password used for the keystore file"
+                className="super-input"
+                disabled={isProcessing}
+              />
+            </div>
+          </Field>
+          <p className="text-xs text-[var(--sea-ink-soft)] -mt-2">
+            The keystore password decrypts the file. The vault password encrypts the new Fast Vault.
+          </p>
+          <StatusPanel message={progressMessage} steps={visibleSteps} isProcessing={isProcessing} />
+        </SetupForm>
+      )}
+
+      {step === 3 && (
+        <form onSubmit={submitVerification} className="glass-panel p-6 sm:p-8 rounded-3xl text-center space-y-6">
+          <div className="mx-auto w-16 h-16 bg-[rgba(26,154,141,0.1)] rounded-full flex items-center justify-center text-[var(--maya-teal)]">
             <Mail size={32} />
           </div>
           <h3 className="text-xl font-bold text-[var(--sea-ink)]">Check Your Email</h3>
-          <p className="text-[var(--sea-ink-soft)] text-sm">We've sent a verification code to <span className="font-bold text-[var(--sea-ink)]">{email}</span></p>
-          
-          <div className="max-w-[240px] mx-auto mt-6">
-             <div className="bg-[var(--surface-strong)] border border-[var(--maya-teal)] rounded-xl p-4 flex items-center font-mono text-xl tracking-widest text-center shadow-[0_0_15px_rgba(26,154,141,0.1)]">
-               <input 
-                 type="text" required value={verificationCode} onChange={e => setVerificationCode(e.target.value)}
-                 placeholder="0000" className="super-input text-center" disabled={isProcessing}
-                 maxLength={8}
-               />
-             </div>
-          </div>
-
-          <div className="pt-4">
-             <button type="submit" disabled={isProcessing || !verificationCode} className="cacao-btn w-full py-4 flex justify-center items-center gap-2">
-               {isProcessing ? <Loader2 size={18} className="animate-spin" /> : 'Verify & Complete'}
-             </button>
-          </div>
+          <p className="text-[var(--sea-ink-soft)] text-sm">
+            We&apos;ve sent a verification code to <span className="font-bold text-[var(--sea-ink)]">{email}</span>
+          </p>
+          <StatusPanel message={progressMessage} steps={visibleSteps} isProcessing={isProcessing} />
+          <Field label="Verification Code">
+            <input
+              type="text"
+              required
+              value={verificationCode}
+              onChange={(event) => setVerificationCode(event.target.value)}
+              placeholder="0000"
+              className="super-input text-center font-mono tracking-widest"
+              disabled={isProcessing}
+              maxLength={8}
+            />
+          </Field>
+          <button type="submit" disabled={isProcessing || !verificationCode || !vaultId} className="cacao-btn w-full py-4 flex justify-center items-center gap-2">
+            {isProcessing ? <Loader2 size={18} className="animate-spin" /> : 'Verify & Complete'}
+          </button>
         </form>
       )}
 
-      {step === 3 && vaultType === 'secure' && (
-        <div className="glass-panel p-6 sm:p-8 rounded-3xl text-center space-y-6 flex flex-col items-center">
-           <div className="flex items-center gap-3 mb-2 w-full">
-            <ShieldCheck size={20} className="text-[var(--cacao-neon)]" />
-            <h3 className="text-xl font-bold text-[var(--sea-ink)]">Multi-Device Pairing</h3>
-           </div>
-           
-           {!qrPayload ? (
-             <div className="py-12 flex flex-col items-center">
-                <Loader2 size={36} className="text-[var(--sea-ink-soft)] animate-spin mb-4" />
-                <p className="text-[var(--sea-ink-soft)] font-medium">Generating secure session parameters...</p>
-             </div>
-           ) : (
-             <>
-               <p className="text-[var(--sea-ink-soft)] text-sm mb-4">
-                 Continue in the global transaction tracker. It now owns QR pairing, device joins, and signing feedback for secure vault setup.
-               </p>
-
-               <div className="mt-6 w-full max-w-sm">
-                 <div className="text-[10px] uppercase font-bold text-[var(--sea-ink-soft)] tracking-wider mb-2 text-left">
-                   Devices Joined
-                 </div>
-                 <div className="bg-[var(--surface-strong)] border border-[var(--line)] rounded-full h-3 w-full overflow-hidden flex">
-                    {Array.from({ length: Math.max(devices, deviceJoin?.required || devices) }).map((_, i) => (
-                      <div 
-                        key={i} 
-                        className={`h-full flex-1 border-r border-[#ffffff20] last:border-r-0 transition-colors duration-500 ${(deviceJoin?.joined || 1) > i ? 'bg-[var(--cacao-neon)]' : 'bg-transparent'}`} 
-                      />
-                    ))}
-                 </div>
-                 <div className="flex justify-between mt-2 text-xs font-bold font-mono">
-                    <span className="text-[var(--cacao-neon)]">{(deviceJoin?.joined || 1)} Joined</span>
-                    <span className="text-[var(--sea-ink-soft)]">Target: {deviceJoin?.required || devices}</span>
-                 </div>
-               </div>
-
-               {(deviceJoin?.joined || 1) >= (deviceJoin?.required || devices) && (
-                 <div className="w-full mt-4 p-4 rounded-xl bg-[rgba(26,154,141,0.1)] border border-[var(--maya-teal)] text-[var(--maya-teal)] text-sm font-bold flex items-center justify-center gap-2 animate-pulse">
-                   <Loader2 size={16} className="animate-spin" /> Performing Key Generation (MPC)...
-                 </div>
-               )}
-             </>
-           )}
-        </div>
-      )}
-
-      {/* STEP 4: SUCCESS */}
       {step === 4 && (
         <div className="glass-panel p-8 sm:p-12 rounded-3xl text-center space-y-6 rise-in">
-           <div className="mx-auto w-20 h-20 bg-[rgba(26,154,141,0.1)] rounded-full flex items-center justify-center mb-6 text-[var(--maya-teal)] relative">
-             <div className="absolute inset-0 rounded-full animate-ping bg-[rgba(26,154,141,0.2)]" />
-             <CheckCircle2 size={40} />
-           </div>
-           
-           <h2 className="text-3xl font-black text-[var(--sea-ink)] tracking-tight">Vault Created</h2>
-           <p className="text-[var(--sea-ink-soft)] font-medium max-w-sm mx-auto">
-             Your vault is now secure and ready to use. You can access it anytime from the Vault Manager.
-           </p>
-
-           <div className="pt-8">
-             <button onClick={() => navigate({ to: '/' })} className="cacao-btn w-full max-w-xs py-4 flex justify-center items-center gap-2 mx-auto">
-               <WalletCards size={18} /> Go to Portfolio
-             </button>
-           </div>
+          <div className="mx-auto w-20 h-20 bg-[rgba(26,154,141,0.1)] rounded-full flex items-center justify-center text-[var(--maya-teal)] relative">
+            <div className="absolute inset-0 rounded-full animate-ping bg-[rgba(26,154,141,0.2)]" />
+            <CheckCircle2 size={40} />
+          </div>
+          <h2 className="text-3xl font-black text-[var(--sea-ink)] tracking-tight">Vault Ready</h2>
+          <p className="text-[var(--sea-ink-soft)] font-medium max-w-sm mx-auto">
+            Your Fast Vault is verified and ready to use across MayaZero.
+          </p>
+          <button onClick={() => navigate({ to: '/' })} className="cacao-btn w-full max-w-xs py-4 flex justify-center items-center gap-2 mx-auto">
+            <WalletCards size={18} /> Go to Portfolio
+          </button>
         </div>
       )}
     </div>
+  )
+}
+
+function ModeCard(props: {
+  title: string
+  body: string
+  icon: ReactNode
+  onClick: () => void
+}) {
+  return (
+    <button type="button" onClick={props.onClick} className="w-full glass-panel-strong p-6 rounded-3xl flex items-center gap-5 transition-all text-left hover:-translate-y-1 hover:border-[var(--sea-ink-soft)]">
+      <div className="w-12 h-12 rounded-full bg-[rgba(26,154,141,0.1)] flex items-center justify-center text-[var(--maya-teal)] shrink-0">
+        {props.icon}
+      </div>
+      <div>
+        <div className="font-bold text-lg text-[var(--sea-ink)] mb-1">{props.title}</div>
+        <p className="text-sm text-[var(--sea-ink-soft)] font-medium">{props.body}</p>
+      </div>
+      <ArrowRight size={20} className="ml-auto text-[var(--sea-ink-soft)]" />
+    </button>
+  )
+}
+
+function SetupForm(props: {
+  title: string
+  icon: ReactNode
+  children: ReactNode
+  isProcessing: boolean
+  submitLabel: string
+  onSubmit: (event: React.FormEvent) => void
+  onBack: () => void
+}) {
+  return (
+    <form onSubmit={props.onSubmit} className="glass-panel p-6 sm:p-8 rounded-3xl space-y-6">
+      <div className="flex items-center gap-3 mb-2">
+        {props.icon}
+        <h3 className="text-xl font-bold text-[var(--sea-ink)]">{props.title}</h3>
+      </div>
+      {props.children}
+      <div className="flex gap-3 pt-2">
+        <button type="button" disabled={props.isProcessing} onClick={props.onBack} className="secondary-btn px-6 py-3 shrink-0">
+          Back
+        </button>
+        <button type="submit" disabled={props.isProcessing} className="cacao-btn flex-1 py-3 flex justify-center items-center gap-2">
+          {props.isProcessing ? <Loader2 size={18} className="animate-spin" /> : props.submitLabel}
+        </button>
+      </div>
+    </form>
   )
 }

@@ -9,6 +9,7 @@ import {
 } from './adapters'
 import { toChainCountBucket, trackAnalyticsEvent } from '#/analytics'
 import { canSwitchChainInExtension, getExtensionProviderKey } from './chains'
+import { supportedWalletChains } from './chains'
 import { serializeWalletError, WalletSessionNotFoundError } from './errors'
 import type {
   MayaWalletState,
@@ -519,6 +520,99 @@ export class MayaWalletManager {
     )
   }
 
+  async createFastVaultFromSeedphrase(options: {
+    mnemonic: string
+    name: string
+    email: string
+    password: string
+    journeyId?: string
+    signal?: AbortSignal
+  }): Promise<{ vaultId: string }> {
+    const completeJourneyStep = (journeyId: string | undefined, stepKey: string, message?: string) => {
+      if (!journeyId) {
+        return
+      }
+
+      this.patchJourney(journeyId, (journey) => ({
+        steps: journey.steps.map((step) =>
+          step.key === stepKey
+            ? {
+                ...step,
+                status: 'success',
+                ...(message ? { message } : {}),
+              }
+            : step,
+        ),
+      }))
+    }
+
+    return this.runManagerOperation(
+      'vault.create.fast.import',
+      null,
+      async (operation) => {
+        operation?.update({
+          journeyStepKey: 'validating-seed',
+          progress: {
+            step: 'validating-seed',
+            message: 'Validating imported seedphrase.',
+            value: 0,
+          },
+        })
+
+        const validation = await this.sdk.validateSeedphrase(options.mnemonic)
+        if (!validation.valid) {
+          throw new Error(validation.error || 'Invalid seedphrase')
+        }
+        completeJourneyStep(options.journeyId, 'validating-seed', 'Seedphrase validated.')
+
+        const vaultId = await this.sdk.createFastVaultFromSeedphrase({
+          ...options,
+          discoverChains: true,
+          chainsToScan: supportedWalletChains,
+          onProgress: (step) => {
+            operation?.update({
+              journeyStepKey: 'creating',
+              progress: {
+                step: step.step,
+                message: step.message,
+                value: step.progress,
+              },
+            })
+          },
+          onChainDiscovery: (progress) => {
+            operation?.update({
+              journeyStepKey: 'discovering-chains',
+              progress: {
+                step: progress.phase,
+                message: progress.message,
+                value:
+                  progress.chainsTotal > 0
+                    ? Math.round((progress.chainsProcessed / progress.chainsTotal) * 100)
+                    : 0,
+                mode: 'chain-discovery',
+              },
+            })
+            if (progress.chainsProcessed >= progress.chainsTotal) {
+              completeJourneyStep(
+                options.journeyId,
+                'discovering-chains',
+                progress.message || 'Chain discovery completed.',
+              )
+            }
+          },
+        })
+
+        return { vaultId }
+      },
+      options.journeyId
+        ? {
+            id: options.journeyId,
+            stepKey: 'validating-seed',
+          }
+        : undefined,
+    )
+  }
+
   async verifyFastVault(
     vaultId: string,
     code: string,
@@ -867,6 +961,7 @@ export class MayaWalletManager {
       case 'tx.send':
         return 'broadcasting'
       case 'vault.create.fast':
+      case 'vault.create.fast.import':
         return 'creating'
       case 'vault.verify.fast':
         return 'verifying'

@@ -13,6 +13,17 @@ export type ChangelogEntry = {
 
 export const changelogEntries: ChangelogEntry[] = [
   {
+    id: '2026-04-12-fast-vault-import',
+    date: 'April 12, 2026',
+    title: 'Fast Vault import expanded',
+    items: [
+      'Added Fast Vault import from either a pasted seedphrase or an uploaded xchain keystore.',
+      'Keystore imports now decrypt locally in the browser before creating the Vultisig vault.',
+      'Imported wallets automatically scan MayaZero-supported chains before the normal email verification step.',
+    ],
+    links: [{ href: '/vault-setup', label: 'Open Vault Setup' }],
+  },
+  {
     id: '2026-04-11-maya-masks-gallery',
     date: 'April 11, 2026',
     title: 'Maya Masks gallery shipped',

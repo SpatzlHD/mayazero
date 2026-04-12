@@ -21,6 +21,12 @@ describe('maya-asset-catalog', () => {
           nativeDecimal: '6',
         },
         {
+          asset: 'ETH.MOCA-0X53312F85BBA24C8CB99CFFC13BF82420157230D3',
+          status: 'available',
+          assetPriceUSD: '0.78',
+          nativeDecimal: '-1',
+        },
+        {
           asset: 'MAYA.MAYA',
           status: 'available',
           assetPriceUSD: '0.5',
@@ -52,6 +58,9 @@ describe('maya-asset-catalog', () => {
     expect(
       ethereum?.assets.find((asset) => asset.symbol === 'USDC')?.tokenId,
     ).toBe('0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48')
+    expect(
+      ethereum?.assets.find((asset) => asset.symbol === 'MOCA')?.decimals,
+    ).toBe(18)
 
     expect(mayachain?.assets.map((asset) => asset.symbol)).toEqual([
       'CACAO',

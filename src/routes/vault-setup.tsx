@@ -7,7 +7,7 @@ export const Route = createFileRoute('/vault-setup')({
     buildPageSeoHead({
       title: 'Vault Setup',
       description:
-        'Connect or prepare a vault session for MayaZero portfolio, swap, and liquidity actions.',
+        'Create or import a Fast Vault for MayaZero portfolio, swap, and liquidity actions.',
     }),
   component: VaultSetupPage,
 })
