@@ -183,6 +183,29 @@ describe('liquidity route helpers', () => {
 
     expect(
       getLiquidityPrimaryAction({
+        activeTab: 'deposit',
+        assetAmountBaseUnits: '1',
+        assetBalanceBaseUnits: '10',
+        cacaoAmountBaseUnits: '1',
+        cacaoBalanceBaseUnits: '10',
+        depositMode: 'symmetric',
+        hasPosition: false,
+        hasSession: true,
+        isViewOnly: true,
+        isSubmitting: false,
+        pendingDepositMatches: false,
+        pool: makePool(),
+        withdrawBasisPoints: 0,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        disabled: true,
+        label: 'View Only',
+      }),
+    )
+
+    expect(
+      getLiquidityPrimaryAction({
         activeTab: 'withdraw',
         assetAmountBaseUnits: null,
         assetBalanceBaseUnits: null,

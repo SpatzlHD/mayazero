@@ -13,14 +13,13 @@ import { Chain } from "@vultisig/sdk";
 import { startTransition, useEffect, useMemo, useState } from "react";
 import { AssetIcon } from "#/components/ProtocolPrimitives";
 import { useSettings } from "#/provider/SettingsProvider";
+import { useEffectiveWalletSession } from "#/provider/ImpersonationProvider";
 import {
   fetchMayaAssetCatalog,
   type MayaAssetCatalog,
 } from "#/lib/maya-asset-catalog";
 import { fetchCacaoPoolPosition, formatCacaoBaseUnits } from "#/lib/cacao-pool";
 import {
-  useActiveWalletSession,
-  useMayaWalletActions,
   fetchAddressBalances,
   useWalletBalanceRefreshTick,
 } from "#/wallet";
@@ -47,10 +46,9 @@ export const Route = createFileRoute("/")({
 });
 
 function PortfolioPage() {
-  const wallet = useMayaWalletActions();
   const navigate = useNavigate();
   const settings = useSettings();
-  const activeSession = useActiveWalletSession();
+  const activeSession = useEffectiveWalletSession();
   const balanceRefreshTick = useWalletBalanceRefreshTick();
   const [catalog, setCatalog] = useState<MayaAssetCatalog | null>(null);
   const [isLoading, setIsLoading] = useState(true);

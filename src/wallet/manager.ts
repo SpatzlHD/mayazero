@@ -1007,6 +1007,7 @@ export class MayaWalletManager {
       journey.kind === 'swap' ||
       journey.kind === 'liquidity' ||
       journey.kind === 'cacao-pool' ||
+      journey.kind === 'pooled-node' ||
       journey.kind === 'mayaname' ||
       journey.kind === 'send'
     )

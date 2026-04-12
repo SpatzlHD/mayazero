@@ -47,4 +47,19 @@ describe('swap route helpers', () => {
     expect(formatBaseUnits('450000000', 8)).toBe('4.5')
     expect(formatBaseUnits(undefined, 18)).toBe('')
   })
+
+  it('keeps impersonation in quote-only mode even with a prepared quote', () => {
+    expect(
+      getSwapPrimaryAction({
+        hasActiveSession: true,
+        hasQuote: true,
+        canSubmitSwap: true,
+        isViewOnly: true,
+      }),
+    ).toEqual({
+      kind: 'quote-only',
+      label: 'View Only',
+      disabled: true,
+    })
+  })
 })

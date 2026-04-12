@@ -26,6 +26,7 @@ import {
 import type { WalletSession } from "#/wallet";
 import { Chain } from "@vultisig/sdk";
 import { AssetIcon, shortenAddress } from "./ProtocolPrimitives";
+import { isDevModeEnabled } from "#/lib/dev-mode";
 
 const chainIconMap: Record<string, string> = {
   THORChain: "rune",
@@ -79,7 +80,7 @@ export function shouldShowWalletManagerDebugControls(
   isDev: boolean,
   search: string,
 ) {
-  return isDev || new URLSearchParams(search).get("dev") === "true";
+  return isDevModeEnabled(isDev, search);
 }
 
 export function downloadWalletExportFile(
@@ -322,13 +323,13 @@ export function WalletManagerMenuContent({
         </div>
         {canExport ? (
           <div className="grid grid-cols-2 items-start gap-3 mt-4">
-              <button
-                className="cacao-btn py-3 flex items-center justify-center gap-2 self-start"
-                onClick={onCreateVault}
-              >
-                <Plus size={14} />
-                Create / Import
-              </button>
+            <button
+              className="cacao-btn py-3 flex items-center justify-center gap-2 self-start"
+              onClick={onCreateVault}
+            >
+              <Plus size={14} />
+              Add Vault
+            </button>
 
             <button
               className="secondary-btn py-3 flex items-center justify-center gap-2"
@@ -340,15 +341,16 @@ export function WalletManagerMenuContent({
           </div>
         ) : (
           <div className="grid grid-cols-1 items-start gap-3 mt-4">
-              <button
-                className="cacao-btn py-3 flex items-center justify-center gap-2 self-start"
-                onClick={onCreateVault}
-              >
-                <Plus size={14} />
-                Create / Import
-              </button>
+            <button
+              className="cacao-btn py-3 flex items-center justify-center gap-2 self-start"
+              onClick={onCreateVault}
+            >
+              <Plus size={14} />
+              Add Vault
+            </button>
             <p className="text-xs text-[var(--sea-ink-soft)]">
-              Export is available for the active SDK vault.
+              Create a new vault or import an existing one from setup. Export is
+              available for the active SDK vault.
             </p>
           </div>
         )}
@@ -498,7 +500,7 @@ export function WalletManagerMenuContent({
             className="w-full p-2.5 rounded-lg text-xs font-bold bg-[var(--maya-teal)] text-[var(--bg-base)] shadow-[0_0_10px_rgba(26,154,141,0.2)] hover:scale-[1.02] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
           >
             <ShieldCheck size={14} />
-            Create or Import Vault
+            Add Vault
           </button>
         </div>
       )}

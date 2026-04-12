@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import {
-  useActiveWalletSession,
   useMayaWalletActions,
   useMayaWalletState,
   fetchAddressBalances,
@@ -26,6 +25,7 @@ import {
   waitForJourneyTransactionSettlement,
   WalletSessionNotFoundError,
 } from "#/wallet";
+import { VIEW_ONLY_IMPERSONATION_REASON } from "#/lib/impersonation";
 import {
   AssetIcon,
   protocolAssets as hardcodedAssets,
@@ -34,6 +34,10 @@ import {
   shortenAddress,
   type ProtocolAsset,
 } from "#/components/ProtocolPrimitives";
+import {
+  useEffectiveWalletSession,
+  useIsViewOnlyImpersonation,
+} from "#/provider/ImpersonationProvider";
 import { usePreferences } from "#/provider/PreferencesProvider";
 import { useSettings } from "#/provider/SettingsProvider";
 import {
@@ -197,7 +201,8 @@ function SwapTerminalPage() {
   const wallet = useMayaWalletActions();
   const navigate = useNavigate();
   const state = useMayaWalletState();
-  const activeSession = useActiveWalletSession();
+  const activeSession = useEffectiveWalletSession();
+  const isViewOnly = useIsViewOnlyImpersonation();
   const balanceRefreshTick = useWalletBalanceRefreshTick();
   const { isPowerUser } = usePreferences();
   const settings = useSettings();
@@ -368,11 +373,16 @@ function SwapTerminalPage() {
     swapForm.fromAssetId !== swapForm.toAssetId;
 
   const swapExecutionSupport = fromAsset
-    ? getSwapExecutionSupport(wallet, {
-        fromAsset,
-        quote: swapQuote,
-        sessionId: activeSession?.id,
-      })
+    ? isViewOnly
+      ? {
+          supported: false,
+          reason: VIEW_ONLY_IMPERSONATION_REASON,
+        }
+      : getSwapExecutionSupport(wallet, {
+          fromAsset,
+          quote: swapQuote,
+          sessionId: activeSession?.id,
+        })
     : {
         supported: false,
         reason: "Select an asset to continue.",
@@ -380,6 +390,7 @@ function SwapTerminalPage() {
   const primaryAction = getSwapPrimaryAction({
     hasActiveSession: Boolean(activeSession),
     hasQuote: Boolean(swapQuote),
+    isViewOnly,
     isQuoting,
     isSubmitting,
     quoteError: Boolean(quoteError),
@@ -473,6 +484,10 @@ function SwapTerminalPage() {
   ]);
 
   async function connectActiveChain() {
+    if (isViewOnly) {
+      return;
+    }
+
     await wallet
       .execute("accounts.connect", {
         input: { chain: actionChain },
@@ -487,6 +502,11 @@ function SwapTerminalPage() {
   }
 
   async function submitCurrentSwap() {
+    if (isViewOnly) {
+      setSubmitError(VIEW_ONLY_IMPERSONATION_REASON);
+      return;
+    }
+
     if (
       !activeSession ||
       !fromAsset ||
@@ -738,11 +758,15 @@ function SwapTerminalPage() {
               Pay
             </span>
             <button
-              onClick={!fromAddress ? connectActiveChain : undefined}
-              className={`text-[11px] font-bold text-[var(--sea-ink-soft)] flex items-center gap-1.5 bg-[var(--surface-strong)] px-2.5 py-1 rounded-full border border-[var(--line)] transition-colors ${!fromAddress ? "cursor-pointer hover:bg-[var(--surface)] hover:text-[var(--maya-teal)] hover:border-[var(--maya-teal)]/30" : "cursor-default"}`}
+              onClick={!fromAddress && !isViewOnly ? connectActiveChain : undefined}
+              className={`text-[11px] font-bold text-[var(--sea-ink-soft)] flex items-center gap-1.5 bg-[var(--surface-strong)] px-2.5 py-1 rounded-full border border-[var(--line)] transition-colors ${!fromAddress && !isViewOnly ? "cursor-pointer hover:bg-[var(--surface)] hover:text-[var(--maya-teal)] hover:border-[var(--maya-teal)]/30" : "cursor-default"}`}
             >
               <Wallet size={12} />
-              {fromAddress ? shortenAddress(fromAddress) : "Connect Vault"}
+              {fromAddress
+                ? shortenAddress(fromAddress)
+                : isViewOnly
+                  ? "No Address"
+                  : "Connect Vault"}
             </button>
           </div>
           <div className="flex items-center justify-between gap-4">
@@ -1400,7 +1424,11 @@ function SwapTerminalPage() {
             <button
               className="w-full py-4.5 sm:py-5 text-lg sm:text-xl font-bold tracking-tight rounded-2xl bg-[var(--surface)] border border-[var(--line)] text-[var(--sea-ink-soft)] disabled:opacity-70 disabled:cursor-not-allowed"
               disabled
-              title={swapExecutionSupport.reason ?? swapQuote?.prepareReason}
+              title={
+                isViewOnly
+                  ? VIEW_ONLY_IMPERSONATION_REASON
+                  : swapExecutionSupport.reason ?? swapQuote?.prepareReason
+              }
             >
               {primaryAction.label}
             </button>
@@ -1871,6 +1899,7 @@ export function getSwapPrimaryAction(params: {
   hasActiveSession: boolean;
   hasQuote: boolean;
   canSubmitSwap: boolean;
+  isViewOnly?: boolean;
   isQuoting?: boolean;
   isSubmitting?: boolean;
   submitStatus?: SwapExecutionStatus | null;
@@ -1885,6 +1914,14 @@ export function getSwapPrimaryAction(params: {
       kind: "connect",
       label: "Connect Vault",
       disabled: false,
+    };
+  }
+
+  if (params.isViewOnly) {
+    return {
+      kind: "quote-only",
+      label: "View Only",
+      disabled: true,
     };
   }
 

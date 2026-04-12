@@ -30,6 +30,11 @@ import {
   type MayaSupportedChain,
 } from '#/lib/maya-asset-catalog'
 import { buildPageSeoHead, getChainSeoContent } from '#/lib/seo'
+import { VIEW_ONLY_IMPERSONATION_REASON } from '#/lib/impersonation'
+import {
+  useEffectiveWalletSession,
+  useIsViewOnlyImpersonation,
+} from '#/provider/ImpersonationProvider'
 import { usePreferences } from '#/provider/PreferencesProvider'
 import { useSettings } from '#/provider/SettingsProvider'
 import {
@@ -38,7 +43,6 @@ import {
   submitAssetSend,
   fetchAddressBalances,
   trackTransactionJourney,
-  useActiveWalletSession,
   useMayaWalletActions,
   useWalletBalanceRefreshTick,
   waitForJourneyTransactionSettlement,
@@ -70,6 +74,7 @@ type ChainDetailContentProps = {
   activeSessionConnected: boolean
   chain: MayaSupportedChain
   chainAddress: string | null
+  isViewOnly: boolean
   initialAmount?: string
   initialMemo?: string
   initialRecipient?: string
@@ -92,7 +97,8 @@ export const DEFAULT_ASSET_SEND_SUPPORT_REASON =
 function ChainDetailPage() {
   const { chainKey } = Route.useParams()
   const wallet = useMayaWalletActions()
-  const activeSession = useActiveWalletSession()
+  const activeSession = useEffectiveWalletSession()
+  const isViewOnly = useIsViewOnlyImpersonation()
   const balanceRefreshTick = useWalletBalanceRefreshTick()
   const settings = useSettings()
   const { isPowerUser } = usePreferences()
@@ -188,7 +194,7 @@ function ChainDetailPage() {
 
     try {
       let resolvedAddresses = activeSession.addresses
-      if (!resolvedAddresses[targetChain.walletChain]) {
+      if (!resolvedAddresses[targetChain.walletChain] && !activeSession.isViewOnly) {
         const refreshKey = `${activeSession.id}:${targetChain.key}`
         if (!attemptedAddressRefresh.current.has(refreshKey)) {
           attemptedAddressRefresh.current.add(refreshKey)
@@ -268,6 +274,13 @@ function ChainDetailPage() {
   }
 
   function resolveAssetSendSupportForRow(asset: ChainAssetRow): AssetSendSupport {
+    if (isViewOnly) {
+      return {
+        supported: false,
+        reason: VIEW_ONLY_IMPERSONATION_REASON,
+      }
+    }
+
     const sendAsset = toSendAsset(asset)
     if (!sendAsset) {
       return {
@@ -292,6 +305,9 @@ function ChainDetailPage() {
 
     if (!activeSession) {
       throw new Error('Connect a wallet session before sending assets.')
+    }
+    if (isViewOnly) {
+      throw new Error(VIEW_ONLY_IMPERSONATION_REASON)
     }
 
     const result = await trackTransactionJourney(wallet, {
@@ -414,6 +430,7 @@ function ChainDetailPage() {
         activeSessionConnected={Boolean(activeSession)}
         chain={chain}
         chainAddress={chainAddress}
+        isViewOnly={isViewOnly}
         isAddressCopied={isAddressCopied}
         isBalanceLoading={isBalanceLoading}
         isPowerUser={isPowerUser}
@@ -668,7 +685,9 @@ export function ChainDetailContent(props: ChainDetailContentProps) {
               </div>
             ) : (
               <div className="rounded-xl border border-dashed border-[var(--line)] bg-[var(--surface-strong)]/60 px-4 py-4 text-sm text-[var(--sea-ink-soft)] text-center sm:text-left">
-                {props.activeSessionConnected
+                {props.isViewOnly
+                  ? `No ${props.chain.name} address is configured for impersonation.`
+                  : props.activeSessionConnected
                   ? `Connect or sync your ${props.chain.name} address to generate a receive address.`
                   : 'Connect your vault to generate a receive address for this chain.'}
               </div>
@@ -677,7 +696,7 @@ export function ChainDetailContent(props: ChainDetailContentProps) {
         </div>
       </section>
 
-      {!props.activeSessionConnected && (
+      {!props.activeSessionConnected && !props.isViewOnly && (
         <div className="mb-10 flex">
           <button
             className="cacao-btn px-8 py-3 text-sm flex items-center justify-center gap-2 shadow-sm rounded-xl"
@@ -720,7 +739,9 @@ export function ChainDetailContent(props: ChainDetailContentProps) {
                       supported: false,
                       reason:
                         asset.status === 'missing-address'
-                          ? `Connect or sync a ${props.chain.name} address before sending.`
+                          ? props.isViewOnly
+                            ? VIEW_ONLY_IMPERSONATION_REASON
+                            : `Connect or sync a ${props.chain.name} address before sending.`
                           : DEFAULT_ASSET_SEND_SUPPORT_REASON,
                     }
               const sendDisabled = asset.status !== 'ready' || !sendSupport.supported

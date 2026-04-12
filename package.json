@@ -21,6 +21,7 @@
     "@vercel/analytics": "^2.0.1",
     "@vultisig/sdk": "^0.12.0",
     "@xchainjs/xchain-crypto": "^1.0.6",
+    "hypertune": "^2.10.1",
     "install": "^0.13.0",
     "lucide-react": "^0.545.0",
     "npm": "^11.12.1",

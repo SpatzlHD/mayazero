@@ -12,6 +12,7 @@ function renderContent(
     <MayaMasksPageContent
       viewState="ready"
       sessionLabel="Vault"
+      isViewOnly={false}
       ethAddress="0x000000000000000000000000000000000000dEaD"
       contractAddress="0xe00d8f3dCA2ac474F4D7F177570f77de0774e754"
       masks={[

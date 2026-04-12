@@ -11,6 +11,11 @@ import {
   setStoredReferralSupport,
   setSupportReferrerPreferences,
 } from '#/lib/swap-affiliates'
+import {
+  normalizeImpersonationAddresses,
+  validateImpersonationAddresses,
+  type ImpersonationAddressMap,
+} from '#/lib/impersonation'
 
 export interface SettingsState {
   mayanodeUrl: string
@@ -27,6 +32,8 @@ export interface SettingsState {
   interfaceSupportSwapEnabled: boolean
   interfaceSupportSwapBps: string
   interfaceSupportBannerDismissed: boolean
+  impersonationEnabled: boolean
+  impersonationAddresses: ImpersonationAddressMap
   updateSettings: (newSettings: Partial<SettingsPersistedState>) => void
   setReferralMayaName: (name: string) => void
   clearReferralMayaName: () => void
@@ -49,6 +56,7 @@ export interface SettingsState {
       >
     >,
   ) => void
+  clearImpersonationSettings: () => void
 }
 
 export type SettingsPersistedState = Omit<
@@ -59,6 +67,7 @@ export type SettingsPersistedState = Omit<
   | 'updateSupportReferrerSettings'
   | 'resetSupportReferrerSettings'
   | 'updateInterfaceSupportSettings'
+  | 'clearImpersonationSettings'
 >
 
 const defaultSettings = {
@@ -76,6 +85,8 @@ const defaultSettings = {
   interfaceSupportSwapEnabled: false,
   interfaceSupportSwapBps: DEFAULT_SUPPORT_REFERRER_BPS,
   interfaceSupportBannerDismissed: false,
+  impersonationEnabled: false,
+  impersonationAddresses: {},
 }
 
 const SettingsContext = createContext<SettingsState | undefined>(undefined)
@@ -155,6 +166,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     )
   }
 
+  const clearImpersonationSettings = () => {
+    setSettings((prev: SettingsPersistedState) => ({
+      ...prev,
+      impersonationEnabled: false,
+      impersonationAddresses: {},
+    }))
+  }
+
   return (
     <SettingsContext.Provider
       value={{
@@ -165,6 +184,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         updateSupportReferrerSettings,
         resetSupportReferrerSettings,
         updateInterfaceSupportSettings,
+        clearImpersonationSettings,
       }}
     >
       {children}
@@ -189,9 +209,11 @@ export function loadStoredSettings(
     const stored = storage?.getItem('maya-settings')
     if (stored) {
       return {
-        ...defaultSettings,
-        analyticsDisabled,
-        ...JSON.parse(stored),
+        ...sanitizeStoredSettings({
+          ...defaultSettings,
+          analyticsDisabled,
+          ...JSON.parse(stored),
+        } as SettingsPersistedState),
       }
     }
   } catch {
@@ -199,8 +221,10 @@ export function loadStoredSettings(
   }
 
   return {
-    ...defaultSettings,
-    analyticsDisabled,
+    ...sanitizeStoredSettings({
+      ...defaultSettings,
+      analyticsDisabled,
+    }),
   }
 }
 
@@ -226,4 +250,24 @@ export function clearStoredReferralMayaName(
   settings: SettingsPersistedState,
 ): SettingsPersistedState {
   return clearStoredReferralSupport(settings)
+}
+
+function sanitizeStoredSettings(
+  settings: SettingsPersistedState,
+): SettingsPersistedState {
+  const impersonationAddresses = normalizeImpersonationAddresses(
+    settings.impersonationAddresses,
+  )
+  const impersonationErrors = validateImpersonationAddresses(
+    impersonationAddresses,
+  )
+
+  return {
+    ...settings,
+    impersonationAddresses,
+    impersonationEnabled:
+      settings.impersonationEnabled &&
+      Object.keys(impersonationErrors).length === 0 &&
+      Object.keys(impersonationAddresses).length > 0,
+  }
 }

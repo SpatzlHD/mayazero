@@ -28,9 +28,14 @@ import {
   getSessionLiquidityAddresses,
   mergeLiquidityPositionsWithFallback,
 } from "#/lib/liquidity";
+import { VIEW_ONLY_IMPERSONATION_REASON } from "#/lib/impersonation";
 import { parseDecimalToBaseUnits, formatBaseUnits } from "#/lib/cacao-pool";
 import { INTERFACE_AFFILIATE_MAYANAME } from "#/lib/swap-affiliates";
 import { buildPageSeoHead } from "#/lib/seo";
+import {
+  useEffectiveWalletSession,
+  useIsViewOnlyImpersonation,
+} from "#/provider/ImpersonationProvider";
 import { usePreferences } from "#/provider/PreferencesProvider";
 import { useSettings } from "#/provider/SettingsProvider";
 import {
@@ -43,7 +48,6 @@ import {
   submitLiquidityDepositStep,
   submitLiquidityWithdraw,
   trackTransactionJourney,
-  useActiveWalletSession,
   useMayaWalletActions,
   useWalletBalanceRefreshTick,
   waitForJourneyTransactionSettlement,
@@ -81,7 +85,8 @@ const MAX_LP_INTERFACE_FEE_BPS = 1000;
 function LiquidityTerminalPage() {
   const navigate = useNavigate();
   const wallet = useMayaWalletActions();
-  const activeSession = useActiveWalletSession();
+  const activeSession = useEffectiveWalletSession();
+  const isViewOnly = useIsViewOnlyImpersonation();
   const balanceRefreshTick = useWalletBalanceRefreshTick();
   const { isPowerUser } = usePreferences();
   const settings = useSettings();
@@ -191,9 +196,12 @@ function LiquidityTerminalPage() {
     cacaoAmountBaseUnits,
     cacaoBalanceBaseUnits: cacaoBalance?.amount ?? null,
     depositMode,
-    depositSupportReason: depositSupport.reason,
+    depositSupportReason: isViewOnly
+      ? VIEW_ONLY_IMPERSONATION_REASON
+      : depositSupport.reason,
     hasPosition: Boolean(selectedPosition && selectedPosition.units !== "0"),
     hasSession: Boolean(activeSession),
+    isViewOnly,
     isSubmitting,
     pendingDepositMatches: Boolean(
       pendingDeposit &&
@@ -203,7 +211,9 @@ function LiquidityTerminalPage() {
     ),
     pool: selectedPool,
     withdrawBasisPoints,
-    withdrawSupportReason: withdrawSupport.reason,
+    withdrawSupportReason: isViewOnly
+      ? VIEW_ONLY_IMPERSONATION_REASON
+      : withdrawSupport.reason,
   });
 
   async function refreshLiquidityData() {
@@ -349,6 +359,10 @@ function LiquidityTerminalPage() {
   }, [pendingDeposit, visiblePositions, selectedPoolAsset, sortedPools]);
 
   async function connectPoolChain() {
+    if (isViewOnly) {
+      return;
+    }
+
     const connectChain = selectedPool?.walletChain ?? Chain.MayaChain;
     await wallet
       .execute("accounts.connect", {
@@ -475,6 +489,11 @@ function LiquidityTerminalPage() {
   }
 
   async function handlePrimaryAction() {
+    if (isViewOnly) {
+      setSubmitError(VIEW_ONLY_IMPERSONATION_REASON);
+      return;
+    }
+
     if (!activeSession) {
       await connectPoolChain();
       return;
@@ -1514,12 +1533,22 @@ export function getLiquidityPrimaryAction(input: {
   depositSupportReason?: string;
   hasPosition: boolean;
   hasSession: boolean;
+  isViewOnly?: boolean;
   isSubmitting: boolean;
   pendingDepositMatches: boolean;
   pool: LiquidityPool | null;
   withdrawBasisPoints: number;
   withdrawSupportReason?: string;
 }): LiquidityActionState {
+  if (input.isViewOnly) {
+    return {
+      disabled: true,
+      kind: "submit",
+      label: "View Only",
+      note: VIEW_ONLY_IMPERSONATION_REASON,
+    };
+  }
+
   if (!input.hasSession) {
     return { disabled: false, kind: "connect", label: "Connect Vault" };
   }

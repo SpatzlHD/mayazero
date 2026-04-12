@@ -153,7 +153,7 @@ describe("WalletManagerMenuContent", () => {
     const text = collectText(tree);
 
     expect(text).toContain("Active Vault");
-    expect(text).toContain("Create / Import");
+    expect(text).toContain("Add Vault");
     expect(text).toContain("Export Vault");
     expect(text).toContain("Switch Wallet Session");
     expect(text).toContain("Refresh Data");
@@ -162,7 +162,7 @@ describe("WalletManagerMenuContent", () => {
   it("wires the create vault button to the supplied callback", () => {
     const onCreateVault = vi.fn();
     const tree = WalletManagerMenuContent(createMenuProps({ onCreateVault }));
-    const button = findButtonByText(tree, /create \/ import/i);
+    const button = findButtonByText(tree, /add vault/i);
 
     expect(button).toBeTruthy();
 
@@ -186,6 +186,7 @@ describe("WalletManagerMenuContent", () => {
 
     expect(text).toContain("Vultisig Extension");
     expect(text).toContain("Export is available for the active SDK vault.");
+    expect(text).toContain("Create a new vault or import an existing one from setup.");
     expect(findButtonByText(tree, /export vault/i)).toBeUndefined();
   });
 
@@ -257,7 +258,7 @@ describe("WalletManagerMenuContent", () => {
 
     expect(text).toContain("No active vault");
     expect(text).toContain("No active session detected.");
-    expect(text).toContain("Create or Import Vault");
+    expect(text).toContain("Add Vault");
   });
 
   it("shows and wires debug controls only when requested", () => {

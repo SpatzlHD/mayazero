@@ -40,6 +40,7 @@ export type WalletJourneyKind =
   | 'swap'
   | 'liquidity'
   | 'cacao-pool'
+  | 'pooled-node'
   | 'mayaname'
   | 'send'
   | 'vault.fast.create'

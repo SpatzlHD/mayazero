@@ -28,6 +28,7 @@ function renderContent(overrides: Partial<Parameters<typeof MayaNamesPageContent
     <MayaNamesPageContent
       viewState="ready"
       activeSessionLabel="Vault"
+      isViewOnly={false}
       mayaAddress="maya1owner"
       ownedNames={['alpha', 'beta']}
       selectedName="alpha"

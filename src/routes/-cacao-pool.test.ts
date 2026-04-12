@@ -58,6 +58,22 @@ describe('cacao pool route helpers', () => {
       getCacaoPoolPrimaryAction({
         hasSession: true,
         hasMayaAddress: true,
+        isViewOnly: true,
+        amountBaseUnits: '100',
+        balanceBaseUnits: '500',
+        isSubmitting: false,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        label: 'View Only',
+        disabled: true,
+      }),
+    )
+
+    expect(
+      getCacaoPoolPrimaryAction({
+        hasSession: true,
+        hasMayaAddress: true,
         amountBaseUnits: '100',
         balanceBaseUnits: '50',
         isSubmitting: false,

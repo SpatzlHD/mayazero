@@ -1,12 +1,21 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { Chain } from '@vultisig/sdk'
 import { Settings, Save } from 'lucide-react'
 import { useSettings } from '#/provider/SettingsProvider'
 import { useEffect, useState } from 'react'
 import { buildPageSeoHead } from '#/lib/seo'
+import { isDevModeEnabled } from '#/lib/dev-mode'
+import {
+  normalizeImpersonationAddresses,
+  validateImpersonationAddresses,
+  type ImpersonationAddressMap,
+  type ImpersonationValidationErrors,
+} from '#/lib/impersonation'
 import {
   type MayaNameValidationResult,
   validateMayaName,
 } from '#/lib/mayaname'
+import { supportedWalletChains } from '#/wallet/chains'
 
 export const Route = createFileRoute('/settings')({
   head: () =>
@@ -25,8 +34,34 @@ export type ReferralValidationState =
   | { status: 'invalid'; message: string }
   | { status: 'unreachable'; message: string }
 
+const chainLabels: Partial<Record<Chain, string>> = {
+  [Chain.MayaChain]: 'MayaChain',
+  [Chain.THORChain]: 'THORChain',
+  [Chain.Bitcoin]: 'Bitcoin',
+  [Chain.Dash]: 'Dash',
+  [Chain.Zcash]: 'Zcash',
+  [Chain.Ethereum]: 'Ethereum',
+  [Chain.Arbitrum]: 'Arbitrum',
+  [Chain.Kujira]: 'Kujira',
+}
+
+const chainPlaceholders: Partial<Record<Chain, string>> = {
+  [Chain.MayaChain]: 'maya1...',
+  [Chain.THORChain]: 'thor1...',
+  [Chain.Bitcoin]: 'bc1...',
+  [Chain.Dash]: 'X...',
+  [Chain.Zcash]: 'zs...',
+  [Chain.Ethereum]: '0x...',
+  [Chain.Arbitrum]: '0x...',
+  [Chain.Kujira]: 'kujira1...',
+}
+
 function SettingsPage() {
   const settings = useSettings()
+  const isDevMode = isDevModeEnabled(
+    import.meta.env.DEV,
+    typeof window !== 'undefined' ? window.location.search : '',
+  )
   
   // Local state for the form so we can save it explicitly
   const [formConfig, setFormConfig] = useState({
@@ -38,6 +73,8 @@ function SettingsPage() {
     analyticsDisabled: settings.analyticsDisabled,
     supportFeePercent: settings.supportFeePercent,
     referralMayaName: settings.referralMayaName,
+    impersonationEnabled: settings.impersonationEnabled,
+    impersonationAddresses: settings.impersonationAddresses,
   })
 
   const [saved, setSaved] = useState(false)
@@ -45,6 +82,10 @@ function SettingsPage() {
   const [referralValidation, setReferralValidation] = useState<ReferralValidationState>({
     status: formConfig.referralMayaName.trim() ? 'validating' : 'idle',
   })
+  const [impersonationValidation, setImpersonationValidation] =
+    useState<ImpersonationValidationErrors>(() =>
+      validateImpersonationAddresses(formConfig.impersonationAddresses),
+    )
 
   useEffect(() => {
     let cancelled = false
@@ -80,9 +121,27 @@ function SettingsPage() {
     }
   }, [formConfig.mayanodeUrl, formConfig.referralMayaName])
 
+  useEffect(() => {
+    setImpersonationValidation(
+      validateImpersonationAddresses(formConfig.impersonationAddresses),
+    )
+  }, [formConfig.impersonationAddresses])
+
   const handleSave = async () => {
     setIsSaving(true)
     const trimmedReferral = formConfig.referralMayaName.trim()
+    const normalizedImpersonationAddresses = normalizeImpersonationAddresses(
+      formConfig.impersonationAddresses,
+    )
+    const nextImpersonationValidation = validateImpersonationAddresses(
+      normalizedImpersonationAddresses,
+    )
+
+    setImpersonationValidation(nextImpersonationValidation)
+    if (Object.keys(nextImpersonationValidation).length > 0) {
+      setIsSaving(false)
+      return
+    }
 
     if (trimmedReferral) {
       setReferralValidation({
@@ -112,6 +171,10 @@ function SettingsPage() {
     settings.updateSettings({
       ...formConfig,
       referralMayaName: trimmedReferral,
+      impersonationAddresses: normalizedImpersonationAddresses,
+      impersonationEnabled:
+        formConfig.impersonationEnabled &&
+        Object.keys(normalizedImpersonationAddresses).length > 0,
     })
     setSaved(true)
     setIsSaving(false)
@@ -333,6 +396,100 @@ function SettingsPage() {
               </p>
             </div>
           </section>
+
+          {isDevMode ? (
+            <section>
+              <h3 className="kicker mb-4 text-[var(--sea-ink-soft)] mt-8">
+                Developer Impersonation
+              </h3>
+              <div className="space-y-4 rounded-xl border border-[var(--line)] bg-[var(--chip-bg)] p-4">
+                <label className="flex items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--bg-base)] p-4 transition-colors hover:border-[var(--cacao-neon)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="w-5 h-5 accent-[var(--cacao-neon)] bg-[var(--surface)] border-[var(--line)] cursor-pointer"
+                    checked={formConfig.impersonationEnabled}
+                    onChange={(event) =>
+                      setFormConfig((current) => ({
+                        ...current,
+                        impersonationEnabled: event.target.checked,
+                      }))
+                    }
+                  />
+                  <div className="flex flex-col">
+                    <span className="font-bold text-[var(--sea-ink)]">
+                      Enable view-only impersonation
+                    </span>
+                    <span className="text-xs text-[var(--sea-ink-soft)]">
+                      Overrides read paths with the address map below while keeping all actions disabled.
+                    </span>
+                  </div>
+                </label>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  {supportedWalletChains.map((chain) => (
+                    <div
+                      key={chain}
+                      className="flex flex-col gap-1.5 rounded-xl border border-[var(--line)] bg-[var(--bg-base)] p-4"
+                    >
+                      <label className="text-xs uppercase font-bold text-[var(--sea-ink-soft)]">
+                        {chainLabels[chain]}
+                      </label>
+                      <input
+                        type="text"
+                        className={`rounded-xl border px-4 py-2.5 text-base text-[var(--sea-ink)] outline-none transition-colors ${
+                          impersonationValidation[chain]
+                            ? 'border-rose-500 bg-rose-500/5'
+                            : 'border-[var(--line)] bg-[var(--surface)] focus:border-[var(--cacao-neon)]'
+                        }`}
+                        value={formConfig.impersonationAddresses[chain] ?? ''}
+                        placeholder={chainPlaceholders[chain]}
+                        onChange={(event) =>
+                          setFormConfig((current) => ({
+                            ...current,
+                            impersonationAddresses: {
+                              ...current.impersonationAddresses,
+                              [chain]: event.target.value,
+                            } as ImpersonationAddressMap,
+                          }))
+                        }
+                      />
+                      <span
+                        className={`text-xs ${
+                          impersonationValidation[chain]
+                            ? 'text-rose-500'
+                            : 'text-[var(--sea-ink-soft)]'
+                        }`}
+                      >
+                        {impersonationValidation[chain] ??
+                          'Leave blank to keep this chain in the normal missing-address state.'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex flex-col gap-3 rounded-xl border border-[var(--line)] bg-[var(--bg-base)] p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-sm text-[var(--sea-ink-soft)]">
+                    Invalid addresses prevent impersonation from being saved. Empty maps automatically disable the mode.
+                  </div>
+                  <button
+                    type="button"
+                    className="secondary-btn px-5 py-3"
+                    onClick={() => {
+                      settings.clearImpersonationSettings()
+                      setFormConfig((current) => ({
+                        ...current,
+                        impersonationEnabled: false,
+                        impersonationAddresses: {},
+                      }))
+                      setImpersonationValidation({})
+                    }}
+                  >
+                    Clear impersonation
+                  </button>
+                </div>
+              </div>
+            </section>
+          ) : null}
         </div>
 
         <div className="mt-8 pt-6 border-t border-[var(--line)]">

@@ -13,9 +13,13 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AssetIcon } from "#/components/ProtocolPrimitives";
+import { VIEW_ONLY_IMPERSONATION_REASON } from "#/lib/impersonation";
 import { fetchMayaMasks, type MayaMaskHolding } from "#/lib/maya-masks";
 import { buildPageSeoHead } from "#/lib/seo";
-import { useActiveWalletSession } from "#/wallet";
+import {
+  useEffectiveWalletSession,
+  useIsViewOnlyImpersonation,
+} from "#/provider/ImpersonationProvider";
 
 export const MAYA_MASKS_CONTRACT_ADDRESS =
   "0xe00d8f3dCA2ac474F4D7F177570f77de0774e754";
@@ -45,6 +49,7 @@ type MayaMasksPageProps = {
 type MayaMasksPageContentProps = {
   viewState: MayaMasksViewState;
   sessionLabel: string;
+  isViewOnly: boolean;
   ethAddress: string;
   contractAddress: string;
   masks: MayaMaskHolding[];
@@ -62,7 +67,8 @@ export function MayaMasksPage({
   loadMayaMasks = fetchMayaMasks,
 }: MayaMasksPageProps) {
   const navigate = useNavigate();
-  const activeSession = useActiveWalletSession();
+  const activeSession = useEffectiveWalletSession();
+  const isViewOnly = useIsViewOnlyImpersonation();
   const ethAddress = activeSession?.addresses[Chain.Ethereum] ?? "";
   const [masks, setMasks] = useState<MayaMaskHolding[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -148,12 +154,17 @@ export function MayaMasksPage({
     <MayaMasksPageContent
       viewState={viewState}
       sessionLabel={activeSession?.label || "Vault"}
+      isViewOnly={isViewOnly}
       ethAddress={ethAddress}
       contractAddress={MAYA_MASKS_CONTRACT_ADDRESS}
       masks={masks}
       errorMessage={errorMessage}
       isRefreshing={isRefreshing}
-      onConnectWallet={() => navigate({ to: "/vault-setup" })}
+      onConnectWallet={() => {
+        if (!isViewOnly) {
+          navigate({ to: "/vault-setup" });
+        }
+      }}
       onRefresh={() => {
         void refreshMasks();
       }}
@@ -203,7 +214,9 @@ export function MayaMasksPageContent(props: MayaMasksPageContentProps) {
           icon={WalletCards}
           title="Connect a wallet session"
           body="Maya Masks uses the active wallet session to discover your Ethereum address before fetching NFT holdings."
-          actionLabel="Connect Vault"
+          actionLabel={props.isViewOnly ? "View Only" : "Connect Vault"}
+          disabled={props.isViewOnly}
+          note={props.isViewOnly ? VIEW_ONLY_IMPERSONATION_REASON : undefined}
           onAction={props.onConnectWallet}
         />
       ) : null}
@@ -213,7 +226,9 @@ export function MayaMasksPageContent(props: MayaMasksPageContentProps) {
           icon={Wallet}
           title="Sync an Ethereum address"
           body={`The active session "${props.sessionLabel}" is connected, but it does not expose an Ethereum address yet.`}
-          actionLabel="Open Vault Setup"
+          actionLabel={props.isViewOnly ? "View Only" : "Open Vault Setup"}
+          disabled={props.isViewOnly}
+          note={props.isViewOnly ? VIEW_ONLY_IMPERSONATION_REASON : undefined}
           onAction={props.onConnectWallet}
         />
       ) : null}
@@ -381,6 +396,8 @@ function StateGate(props: {
   title: string;
   body: string;
   actionLabel: string;
+  disabled?: boolean;
+  note?: string;
   onAction: () => void;
 }) {
   const Icon = props.icon;
@@ -398,11 +415,15 @@ function StateGate(props: {
       </p>
       <button
         type="button"
-        className="w-full sm:w-auto mt-8 px-8 py-4 text-lg font-bold rounded-2xl bg-gradient-to-r from-[var(--maya-teal)] to-emerald-400 text-[var(--bg-base)] shadow-[0_4px_20px_rgba(79,209,197,0.3)] hover:shadow-[0_6px_24px_rgba(79,209,197,0.5)] hover:scale-[1.02] transition-all"
+        className="w-full sm:w-auto mt-8 px-8 py-4 text-lg font-bold rounded-2xl bg-gradient-to-r from-[var(--maya-teal)] to-emerald-400 text-[var(--bg-base)] shadow-[0_4px_20px_rgba(79,209,197,0.3)] hover:shadow-[0_6px_24px_rgba(79,209,197,0.5)] hover:scale-[1.02] transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
+        disabled={props.disabled}
         onClick={props.onAction}
       >
         {props.actionLabel}
       </button>
+      {props.note ? (
+        <p className="mt-4 text-sm text-amber-500">{props.note}</p>
+      ) : null}
     </article>
   );
 }

@@ -18,7 +18,6 @@ import {
   getCacaoPoolDepositSupport,
   trackTransactionJourney,
   type AddressBalanceResponse,
-  useActiveWalletSession,
   useMayaWalletActions,
   useWalletBalanceRefreshTick,
   waitForJourneyTransactionSettlement,
@@ -33,7 +32,12 @@ import {
   type CacaoPoolHistoryPoint,
   type CacaoPoolSnapshot,
 } from "#/lib/cacao-pool";
+import { VIEW_ONLY_IMPERSONATION_REASON } from "#/lib/impersonation";
 import { AssetIcon, shortenAddress } from "#/components/ProtocolPrimitives";
+import {
+  useEffectiveWalletSession,
+  useIsViewOnlyImpersonation,
+} from "#/provider/ImpersonationProvider";
 import { buildPageSeoHead } from "#/lib/seo";
 
 export const Route = createFileRoute("/cacao-pool")({
@@ -67,7 +71,8 @@ export function CacaoPoolPage({
 }: CacaoPoolPageProps) {
   const wallet = useMayaWalletActions();
   const navigate = useNavigate();
-  const activeSession = useActiveWalletSession();
+  const activeSession = useEffectiveWalletSession();
+  const isViewOnly = useIsViewOnlyImpersonation();
   const balanceRefreshTick = useWalletBalanceRefreshTick();
   const mayaAddress = activeSession?.addresses[Chain.MayaChain] ?? "";
 
@@ -95,13 +100,20 @@ export function CacaoPoolPage({
   const depositState = getCacaoPoolPrimaryAction({
     hasSession: Boolean(activeSession),
     hasMayaAddress: Boolean(mayaAddress),
-    supportReason: depositSupport.reason,
+    isViewOnly,
+    supportReason: isViewOnly
+      ? VIEW_ONLY_IMPERSONATION_REASON
+      : depositSupport.reason,
     amountBaseUnits,
     balanceBaseUnits: cacaoBalance?.amount ?? null,
     isSubmitting,
   });
 
   async function connectMayaChain() {
+    if (isViewOnly) {
+      return;
+    }
+
     await wallet
       .execute("accounts.connect", {
         sessionId: activeSession?.id,
@@ -208,6 +220,11 @@ export function CacaoPoolPage({
   }, []);
 
   async function handleDeposit() {
+    if (isViewOnly) {
+      setSubmitError(VIEW_ONLY_IMPERSONATION_REASON);
+      return;
+    }
+
     if (!amountBaseUnits || !activeSession || !depositSupport.supported) {
       return;
     }
@@ -349,11 +366,15 @@ export function CacaoPoolPage({
                 Amount
               </span>
               <button
-                onClick={!mayaAddress ? connectMayaChain : undefined}
-                className={`text-[11px] font-bold text-[var(--sea-ink-soft)] flex items-center gap-1.5 bg-[var(--surface-strong)] px-2.5 py-1 rounded-full border border-[var(--line)] transition-colors ${!mayaAddress ? "cursor-pointer hover:bg-[var(--surface)] hover:text-[var(--cacao-neon)] hover:border-[var(--cacao-neon)]/30" : "cursor-default"}`}
+                onClick={!mayaAddress && !isViewOnly ? connectMayaChain : undefined}
+                className={`text-[11px] font-bold text-[var(--sea-ink-soft)] flex items-center gap-1.5 bg-[var(--surface-strong)] px-2.5 py-1 rounded-full border border-[var(--line)] transition-colors ${!mayaAddress && !isViewOnly ? "cursor-pointer hover:bg-[var(--surface)] hover:text-[var(--cacao-neon)] hover:border-[var(--cacao-neon)]/30" : "cursor-default"}`}
               >
                 <Wallet size={12} />
-                {mayaAddress ? shortenAddress(mayaAddress) : "Connect Vault"}
+                {mayaAddress
+                  ? shortenAddress(mayaAddress)
+                  : isViewOnly
+                    ? "No Address"
+                    : "Connect Vault"}
               </button>
             </div>
             <div className="flex items-center justify-between gap-4">
@@ -749,11 +770,21 @@ export function CacaoPoolPage({
 export function getCacaoPoolPrimaryAction(params: {
   hasSession: boolean;
   hasMayaAddress: boolean;
+  isViewOnly?: boolean;
   supportReason?: string;
   amountBaseUnits: string | null;
   balanceBaseUnits: string | null;
   isSubmitting: boolean;
 }) {
+  if (params.isViewOnly) {
+    return {
+      kind: "deposit" as const,
+      label: "View Only",
+      disabled: true,
+      note: VIEW_ONLY_IMPERSONATION_REASON,
+    };
+  }
+
   if (!params.hasSession || !params.hasMayaAddress) {
     return {
       kind: "connect" as const,

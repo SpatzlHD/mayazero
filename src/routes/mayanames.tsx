@@ -54,14 +54,18 @@ import {
   type MayaNamePricing,
   type MayaNameSubaffiliate,
 } from "#/lib/mayaname";
+import { VIEW_ONLY_IMPERSONATION_REASON } from "#/lib/impersonation";
 import { buildPageSeoHead } from "#/lib/seo";
+import {
+  useEffectiveWalletSession,
+  useIsViewOnlyImpersonation,
+} from "#/provider/ImpersonationProvider";
 import { useSettings } from "#/provider/SettingsProvider";
 import {
   createExecutionJourneySteps,
   getMayaNameDepositSupport,
   submitMayaNameDeposit,
   trackTransactionJourney,
-  useActiveWalletSession,
   useMayaWalletActions,
   waitForJourneyTransactionSettlement,
 } from "#/wallet";
@@ -129,6 +133,7 @@ type MayaNamesPageProps = {
 type MayaNamesPageContentProps = {
   viewState: MayaNamesViewState;
   activeSessionLabel: string;
+  isViewOnly: boolean;
   mayaAddress: string;
   ownedNames: string[];
   selectedName: string;
@@ -194,7 +199,8 @@ export function MayaNamesPage({
 }: MayaNamesPageProps) {
   const wallet = useMayaWalletActions();
   const settings = useSettings();
-  const activeSession = useActiveWalletSession();
+  const activeSession = useEffectiveWalletSession();
+  const isViewOnly = useIsViewOnlyImpersonation();
   const mayaAddress = activeSession?.addresses[Chain.MayaChain] ?? "";
 
   const [catalog, setCatalog] = useState<MayaAssetCatalog | null>(null);
@@ -223,7 +229,12 @@ export function MayaNamesPage({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submittingAction, setSubmittingAction] = useState<string | null>(null);
 
-  const support = getMayaNameDepositSupport(wallet, activeSession?.id);
+  const support = isViewOnly
+    ? {
+        supported: false,
+        reason: VIEW_ONLY_IMPERSONATION_REASON,
+      }
+    : getMayaNameDepositSupport(wallet, activeSession?.id);
   const isSubmitting = submittingAction !== null;
 
   useEffect(() => {
@@ -525,6 +536,9 @@ export function MayaNamesPage({
     };
   }) {
     if (!activeSession || !support.supported) {
+      if (isViewOnly) {
+        setSubmitError(VIEW_ONLY_IMPERSONATION_REASON);
+      }
       return;
     }
 
@@ -756,6 +770,7 @@ export function MayaNamesPage({
     <MayaNamesPageContent
       viewState={viewState}
       activeSessionLabel={activeSession?.label ?? "No session"}
+      isViewOnly={isViewOnly}
       mayaAddress={mayaAddress}
       ownedNames={ownedNames}
       selectedName={selectedName}
@@ -781,13 +796,17 @@ export function MayaNamesPage({
       referralHref={referralHref}
       supportReason={support.reason}
       onConnectWallet={() => {
-        void wallet.initialize();
+        if (!isViewOnly) {
+          void wallet.initialize();
+        }
       }}
       onConnectMayaChain={() => {
-        void wallet.execute("accounts.connect", {
-          sessionId: activeSession?.id,
-          input: { chain: Chain.MayaChain },
-        });
+        if (!isViewOnly) {
+          void wallet.execute("accounts.connect", {
+            sessionId: activeSession?.id,
+            input: { chain: Chain.MayaChain },
+          });
+        }
       }}
       onRefresh={() => {
         void refreshWorkspace(selectedName);
@@ -914,14 +933,18 @@ export function MayaNamesPageContent(props: MayaNamesPageContentProps) {
         <StateGate
           title="Connect a wallet session"
           body="MAYAName management uses native MayaChain MsgDeposit transactions. Connect a wallet session before loading your owned names."
-          actionLabel="Connect Wallet"
+          actionLabel={props.isViewOnly ? "View Only" : "Connect Wallet"}
+          disabled={props.isViewOnly}
+          note={props.isViewOnly ? VIEW_ONLY_IMPERSONATION_REASON : undefined}
           onAction={props.onConnectWallet}
         />
       ) : props.viewState === "connect-maya" ? (
         <StateGate
           title="Sync a MayaChain address"
           body="The active wallet session is connected, but it does not have a MayaChain address yet. Add or sync MayaChain before managing MAYANames."
-          actionLabel="Connect MayaChain"
+          actionLabel={props.isViewOnly ? "View Only" : "Connect MayaChain"}
+          disabled={props.isViewOnly}
+          note={props.isViewOnly ? VIEW_ONLY_IMPERSONATION_REASON : undefined}
           onAction={props.onConnectMayaChain}
         />
       ) : (
@@ -1087,7 +1110,7 @@ export function MayaNamesPageContent(props: MayaNamesPageContentProps) {
                 <button
                   type="button"
                   className="w-full sm:w-auto px-8 py-3.5 relative overflow-hidden text-lg font-bold tracking-tight rounded-2xl bg-gradient-to-r from-[#FF9B70] to-[var(--cacao-neon)] text-[var(--bg-base)] shadow-[0_4px_20px_rgba(232,122,78,0.4)] hover:shadow-[0_6px_24px_rgba(232,122,78,0.6)] hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed group/btn"
-                  disabled={props.isSubmitting}
+                  disabled={props.isSubmitting || props.isViewOnly || Boolean(props.supportReason)}
                   onClick={props.onRegisterSubmit}
                 >
                   <span className="flex items-center justify-center gap-2 relative z-10 text-white drop-shadow-sm">
@@ -1228,7 +1251,7 @@ export function MayaNamesPageContent(props: MayaNamesPageContentProps) {
                     <button
                       type="button"
                       className="cacao-btn px-5 py-3"
-                      disabled={props.isSubmitting}
+                      disabled={props.isSubmitting || props.isViewOnly || Boolean(props.supportReason)}
                       onClick={props.onAliasSubmit}
                     >
                       {props.isSubmitting
@@ -1288,7 +1311,7 @@ export function MayaNamesPageContent(props: MayaNamesPageContentProps) {
                     <button
                       type="button"
                       className="cacao-btn px-5 py-3"
-                      disabled={props.isSubmitting}
+                      disabled={props.isSubmitting || props.isViewOnly || Boolean(props.supportReason)}
                       onClick={props.onProfileSubmit}
                     >
                       {props.isSubmitting
@@ -1338,7 +1361,7 @@ export function MayaNamesPageContent(props: MayaNamesPageContentProps) {
                     <button
                       type="button"
                       className="cacao-btn px-5 py-3"
-                      disabled={props.isSubmitting}
+                      disabled={props.isSubmitting || props.isViewOnly || Boolean(props.supportReason)}
                       onClick={props.onRenewSubmit}
                     >
                       {props.isSubmitting ? "Submittingï¿½" : "Renew MAYAName"}
@@ -1403,6 +1426,8 @@ function StateGate(props: {
   title: string;
   body: string;
   actionLabel: string;
+  disabled?: boolean;
+  note?: string;
   onAction: () => void;
 }) {
   return (
@@ -1418,7 +1443,8 @@ function StateGate(props: {
       </p>
       <button
         type="button"
-        className="w-full sm:w-auto mt-8 px-8 py-4 relative overflow-hidden text-lg font-bold tracking-tight rounded-2xl bg-gradient-to-r from-[var(--maya-teal)] to-emerald-400 text-[var(--bg-base)] shadow-[0_4px_20px_rgba(79,209,197,0.3)] hover:shadow-[0_6px_24px_rgba(79,209,197,0.5)] hover:scale-[1.02] active:scale-[0.98] transition-all group/btn"
+        className="w-full sm:w-auto mt-8 px-8 py-4 relative overflow-hidden text-lg font-bold tracking-tight rounded-2xl bg-gradient-to-r from-[var(--maya-teal)] to-emerald-400 text-[var(--bg-base)] shadow-[0_4px_20px_rgba(79,209,197,0.3)] hover:shadow-[0_6px_24px_rgba(79,209,197,0.5)] hover:scale-[1.02] active:scale-[0.98] transition-all group/btn disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
+        disabled={props.disabled}
         onClick={props.onAction}
       >
         <span className="flex items-center justify-center gap-2 relative z-10 text-white drop-shadow-sm">
@@ -1429,6 +1455,9 @@ function StateGate(props: {
           {props.actionLabel}
         </span>
       </button>
+      {props.note ? (
+        <p className="mt-4 text-sm text-amber-500">{props.note}</p>
+      ) : null}
     </article>
   );
 }

@@ -1,3 +1,4 @@
+import { Chain } from "@vultisig/sdk";
 import { describe, expect, it } from "vitest";
 import {
   clearStoredReferralMayaName,
@@ -25,6 +26,13 @@ function createStorage(seed?: Record<string, string>) {
 }
 
 describe("SettingsProvider helpers", () => {
+  it("loads defaults with impersonation disabled", () => {
+    expect(loadStoredSettings()).toMatchObject({
+      impersonationEnabled: false,
+      impersonationAddresses: {},
+    });
+  });
+
   it("loads persisted settings including the referral MAYAName", () => {
     const storage = createStorage({
       "maya-settings": JSON.stringify({
@@ -37,6 +45,11 @@ describe("SettingsProvider helpers", () => {
         interfaceSupportSwapEnabled: true,
         interfaceSupportSwapBps: "40",
         interfaceSupportBannerDismissed: true,
+        impersonationEnabled: true,
+        impersonationAddresses: {
+          [Chain.MayaChain]: "maya1friendaddress0000000000",
+          [Chain.Ethereum]: "0x000000000000000000000000000000000000dEaD",
+        },
       }),
     });
 
@@ -50,6 +63,31 @@ describe("SettingsProvider helpers", () => {
       interfaceSupportSwapEnabled: true,
       interfaceSupportSwapBps: "40",
       interfaceSupportBannerDismissed: true,
+      impersonationEnabled: true,
+      impersonationAddresses: {
+        [Chain.MayaChain]: "maya1friendaddress0000000000",
+        [Chain.Ethereum]: "0x000000000000000000000000000000000000dEaD",
+      },
+    });
+  });
+
+  it("disables invalid stored impersonation settings while preserving valid entries", () => {
+    const storage = createStorage({
+      "maya-settings": JSON.stringify({
+        impersonationEnabled: true,
+        impersonationAddresses: {
+          [Chain.MayaChain]: "invalid",
+          [Chain.Ethereum]: "0x000000000000000000000000000000000000dEaD",
+        },
+      }),
+    });
+
+    expect(loadStoredSettings(storage)).toMatchObject({
+      impersonationEnabled: false,
+      impersonationAddresses: {
+        [Chain.MayaChain]: "invalid",
+        [Chain.Ethereum]: "0x000000000000000000000000000000000000dEaD",
+      },
     });
   });
 

@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as VaultSetupRouteImport } from './routes/vault-setup'
 import { Route as SwapRouteImport } from './routes/swap'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as PooledNodesRouteImport } from './routes/pooled-nodes'
 import { Route as MayanamesRouteImport } from './routes/mayanames'
 import { Route as MayaMasksRouteImport } from './routes/maya-masks'
 import { Route as LiquidityRouteImport } from './routes/liquidity'
@@ -34,6 +35,11 @@ const SwapRoute = SwapRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PooledNodesRoute = PooledNodesRouteImport.update({
+  id: '/pooled-nodes',
+  path: '/pooled-nodes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MayanamesRoute = MayanamesRouteImport.update({
@@ -85,6 +91,7 @@ export interface FileRoutesByFullPath {
   '/liquidity': typeof LiquidityRoute
   '/maya-masks': typeof MayaMasksRoute
   '/mayanames': typeof MayanamesRoute
+  '/pooled-nodes': typeof PooledNodesRoute
   '/settings': typeof SettingsRoute
   '/swap': typeof SwapRoute
   '/vault-setup': typeof VaultSetupRoute
@@ -98,6 +105,7 @@ export interface FileRoutesByTo {
   '/liquidity': typeof LiquidityRoute
   '/maya-masks': typeof MayaMasksRoute
   '/mayanames': typeof MayanamesRoute
+  '/pooled-nodes': typeof PooledNodesRoute
   '/settings': typeof SettingsRoute
   '/swap': typeof SwapRoute
   '/vault-setup': typeof VaultSetupRoute
@@ -112,6 +120,7 @@ export interface FileRoutesById {
   '/liquidity': typeof LiquidityRoute
   '/maya-masks': typeof MayaMasksRoute
   '/mayanames': typeof MayanamesRoute
+  '/pooled-nodes': typeof PooledNodesRoute
   '/settings': typeof SettingsRoute
   '/swap': typeof SwapRoute
   '/vault-setup': typeof VaultSetupRoute
@@ -127,6 +136,7 @@ export interface FileRouteTypes {
     | '/liquidity'
     | '/maya-masks'
     | '/mayanames'
+    | '/pooled-nodes'
     | '/settings'
     | '/swap'
     | '/vault-setup'
@@ -140,6 +150,7 @@ export interface FileRouteTypes {
     | '/liquidity'
     | '/maya-masks'
     | '/mayanames'
+    | '/pooled-nodes'
     | '/settings'
     | '/swap'
     | '/vault-setup'
@@ -153,6 +164,7 @@ export interface FileRouteTypes {
     | '/liquidity'
     | '/maya-masks'
     | '/mayanames'
+    | '/pooled-nodes'
     | '/settings'
     | '/swap'
     | '/vault-setup'
@@ -167,6 +179,7 @@ export interface RootRouteChildren {
   LiquidityRoute: typeof LiquidityRoute
   MayaMasksRoute: typeof MayaMasksRoute
   MayanamesRoute: typeof MayanamesRoute
+  PooledNodesRoute: typeof PooledNodesRoute
   SettingsRoute: typeof SettingsRoute
   SwapRoute: typeof SwapRoute
   VaultSetupRoute: typeof VaultSetupRoute
@@ -194,6 +207,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pooled-nodes': {
+      id: '/pooled-nodes'
+      path: '/pooled-nodes'
+      fullPath: '/pooled-nodes'
+      preLoaderRoute: typeof PooledNodesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/mayanames': {
@@ -263,6 +283,7 @@ const rootRouteChildren: RootRouteChildren = {
   LiquidityRoute: LiquidityRoute,
   MayaMasksRoute: MayaMasksRoute,
   MayanamesRoute: MayanamesRoute,
+  PooledNodesRoute: PooledNodesRoute,
   SettingsRoute: SettingsRoute,
   SwapRoute: SwapRoute,
   VaultSetupRoute: VaultSetupRoute,
