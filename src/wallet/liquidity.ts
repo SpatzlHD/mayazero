@@ -1,4 +1,16 @@
-import { Chain } from '@vultisig/sdk'
+import { Chain, type Signature } from '@vultisig/sdk'
+import {
+  type Address,
+  type Hex,
+  createPublicClient,
+  encodeFunctionData,
+  erc20Abi,
+  getAddress,
+  http,
+  keccak256,
+  serializeTransaction,
+} from 'viem'
+import { arbitrum, base, mainnet } from 'viem/chains'
 import type {
   LiquidityActionAvailability,
   LiquidityDepositMode,
@@ -6,12 +18,49 @@ import type {
   LiquidityWithdrawMode,
 } from '#/lib/liquidity'
 import { shortenMayaAssetDenominator } from '#/lib/maya-asset-shorthand'
-import type { WalletCommandMap, WalletSession } from './types'
+import type { WalletChain, WalletCommandMap, WalletSession } from './types'
 import type { MayaWalletManager } from './manager'
 import { WalletCapabilityError, WalletSessionNotFoundError } from './errors'
 
 const CACAO_DECIMALS = 10
 const MAX_LIQUIDITY_AFFILIATE_BPS = 1000
+const APPROVAL_TIMEOUT_MS = 180_000
+const APPROVAL_POLL_INTERVAL_MS = 2_500
+const ROUTER_EXPIRY_WINDOW_SECONDS = 60 * 60
+
+const mayaRouterAbi = [
+  {
+    inputs: [
+      { name: 'vault', type: 'address' },
+      { name: 'asset', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+      { name: 'memo', type: 'string' },
+      { name: 'expiration', type: 'uint256' },
+    ],
+    name: 'depositWithExpiry',
+    outputs: [],
+    stateMutability: 'payable',
+    type: 'function',
+  },
+] as const
+
+type EvmPublicClientLike = {
+  estimateFeesPerGas: (params?: { type?: 'eip1559' }) => Promise<{
+    maxFeePerGas?: bigint
+    maxPriorityFeePerGas?: bigint
+  }>
+  getGasPrice: () => Promise<bigint>
+  getTransactionCount: (params: {
+    address: Address
+    blockTag?: 'pending'
+  }) => Promise<number>
+  estimateGas: (params: {
+    account: Address
+    to: Address
+    data?: Hex
+    value?: bigint
+  }) => Promise<bigint>
+}
 
 export type LiquidityDepositAffiliate = {
   affiliateBps: string
@@ -25,10 +74,11 @@ export type LiquidityDepositStep = {
   destinationAddress: string | null
   id: 'asset' | 'cacao'
   memo: string
+  router?: string
   sourceAddress: string
   ticker: string
   tokenId?: string
-  type: 'send' | 'deposit'
+  type: 'send' | 'deposit' | 'erc20-router'
 }
 
 export type LiquidityDepositPreparation = {
@@ -179,6 +229,7 @@ export function prepareLiquidityDepositSteps(
   }
 
   if (input.mode !== 'cacao' && assetChain && assetAddress) {
+    const router = shouldUseLiquidityRouterStep(input.pool) ? input.pool.actionAvailability?.router : undefined
     steps.push({
       amountBaseUnits: input.assetAmountBaseUnits!,
       chain: assetChain,
@@ -190,10 +241,11 @@ export function prepareLiquidityDepositSteps(
         memoPoolAsset,
         pairedAddress: input.mode === 'symmetric' ? mayaAddress : undefined,
       }),
+      ...(router ? { router } : {}),
       sourceAddress: assetAddress,
       ticker: input.pool.symbol,
       tokenId: input.pool.tokenId,
-      type: 'send',
+      type: router ? 'erc20-router' : 'send',
     })
   }
 
@@ -221,8 +273,12 @@ export function prepareLiquidityDepositSteps(
 export async function submitLiquidityDepositStep(
   manager: MayaWalletManager,
   input: {
+    evmClientFactory?: (chain: WalletChain) => EvmPublicClientLike
     journeyId?: string
+    maxWaitMs?: number
+    now?: () => number
     sessionId?: string
+    sleep?: (ms: number) => Promise<void>
     step: LiquidityDepositStep
   },
 ): Promise<LiquidityStepSubmissionResult> {
@@ -248,10 +304,14 @@ export async function submitLiquidityWithdraw(
   manager: MayaWalletManager,
   input: {
     basisPoints: number
+    evmClientFactory?: (chain: WalletChain) => EvmPublicClientLike
     journeyId?: string
+    maxWaitMs?: number
     mode: LiquidityWithdrawMode
+    now?: () => number
     pool: LiquidityPool
     sessionId?: string
+    sleep?: (ms: number) => Promise<void>
   },
 ): Promise<LiquidityWithdrawResult> {
   if (!Number.isInteger(input.basisPoints) || input.basisPoints <= 0 || input.basisPoints > 10_000) {
@@ -279,8 +339,12 @@ export async function submitLiquidityWithdraw(
     }
 
     return submitLiquidityStep(manager, {
+      evmClientFactory: input.evmClientFactory,
       sessionId: session.id,
       journeyId: input.journeyId,
+      maxWaitMs: input.maxWaitMs,
+      now: input.now,
+      sleep: input.sleep,
       step: {
         amountBaseUnits: resolveMinimumMemoAmount(input.pool.actionAvailability, input.pool.chainTicker),
         chain: assetChain,
@@ -288,10 +352,13 @@ export async function submitLiquidityWithdraw(
         destinationAddress: input.pool.actionAvailability.inboundAddress,
         id: 'asset',
         memo,
+        ...(shouldUseLiquidityRouterStep(input.pool)
+          ? { router: input.pool.actionAvailability.router }
+          : {}),
         sourceAddress: assetAddress,
         ticker: input.pool.symbol,
         tokenId: input.pool.tokenId,
-        type: 'send',
+        type: shouldUseLiquidityRouterStep(input.pool) ? 'erc20-router' : 'send',
       },
     })
   }
@@ -344,8 +411,12 @@ function resolveSession(
 async function submitLiquidityStep(
   manager: MayaWalletManager,
   input: {
+    evmClientFactory?: (chain: WalletChain) => EvmPublicClientLike
     journeyId?: string
+    maxWaitMs?: number
+    now?: () => number
     sessionId?: string
+    sleep?: (ms: number) => Promise<void>
     step: LiquidityDepositStep
   },
 ): Promise<LiquidityStepSubmissionResult> {
@@ -354,6 +425,16 @@ async function submitLiquidityStep(
 
   if (step.type === 'deposit') {
     return submitMayaDepositMemo(manager, session, step, input.journeyId)
+  }
+
+  if (step.type === 'erc20-router') {
+    return submitErc20RouterMemoSend(manager, session, step, {
+      evmClientFactory: input.evmClientFactory,
+      journeyId: input.journeyId,
+      maxWaitMs: input.maxWaitMs,
+      now: input.now,
+      sleep: input.sleep,
+    })
   }
 
   return submitStandardMemoSend(manager, session, step, input.journeyId)
@@ -453,6 +534,205 @@ async function submitStandardMemoSend(
     rawResult: {
       payload: prepared.payload,
       txHash: broadcast.txHash,
+    },
+    route: 'sdk',
+    stepId: step.id,
+    txHash: broadcast.txHash ?? null,
+  }
+}
+
+async function submitErc20RouterMemoSend(
+  manager: MayaWalletManager,
+  session: WalletSession,
+  step: LiquidityDepositStep,
+  input: {
+    evmClientFactory?: (chain: WalletChain) => EvmPublicClientLike
+    journeyId?: string
+    maxWaitMs?: number
+    now?: () => number
+    sleep?: (ms: number) => Promise<void>
+  },
+): Promise<LiquidityStepSubmissionResult> {
+  if (!step.destinationAddress) {
+    throw new Error('No destination address is available for the selected liquidity action.')
+  }
+  if (!step.tokenId) {
+    throw new Error('ERC-20 router liquidity steps require a token contract address.')
+  }
+  if (!step.router) {
+    throw new Error('No router is available for the selected ERC-20 liquidity action.')
+  }
+  if (!isEvmChain(step.chain)) {
+    throw new Error(`Unsupported chain for ERC-20 router liquidity step: ${step.chain}`)
+  }
+
+  const amount = BigInt(step.amountBaseUnits)
+  const normalizedTokenAddress = normalizeEvmAddress(step.tokenId)
+  const normalizedRouterAddress = normalizeEvmAddress(step.router)
+  const normalizedInboundAddress = normalizeEvmAddress(step.destinationAddress)
+  const approvalData = encodeFunctionData({
+    abi: erc20Abi,
+    functionName: 'approve',
+    args: [normalizedRouterAddress, amount],
+  })
+  const routerData = encodeFunctionData({
+    abi: mayaRouterAbi,
+    functionName: 'depositWithExpiry',
+    args: [
+      normalizedInboundAddress,
+      normalizedTokenAddress,
+      amount,
+      step.memo,
+      BigInt(Math.floor((input.now?.() ?? Date.now()) / 1000) + ROUTER_EXPIRY_WINDOW_SECONDS),
+    ],
+  })
+
+  if (session.source === 'extension') {
+    await ensureExtensionChain(manager, session, step.chain)
+    const approval = await manager.execute('tx.send', {
+      sessionId: session.id,
+      ...(input.journeyId
+        ? { journey: { id: input.journeyId, stepKey: 'approval' } }
+        : {}),
+      input: {
+        chain: step.chain,
+        transaction: {
+          data: approvalData,
+          from: step.sourceAddress,
+          to: normalizedTokenAddress,
+          value: '0x0',
+        },
+      },
+    })
+    const approvalTxHash = extractTxHash(approval.result)
+    if (!approvalTxHash) {
+      throw new Error('Approval transaction did not return a hash.')
+    }
+
+    await waitForTransactionConfirmation(manager, {
+      chain: step.chain,
+      sessionId: session.id,
+      sleep: input.sleep,
+      txHash: approvalTxHash,
+      intervalMs: APPROVAL_POLL_INTERVAL_MS,
+      maxWaitMs: input.maxWaitMs ?? APPROVAL_TIMEOUT_MS,
+    })
+
+    const swap = await manager.execute('tx.send', {
+      sessionId: session.id,
+      ...(input.journeyId
+        ? { journey: { id: input.journeyId, stepKey: 'provider' } }
+        : {}),
+      input: {
+        chain: step.chain,
+        transaction: {
+          data: routerData,
+          from: step.sourceAddress,
+          to: normalizedRouterAddress,
+          value: '0x0',
+        },
+      },
+    })
+
+    return {
+      memo: step.memo,
+      rawResult: {
+        approval: approval.result,
+        swap: swap.result,
+      },
+      route: 'extension',
+      stepId: step.id,
+      txHash: extractTxHash(swap.result),
+    }
+  }
+
+  const client = (input.evmClientFactory ?? createDefaultEvmClient)(step.chain)
+  const approvalTx = await buildEip1559Transaction(client, {
+    account: step.sourceAddress as Address,
+    chain: step.chain,
+    data: approvalData,
+    to: normalizedTokenAddress,
+    value: 0n,
+  })
+  const approvalSignature = await manager.execute('tx.sign.bytes', {
+    sessionId: session.id,
+    ...(input.journeyId
+      ? { journey: { id: input.journeyId, stepKey: 'signing' } }
+      : {}),
+    input: {
+      chain: step.chain,
+      data: approvalTx.hash,
+    },
+  })
+  const approvalRawTx = serializeTransaction(
+    approvalTx.request,
+    toViemSignature(approvalSignature.signature),
+  )
+  const approvalBroadcast = await manager.execute('tx.broadcast.raw', {
+    sessionId: session.id,
+    ...(input.journeyId
+      ? { journey: { id: input.journeyId, stepKey: 'approval' } }
+      : {}),
+    input: {
+      chain: step.chain,
+      rawTx: approvalRawTx,
+    },
+  })
+
+  await waitForTransactionConfirmation(manager, {
+    chain: step.chain,
+    sessionId: session.id,
+    sleep: input.sleep,
+    txHash: approvalBroadcast.txHash,
+    intervalMs: APPROVAL_POLL_INTERVAL_MS,
+    maxWaitMs: input.maxWaitMs ?? APPROVAL_TIMEOUT_MS,
+  })
+
+  const swapTx = await buildEip1559Transaction(client, {
+    account: step.sourceAddress as Address,
+    chain: step.chain,
+    data: routerData,
+    to: normalizedRouterAddress,
+    value: 0n,
+  })
+  const swapSignature = await manager.execute('tx.sign.bytes', {
+    sessionId: session.id,
+    ...(input.journeyId
+      ? { journey: { id: input.journeyId, stepKey: 'signing' } }
+      : {}),
+    input: {
+      chain: step.chain,
+      data: swapTx.hash,
+    },
+  })
+  const rawTx = serializeTransaction(
+    swapTx.request,
+    toViemSignature(swapSignature.signature),
+  )
+  const broadcast = await manager.execute('tx.broadcast.raw', {
+    sessionId: session.id,
+    ...(input.journeyId
+      ? { journey: { id: input.journeyId, stepKey: 'broadcasting' } }
+      : {}),
+    input: {
+      chain: step.chain,
+      rawTx,
+    },
+  })
+
+  return {
+    memo: step.memo,
+    rawResult: {
+      approval: {
+        hash: approvalTx.hash,
+        rawTx: approvalRawTx,
+        txHash: approvalBroadcast.txHash,
+      },
+      swap: {
+        hash: swapTx.hash,
+        rawTx,
+        txHash: broadcast.txHash,
+      },
     },
     route: 'sdk',
     stepId: step.id,
@@ -612,6 +892,59 @@ function ensureSdkSendSupport(
   }
 }
 
+async function waitForTransactionConfirmation(
+  manager: MayaWalletManager,
+  input: {
+    chain: WalletChain
+    intervalMs: number
+    maxWaitMs: number
+    sessionId: string
+    sleep?: (ms: number) => Promise<void>
+    txHash: string
+  },
+): Promise<void> {
+  const startedAt = Date.now()
+  const sleep = input.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)))
+
+  while (Date.now() - startedAt <= input.maxWaitMs) {
+    const statusResult = await manager.execute('tx.status', {
+      sessionId: input.sessionId,
+      track: false,
+      input: {
+        chain: input.chain,
+        txHash: input.txHash,
+      },
+    })
+
+    if (isConfirmedStatus(statusResult.status)) {
+      return
+    }
+
+    await sleep(input.intervalMs)
+  }
+
+  throw new Error('Approval transaction confirmation timed out.')
+}
+
+function isConfirmedStatus(status: unknown): boolean {
+  if (!status) {
+    return false
+  }
+
+  if (typeof status === 'object') {
+    const record = status as Record<string, unknown>
+    const normalized = typeof record.status === 'string' ? record.status.toLowerCase() : null
+    if (normalized === 'success' || normalized === 'confirmed') {
+      return true
+    }
+    if (record.blockHash) {
+      return true
+    }
+  }
+
+  return false
+}
+
 function canSubmitLiquidityForChain(
   manager: MayaWalletManager,
   session: WalletSession,
@@ -668,6 +1001,15 @@ function resolveMinimumMemoAmount(
   }
 
   return '1'
+}
+
+function shouldUseLiquidityRouterStep(pool: LiquidityPool): boolean {
+  return Boolean(
+    pool.walletChain &&
+      isEvmChain(pool.walletChain) &&
+      pool.tokenId &&
+      pool.actionAvailability?.router,
+  )
 }
 
 function isPositiveBaseUnitAmount(value: string | null | undefined): value is string {
@@ -744,4 +1086,271 @@ function extractMayaSpecific(blockchainSpecific: unknown): {
   }
 
   return {}
+}
+
+function normalizeEvmAddress(value: string): Address {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    throw new Error('Missing EVM address.')
+  }
+
+  const prefixed =
+    trimmed.startsWith('0x') || trimmed.startsWith('0X')
+      ? `0x${trimmed.slice(2)}`
+      : `0x${trimmed}`
+
+  return getAddress(prefixed.toLowerCase())
+}
+
+async function buildEip1559Transaction(
+  client: EvmPublicClientLike,
+  input: {
+    account: Address
+    chain: WalletChain
+    data: Hex
+    to: Address
+    value: bigint
+  },
+): Promise<{
+  hash: Hex
+  request: {
+    chainId: number
+    data: Hex
+    gas: bigint
+    maxFeePerGas: bigint
+    maxPriorityFeePerGas: bigint
+    nonce: number
+    to: Address
+    type: 'eip1559'
+    value: bigint
+  }
+}> {
+  const fees = await client.estimateFeesPerGas({ type: 'eip1559' }).catch(async () => {
+    const gasPrice = await client.getGasPrice()
+    return {
+      maxFeePerGas: gasPrice,
+      maxPriorityFeePerGas: gasPrice,
+    }
+  })
+  const nonce = await client.getTransactionCount({
+    address: input.account,
+    blockTag: 'pending',
+  })
+  const gas = await client.estimateGas({
+    account: input.account,
+    data: input.data,
+    to: input.to,
+    value: input.value,
+  })
+
+  const request = {
+    chainId: getEvmChainConfig(input.chain).id,
+    data: input.data,
+    gas,
+    maxFeePerGas: fees.maxFeePerGas ?? 0n,
+    maxPriorityFeePerGas: fees.maxPriorityFeePerGas ?? 0n,
+    nonce,
+    to: input.to,
+    type: 'eip1559' as const,
+    value: input.value,
+  }
+
+  const serialized = serializeTransaction(request)
+  return {
+    hash: keccak256(serialized),
+    request,
+  }
+}
+
+function toViemSignature(signature: Signature): {
+  r: Hex
+  s: Hex
+  yParity: 0 | 1
+} {
+  const recovery = normalizeRecovery(signature.recovery)
+  const firstSignature = signature.signatures?.[0]
+  if (firstSignature?.r && firstSignature?.s) {
+    return {
+      r: ensureHex(firstSignature.r),
+      s: ensureHex(firstSignature.s),
+      yParity: recovery,
+    }
+  }
+
+  const raw = ensureHex(signature.signature)
+  const bytes = raw.slice(2)
+  const derSignature = tryParseDerEcdsaSignature(bytes)
+  if (derSignature) {
+    return {
+      ...derSignature,
+      yParity: recovery,
+    }
+  }
+
+  if (bytes.length < 128) {
+    throw new Error('Received an unexpected ECDSA signature payload from the vault.')
+  }
+
+  const r = `0x${bytes.slice(0, 64)}` as Hex
+  const s = `0x${bytes.slice(64, 128)}` as Hex
+  const fallbackRecovery =
+    bytes.length >= 130
+      ? normalizeRecovery(Number.parseInt(bytes.slice(128, 130), 16))
+      : recovery
+
+  return {
+    r,
+    s,
+    yParity: fallbackRecovery,
+  }
+}
+
+function tryParseDerEcdsaSignature(
+  bytes: string,
+): { r: Hex; s: Hex } | null {
+  if (!bytes.startsWith('30')) {
+    return null
+  }
+
+  const der = hexToBytes(bytes)
+  if (der.length < 8 || der[0] !== 0x30) {
+    return null
+  }
+
+  const sequenceLength = der[1]
+  if (sequenceLength + 2 > der.length) {
+    return null
+  }
+
+  let offset = 2
+  const r = readDerInteger(der, offset)
+  if (!r) {
+    return null
+  }
+  offset = r.nextOffset
+
+  const s = readDerInteger(der, offset)
+  if (!s) {
+    return null
+  }
+
+  return {
+    r: toFixedHex32(r.value),
+    s: toFixedHex32(s.value),
+  }
+}
+
+function readDerInteger(
+  der: Uint8Array,
+  offset: number,
+): { value: Uint8Array; nextOffset: number } | null {
+  if (offset + 2 > der.length || der[offset] !== 0x02) {
+    return null
+  }
+
+  const length = der[offset + 1]
+  const start = offset + 2
+  const end = start + length
+  if (end > der.length) {
+    return null
+  }
+
+  let value = der.slice(start, end)
+  while (value.length > 0 && value[0] === 0x00) {
+    value = value.slice(1)
+  }
+
+  return {
+    value,
+    nextOffset: end,
+  }
+}
+
+function toFixedHex32(value: Uint8Array): Hex {
+  if (value.length > 32) {
+    throw new Error('Received an oversized ECDSA signature component from the vault.')
+  }
+
+  const hex = bytesToHex(value).padStart(64, '0')
+  return `0x${hex}` as Hex
+}
+
+function bytesToHex(value: Uint8Array): string {
+  return Array.from(value, (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+function hexToBytes(value: string): Uint8Array {
+  const normalized = value.length % 2 === 0 ? value : `0${value}`
+  const bytes = new Uint8Array(normalized.length / 2)
+
+  for (let index = 0; index < normalized.length; index += 2) {
+    bytes[index / 2] = Number.parseInt(normalized.slice(index, index + 2), 16)
+  }
+
+  return bytes
+}
+
+function normalizeRecovery(value?: number): 0 | 1 {
+  if (value === 0 || value === 1) {
+    return value
+  }
+
+  if (value === 27 || value === 28) {
+    return (value - 27) as 0 | 1
+  }
+
+  return 0
+}
+
+function createDefaultEvmClient(chain: WalletChain): EvmPublicClientLike {
+  return createPublicClient({
+    chain: getEvmChainConfig(chain),
+    transport: http(),
+  })
+}
+
+function getEvmChainConfig(chain: WalletChain) {
+  switch (chain) {
+    case Chain.Ethereum:
+      return mainnet
+    case Chain.Arbitrum:
+      return arbitrum
+    case Chain.Base:
+      return base
+    default:
+      throw new WalletCapabilityError(
+        'tx.sign.bytes',
+        String(chain),
+        `Unsupported EVM chain for raw router liquidity steps: ${chain}`,
+      )
+  }
+}
+
+function ensureHex(value: string): Hex {
+  return (value.startsWith('0x') ? value : `0x${value}`) as Hex
+}
+
+function isEvmChain(chain: WalletChain): boolean {
+  return chain === Chain.Ethereum || chain === Chain.Arbitrum || chain === Chain.Base
+}
+
+async function ensureExtensionChain(
+  manager: MayaWalletManager,
+  session: WalletSession,
+  chain: WalletChain,
+): Promise<void> {
+  if (session.source !== 'extension' || !isEvmChain(chain)) {
+    return
+  }
+
+  const activeChain = manager.getState().activeChain
+  if (activeChain === chain) {
+    return
+  }
+
+  await manager.execute('chain.switch', {
+    sessionId: session.id,
+    input: { chain },
+    track: false,
+  })
 }

@@ -46,6 +46,43 @@ function makePool(): LiquidityPool {
   }
 }
 
+function makeArbUsdcPool(): LiquidityPool {
+  return {
+    actionAvailability: {
+      chain: 'ARB',
+      inboundAddress: '0xAB1722696E2320687B80D9DC62030BD6FBC8BBFD',
+      lpActionsPaused: false,
+      tradingPaused: false,
+      halted: false,
+      dustThreshold: '0',
+      router: '0x700E97EF07219440487840DC472E7120A7FF11F4',
+    },
+    apr: '0.12',
+    asset: 'ARB.USDC-0XAF88D065E77C8CC2239327C5EDB3A432268E5831',
+    assetDepth: '100000000',
+    assetPrice: '1',
+    assetPriceUsd: '1',
+    cacaoDepth: '1000000000',
+    chainKey: 'arbitrum',
+    chainName: 'Arbitrum',
+    chainTicker: 'ARB',
+    decimals: 6,
+    depthUsd: 50000,
+    family: 'evm',
+    iconId: 'usdc',
+    isActionable: true,
+    lpUnits: '9000',
+    poolUnits: '10000',
+    saversDepth: '0',
+    status: 'available',
+    symbol: 'USDC',
+    ticker: 'USDC',
+    tokenId: '0XAF88D065E77C8CC2239327C5EDB3A432268E5831',
+    volume24h: '400000000',
+    walletChain: Chain.Arbitrum,
+  }
+}
+
 describe('wallet liquidity helper', () => {
   it('prepares guided symmetric deposit steps', async () => {
     const vault = createFakeVault({
@@ -93,6 +130,54 @@ describe('wallet liquidity helper', () => {
         type: 'deposit',
       }),
     ])
+  })
+
+  it('routes ERC-20 asset legs through the Maya router', async () => {
+    const vault = createFakeVault({
+      id: 'vault-router-liquidity',
+      name: 'Router Liquidity Vault',
+      chains: [Chain.MayaChain, Chain.Arbitrum],
+    })
+    const manager = new MayaWalletManager({
+      sdk: createFakeSdkClient({
+        vaults: [vault],
+        activeVaultId: vault.id,
+      }).sdk,
+      prefsStorage: createMemoryStorage(),
+    })
+
+    await manager.initialize()
+    await manager.selectSession(vault.id)
+
+    const [assetStep, cacaoStep] = prepareLiquidityDepositSteps(manager, {
+      affiliate: {
+        affiliateBps: '10',
+        affiliateName: 'm0',
+      },
+      assetAmountBaseUnits: '12500000',
+      cacaoAmountBaseUnits: '10000000000',
+      mode: 'symmetric',
+      pool: makeArbUsdcPool(),
+      sessionId: vault.id,
+    }).steps
+
+    expect(assetStep).toEqual(
+      expect.objectContaining({
+        amountBaseUnits: '12500000',
+        chain: Chain.Arbitrum,
+        destinationAddress: '0xAB1722696E2320687B80D9DC62030BD6FBC8BBFD',
+        memo: 'ADD:ac:mayachain-address:m0:10',
+        router: '0x700E97EF07219440487840DC472E7120A7FF11F4',
+        tokenId: '0XAF88D065E77C8CC2239327C5EDB3A432268E5831',
+        type: 'erc20-router',
+      }),
+    )
+    expect(cacaoStep).toEqual(
+      expect.objectContaining({
+        memo: 'ADD:ac:arbitrum-address:m0:10',
+        type: 'deposit',
+      }),
+    )
   })
 
   it('submits extension asset and cacao steps via eth_sendTransaction and deposit_transaction', async () => {
@@ -179,6 +264,110 @@ describe('wallet liquidity helper', () => {
         ],
       }),
     )
+  })
+
+  it('submits extension ERC-20 asset legs via approval and depositWithExpiry router calls', async () => {
+    const requests: Array<{ method: string; params?: unknown[] }> = []
+    let txQueryCount = 0
+    const manager = new MayaWalletManager({
+      sdk: createFakeSdkClient().sdk,
+      extensionWindow: {
+        vultisig: {
+          ethereum: {
+            request: async ({ method, params }) => {
+              requests.push({ method, params })
+              if (method === 'eth_accounts' || method === 'eth_requestAccounts') {
+                return ['0xextension']
+              }
+              if (method === 'wallet_switchEthereumChain') {
+                return null
+              }
+              if (method === 'eth_sendTransaction') {
+                return requests.filter((request) => request.method === 'eth_sendTransaction').length === 1
+                  ? '0xapproval'
+                  : '0xliquidity'
+              }
+              if (method === 'eth_getTransactionByHash') {
+                txQueryCount += 1
+                return txQueryCount >= 2
+                  ? { hash: params?.[0], blockHash: '0xblock' }
+                  : { hash: params?.[0], blockHash: null }
+              }
+              return null
+            },
+          },
+          mayachain: {
+            request: async ({ method }) => {
+              requests.push({ method })
+              if (method === 'get_accounts' || method === 'request_accounts') {
+                return ['maya1extension']
+              }
+              return null
+            },
+          },
+        },
+      },
+      prefsStorage: createMemoryStorage(),
+    })
+
+    await manager.initialize()
+    await manager.selectSession('extension:vultisig')
+    await manager.selectChain(Chain.Ethereum)
+
+    const [assetStep] = prepareLiquidityDepositSteps(manager, {
+      affiliate: {
+        affiliateBps: '25',
+        affiliateName: 'm0',
+      },
+      assetAmountBaseUnits: '12500000',
+      cacaoAmountBaseUnits: '10000000000',
+      mode: 'symmetric',
+      pool: makeArbUsdcPool(),
+      sessionId: 'extension:vultisig',
+    }).steps
+
+    expect(assetStep?.type).toBe('erc20-router')
+
+    const result = await submitLiquidityDepositStep(manager, {
+      sessionId: 'extension:vultisig',
+      sleep: async () => {},
+      step: assetStep!,
+    })
+
+    expect(result).toMatchObject({
+      route: 'extension',
+      stepId: 'asset',
+      txHash: '0xliquidity',
+    })
+    expect(requests).toContainEqual(
+      expect.objectContaining({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0xa4b1' }],
+      }),
+    )
+    expect(requests.filter((request) => request.method === 'eth_sendTransaction')).toHaveLength(2)
+    const [approvalRequest, routerRequest] = requests.filter(
+      (request) => request.method === 'eth_sendTransaction',
+    )
+    expect(approvalRequest).toMatchObject({
+      params: [
+        {
+          from: '0xextension',
+          to: expect.stringMatching(/^0xaf88d065e77c8c/i),
+          value: '0x0',
+        },
+      ],
+    })
+    expect(routerRequest).toMatchObject({
+      params: [
+        {
+          from: '0xextension',
+          to: expect.stringMatching(/^0x700e97/i),
+          value: '0x0',
+        },
+      ],
+    })
+    expect((routerRequest?.params?.[0] as { data?: string })?.data).toMatch(/^0x/)
   })
 
   it('submits sdk maya-side withdraws as deposit memos', async () => {

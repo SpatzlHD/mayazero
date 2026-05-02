@@ -7,7 +7,6 @@ import {
   DEFAULT_SUPPORT_REFERRER_BPS,
   clearStoredReferralSupport,
   resetSupportReferrerPreferences,
-  setInterfaceSupportPreferences,
   setStoredReferralSupport,
   setSupportReferrerPreferences,
 } from '#/lib/swap-affiliates'
@@ -21,17 +20,12 @@ export interface SettingsState {
   mayanodeUrl: string
   midgardUrl: string
   tendermintUrl: string
-  useZeroPercentFee: boolean
   useVultisigSwap: boolean
   analyticsDisabled: boolean
-  supportFeePercent: number
   referralMayaName: string
   supportReferrerEnabled: boolean
   supportReferrerBps: string
   supportReferrerForMayaName: string
-  interfaceSupportSwapEnabled: boolean
-  interfaceSupportSwapBps: string
-  interfaceSupportBannerDismissed: boolean
   impersonationEnabled: boolean
   impersonationAddresses: ImpersonationAddressMap
   updateSettings: (newSettings: Partial<SettingsPersistedState>) => void
@@ -46,16 +40,6 @@ export interface SettingsState {
     >,
   ) => void
   resetSupportReferrerSettings: (referralMayaName?: string) => void
-  updateInterfaceSupportSettings: (
-    newSettings: Partial<
-      Pick<
-        SettingsPersistedState,
-        | 'interfaceSupportSwapEnabled'
-        | 'interfaceSupportSwapBps'
-        | 'interfaceSupportBannerDismissed'
-      >
-    >,
-  ) => void
   clearImpersonationSettings: () => void
 }
 
@@ -66,7 +50,6 @@ export type SettingsPersistedState = Omit<
   | 'clearReferralMayaName'
   | 'updateSupportReferrerSettings'
   | 'resetSupportReferrerSettings'
-  | 'updateInterfaceSupportSettings'
   | 'clearImpersonationSettings'
 >
 
@@ -74,17 +57,12 @@ const defaultSettings = {
   mayanodeUrl: 'https://mayanode.mayachain.info',
   midgardUrl: 'https://midgard.mayachain.info',
   tendermintUrl: 'https://tendermint.mayachain.info',
-  useZeroPercentFee: true,
   useVultisigSwap: false,
   analyticsDisabled: false,
-  supportFeePercent: 0.1, // 0.1% support fee
   referralMayaName: '',
   supportReferrerEnabled: false,
   supportReferrerBps: DEFAULT_SUPPORT_REFERRER_BPS,
   supportReferrerForMayaName: '',
-  interfaceSupportSwapEnabled: false,
-  interfaceSupportSwapBps: DEFAULT_SUPPORT_REFERRER_BPS,
-  interfaceSupportBannerDismissed: false,
   impersonationEnabled: false,
   impersonationAddresses: {},
 }
@@ -151,21 +129,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     )
   }
 
-  const updateInterfaceSupportSettings = (
-    newSettings: Partial<
-      Pick<
-        SettingsPersistedState,
-        | 'interfaceSupportSwapEnabled'
-        | 'interfaceSupportSwapBps'
-        | 'interfaceSupportBannerDismissed'
-      >
-    >,
-  ) => {
-    setSettings((prev: SettingsPersistedState) =>
-      setInterfaceSupportPreferences(prev, newSettings),
-    )
-  }
-
   const clearImpersonationSettings = () => {
     setSettings((prev: SettingsPersistedState) => ({
       ...prev,
@@ -183,7 +146,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         clearReferralMayaName,
         updateSupportReferrerSettings,
         resetSupportReferrerSettings,
-        updateInterfaceSupportSettings,
         clearImpersonationSettings,
       }}
     >
@@ -255,18 +217,32 @@ export function clearStoredReferralMayaName(
 function sanitizeStoredSettings(
   settings: SettingsPersistedState,
 ): SettingsPersistedState {
+  const {
+    useZeroPercentFee: _useZeroPercentFee,
+    supportFeePercent: _supportFeePercent,
+    interfaceSupportSwapEnabled: _interfaceSupportSwapEnabled,
+    interfaceSupportSwapBps: _interfaceSupportSwapBps,
+    interfaceSupportBannerDismissed: _interfaceSupportBannerDismissed,
+    ...sanitizedSettings
+  } = settings as SettingsPersistedState & {
+    useZeroPercentFee?: boolean
+    supportFeePercent?: number
+    interfaceSupportSwapEnabled?: boolean
+    interfaceSupportSwapBps?: string
+    interfaceSupportBannerDismissed?: boolean
+  }
   const impersonationAddresses = normalizeImpersonationAddresses(
-    settings.impersonationAddresses,
+    sanitizedSettings.impersonationAddresses,
   )
   const impersonationErrors = validateImpersonationAddresses(
     impersonationAddresses,
   )
 
   return {
-    ...settings,
+    ...sanitizedSettings,
     impersonationAddresses,
     impersonationEnabled:
-      settings.impersonationEnabled &&
+      sanitizedSettings.impersonationEnabled &&
       Object.keys(impersonationErrors).length === 0 &&
       Object.keys(impersonationAddresses).length > 0,
   }

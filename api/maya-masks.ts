@@ -46,13 +46,25 @@ type HandlerDependencies = {
   fetchImpl?: typeof fetch
 }
 
+function readServerEnv(name: string): string | undefined {
+  const env = (
+    globalThis as typeof globalThis & {
+      process?: {
+        env?: Record<string, string | undefined>
+      }
+    }
+  ).process?.env
+
+  return env?.[name]
+}
+
 export async function GET(
   request: Request,
   dependencies: HandlerDependencies = {},
 ): Promise<Response> {
   const url = new URL(request.url)
   const owner = url.searchParams.get('owner')?.trim() ?? ''
-  const alchemyApiKey = dependencies.alchemyApiKey ?? process.env.ALCHEMY_API_KEY
+  const alchemyApiKey = dependencies.alchemyApiKey ?? readServerEnv('ALCHEMY_API_KEY')
   const fetchImpl = dependencies.fetchImpl ?? fetch
 
   if (!isAddress(owner)) {

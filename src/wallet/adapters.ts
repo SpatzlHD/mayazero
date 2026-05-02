@@ -591,35 +591,62 @@ export class SdkVaultAdapter implements WalletSessionAdapter {
           : this.vault.extractMessageHashes
             ? await this.vault.extractMessageHashes(input.payload)
             : undefined;
+        const normalizedMessageHashes =
+          messageHashes && messageHashes.length > 0 ? messageHashes : undefined;
 
-        const signature = await this.vault.sign(
-          {
-            transaction: input.payload,
-            chain,
-            ...(messageHashes ? { messageHashes } : {}),
-          },
-          {
-            signal: options.signal,
-            onQRCodeReady: (qrPayload) => {
-              context.operation?.update({ qrPayload });
+        let lastJoin:
+          | { joined: number; required: number }
+          | undefined;
+        let lastProgress:
+          | { step: string; message: string; mode?: string }
+          | undefined;
+
+        let signature;
+        try {
+          signature = await this.vault.sign(
+            {
+              transaction: input.payload,
+              chain,
+              ...(normalizedMessageHashes
+                ? { messageHashes: normalizedMessageHashes }
+                : {}),
             },
-            onDeviceJoined: (deviceId, joined, required) => {
-              context.operation?.update({
-                deviceJoin: { deviceId, joined, required },
-              });
-            },
-            onProgress: (step) => {
-              context.operation?.update({
-                progress: {
+            {
+              signal: options.signal,
+              onQRCodeReady: (qrPayload) => {
+                context.operation?.update({ qrPayload });
+              },
+              onDeviceJoined: (deviceId, joined, required) => {
+                lastJoin = { joined, required };
+                context.operation?.update({
+                  deviceJoin: { deviceId, joined, required },
+                });
+              },
+              onProgress: (step) => {
+                lastProgress = {
                   step: step.step,
-                  value: step.progress,
                   message: step.message,
                   mode: step.mode,
-                },
-              });
+                };
+                context.operation?.update({
+                  progress: {
+                    step: step.step,
+                    value: step.progress,
+                    message: step.message,
+                    mode: step.mode,
+                  },
+                });
+              },
             },
-          },
-        );
+          );
+        } catch (error) {
+          throw enrichSigningError(error, {
+            chain,
+            join: lastJoin,
+            messageHashCount: normalizedMessageHashes?.length,
+            progress: lastProgress,
+          });
+        }
         return {
           signature:
             signature as WalletCommandMap["tx.sign"]["output"]["signature"],
@@ -628,33 +655,54 @@ export class SdkVaultAdapter implements WalletSessionAdapter {
       case "tx.sign.bytes": {
         const input =
           options.input as WalletCommandMap["tx.sign.bytes"]["input"];
-        const signature = await this.vault.signBytes(
-          {
-            chain: input.chain,
-            data: input.data,
-          },
-          {
-            signal: options.signal,
-            onQRCodeReady: (qrPayload) => {
-              context.operation?.update({ qrPayload });
+        let lastJoin:
+          | { joined: number; required: number }
+          | undefined;
+        let lastProgress:
+          | { step: string; message: string; mode?: string }
+          | undefined;
+        let signature;
+        try {
+          signature = await this.vault.signBytes(
+            {
+              chain: input.chain,
+              data: input.data,
             },
-            onDeviceJoined: (deviceId, joined, required) => {
-              context.operation?.update({
-                deviceJoin: { deviceId, joined, required },
-              });
-            },
-            onProgress: (step) => {
-              context.operation?.update({
-                progress: {
+            {
+              signal: options.signal,
+              onQRCodeReady: (qrPayload) => {
+                context.operation?.update({ qrPayload });
+              },
+              onDeviceJoined: (deviceId, joined, required) => {
+                lastJoin = { joined, required };
+                context.operation?.update({
+                  deviceJoin: { deviceId, joined, required },
+                });
+              },
+              onProgress: (step) => {
+                lastProgress = {
                   step: step.step,
-                  value: step.progress,
                   message: step.message,
                   mode: step.mode,
-                },
-              });
+                };
+                context.operation?.update({
+                  progress: {
+                    step: step.step,
+                    value: step.progress,
+                    message: step.message,
+                    mode: step.mode,
+                  },
+                });
+              },
             },
-          },
-        );
+          );
+        } catch (error) {
+          throw enrichSigningError(error, {
+            chain: input.chain,
+            join: lastJoin,
+            progress: lastProgress,
+          });
+        }
         return {
           signature:
             signature as WalletCommandMap["tx.sign.bytes"]["output"]["signature"],
@@ -1317,4 +1365,35 @@ export function createDefaultSdkClient(
   options?: ConstructorParameters<typeof Vultisig>[0],
 ): SdkClientLike {
   return new Vultisig(options) as unknown as SdkClientLike;
+}
+
+function enrichSigningError(
+  error: unknown,
+  context: {
+    chain: WalletChain;
+    join?: { joined: number; required: number };
+    messageHashCount?: number;
+    progress?: { step: string; message: string; mode?: string };
+  },
+): Error {
+  const baseMessage =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "Signing failed";
+  const details = [
+    `chain=${context.chain}`,
+    context.join ? `joined=${context.join.joined}/${context.join.required}` : null,
+    typeof context.messageHashCount === "number"
+      ? `messageHashes=${context.messageHashCount}`
+      : null,
+    context.progress?.step ? `lastStep=${context.progress.step}` : null,
+    context.progress?.mode ? `mode=${context.progress.mode}` : null,
+    context.progress?.message ? `progress=\"${context.progress.message}\"` : null,
+  ].filter(Boolean);
+
+  const enriched = new Error(
+    details.length ? `${baseMessage} [${details.join(", ")}]` : baseMessage,
+  );
+  if (error instanceof Error && error.stack) {
+    enriched.stack = error.stack;
+  }
+  return enriched;
 }

@@ -24,9 +24,6 @@ describe("swap-affiliates", () => {
       supportReferrerEnabled: true,
       supportReferrerBps: "25",
       supportReferrerForMayaName: "friend",
-      interfaceSupportSwapEnabled: false,
-      interfaceSupportSwapBps: DEFAULT_SUPPORT_REFERRER_BPS,
-      interfaceSupportBannerDismissed: false,
     };
 
     expect(isSupportReferrerEnabledForCurrentReferral(settings)).toBe(true);
@@ -53,9 +50,6 @@ describe("swap-affiliates", () => {
           supportReferrerEnabled: true,
           supportReferrerBps: "25",
           supportReferrerForMayaName: "friend",
-          interfaceSupportSwapEnabled: false,
-          interfaceSupportSwapBps: DEFAULT_SUPPORT_REFERRER_BPS,
-          interfaceSupportBannerDismissed: false,
         },
         [
           { value: "", bps: "" },
@@ -76,9 +70,6 @@ describe("swap-affiliates", () => {
           supportReferrerEnabled: true,
           supportReferrerBps: "25",
           supportReferrerForMayaName: "friend",
-          interfaceSupportSwapEnabled: false,
-          interfaceSupportSwapBps: DEFAULT_SUPPORT_REFERRER_BPS,
-          interfaceSupportBannerDismissed: false,
         },
         [
           { value: "", bps: "" },
@@ -101,9 +92,6 @@ describe("swap-affiliates", () => {
           supportReferrerEnabled: true,
           supportReferrerBps: "25",
           supportReferrerForMayaName: "alpha",
-          interfaceSupportSwapEnabled: false,
-          interfaceSupportSwapBps: DEFAULT_SUPPORT_REFERRER_BPS,
-          interfaceSupportBannerDismissed: false,
         },
         "beta",
       ),
@@ -112,31 +100,13 @@ describe("swap-affiliates", () => {
       supportReferrerEnabled: false,
       supportReferrerBps: DEFAULT_SUPPORT_REFERRER_BPS,
       supportReferrerForMayaName: "beta",
-      interfaceSupportSwapEnabled: false,
-      interfaceSupportSwapBps: DEFAULT_SUPPORT_REFERRER_BPS,
-      interfaceSupportBannerDismissed: false,
     });
   });
 
-  it("builds the fixed interface affiliate draft with explicit zero when disabled", () => {
-    expect(
-      createInterfaceAffiliateDraft({
-        interfaceSupportSwapEnabled: false,
-        interfaceSupportSwapBps: "25",
-      }),
-    ).toEqual({
+  it("builds the fixed interface affiliate draft at zero bps", () => {
+    expect(createInterfaceAffiliateDraft()).toEqual({
       value: INTERFACE_AFFILIATE_MAYANAME,
       bps: "0",
-    });
-
-    expect(
-      createInterfaceAffiliateDraft({
-        interfaceSupportSwapEnabled: true,
-        interfaceSupportSwapBps: "25",
-      }),
-    ).toEqual({
-      value: INTERFACE_AFFILIATE_MAYANAME,
-      bps: "25",
     });
   });
 });

@@ -42,9 +42,6 @@ describe("SettingsProvider helpers", () => {
         supportReferrerEnabled: true,
         supportReferrerBps: "25",
         supportReferrerForMayaName: "friend",
-        interfaceSupportSwapEnabled: true,
-        interfaceSupportSwapBps: "40",
-        interfaceSupportBannerDismissed: true,
         impersonationEnabled: true,
         impersonationAddresses: {
           [Chain.MayaChain]: "maya1friendaddress0000000000",
@@ -60,9 +57,6 @@ describe("SettingsProvider helpers", () => {
       supportReferrerEnabled: true,
       supportReferrerBps: "25",
       supportReferrerForMayaName: "friend",
-      interfaceSupportSwapEnabled: true,
-      interfaceSupportSwapBps: "40",
-      interfaceSupportBannerDismissed: true,
       impersonationEnabled: true,
       impersonationAddresses: {
         [Chain.MayaChain]: "maya1friendaddress0000000000",
@@ -110,9 +104,6 @@ describe("SettingsProvider helpers", () => {
       supportReferrerEnabled: false,
       supportReferrerBps: DEFAULT_SUPPORT_REFERRER_BPS,
       supportReferrerForMayaName: "alpha",
-      interfaceSupportSwapEnabled: false,
-      interfaceSupportSwapBps: DEFAULT_SUPPORT_REFERRER_BPS,
-      interfaceSupportBannerDismissed: false,
     });
   });
 
@@ -124,9 +115,6 @@ describe("SettingsProvider helpers", () => {
       supportReferrerEnabled: false,
       supportReferrerBps: DEFAULT_SUPPORT_REFERRER_BPS,
       supportReferrerForMayaName: "",
-      interfaceSupportSwapEnabled: false,
-      interfaceSupportSwapBps: DEFAULT_SUPPORT_REFERRER_BPS,
-      interfaceSupportBannerDismissed: false,
     });
   });
 
@@ -139,9 +127,6 @@ describe("SettingsProvider helpers", () => {
           supportReferrerEnabled: true,
           supportReferrerBps: "50",
           supportReferrerForMayaName: "alpha",
-          interfaceSupportSwapEnabled: true,
-          interfaceSupportSwapBps: "35",
-          interfaceSupportBannerDismissed: true,
         },
         "beta",
       ),
@@ -150,9 +135,6 @@ describe("SettingsProvider helpers", () => {
       supportReferrerEnabled: false,
       supportReferrerBps: DEFAULT_SUPPORT_REFERRER_BPS,
       supportReferrerForMayaName: "beta",
-      interfaceSupportSwapEnabled: true,
-      interfaceSupportSwapBps: "35",
-      interfaceSupportBannerDismissed: true,
     });
   });
 
@@ -165,9 +147,6 @@ describe("SettingsProvider helpers", () => {
           supportReferrerEnabled: true,
           supportReferrerBps: "50",
           supportReferrerForMayaName: "alpha",
-          interfaceSupportSwapEnabled: true,
-          interfaceSupportSwapBps: "35",
-          interfaceSupportBannerDismissed: true,
         },
         "alpha",
       ),
@@ -176,10 +155,27 @@ describe("SettingsProvider helpers", () => {
       supportReferrerEnabled: true,
       supportReferrerBps: "50",
       supportReferrerForMayaName: "alpha",
-      interfaceSupportSwapEnabled: true,
-      interfaceSupportSwapBps: "35",
-      interfaceSupportBannerDismissed: true,
     });
+  });
+
+  it("drops legacy fee settings from stored state during load", () => {
+    const storage = createStorage({
+      "maya-settings": JSON.stringify({
+        useZeroPercentFee: false,
+        supportFeePercent: 0.5,
+        interfaceSupportSwapEnabled: true,
+        interfaceSupportSwapBps: "40",
+        interfaceSupportBannerDismissed: true,
+      }),
+    });
+
+    const loaded = loadStoredSettings(storage) as Record<string, unknown>;
+
+    expect(loaded.useZeroPercentFee).toBeUndefined();
+    expect(loaded.supportFeePercent).toBeUndefined();
+    expect(loaded.interfaceSupportSwapEnabled).toBeUndefined();
+    expect(loaded.interfaceSupportSwapBps).toBeUndefined();
+    expect(loaded.interfaceSupportBannerDismissed).toBeUndefined();
   });
 
   it("syncs the Vercel opt-out flag into localStorage", () => {

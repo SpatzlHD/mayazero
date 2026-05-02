@@ -378,4 +378,48 @@ describe('MayaWalletManager', () => {
       chain_count_bucket: '4_plus',
     })
   })
+
+  it('omits empty extracted message hashes when signing sdk payloads', async () => {
+    const storage = createMemoryStorage()
+    const sign = vi.fn(async () => ({
+      signature: '0xsigned',
+      format: 'ECDSA',
+    }))
+    const extractMessageHashes = vi.fn(async () => [])
+    const vault = createFakeVault({
+      id: 'vault-empty-hashes',
+      name: 'Empty Hashes',
+      chains: [Chain.MayaChain],
+      extractMessageHashes,
+      sign,
+    })
+    const { sdk } = createFakeSdkClient({
+      vaults: [vault],
+      activeVaultId: vault.id,
+    })
+    const manager = new MayaWalletManager({
+      sdk,
+      prefsStorage: storage,
+    })
+
+    await manager.initialize()
+    await manager.selectSession(vault.id)
+
+    await manager.execute('tx.sign', {
+      input: {
+        chain: Chain.MayaChain,
+        payload: { kind: 'custom-maya-deposit' } as never,
+      },
+    })
+
+    expect(extractMessageHashes).toHaveBeenCalled()
+    expect(sign).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chain: Chain.MayaChain,
+        transaction: { kind: 'custom-maya-deposit' },
+      }),
+      expect.any(Object),
+    )
+    expect(sign.mock.calls[0]?.[0]).not.toHaveProperty('messageHashes')
+  })
 })

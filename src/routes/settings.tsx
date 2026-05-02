@@ -22,7 +22,7 @@ export const Route = createFileRoute('/settings')({
     buildPageSeoHead({
       title: 'Settings',
       description:
-        'Configure MayaZero node endpoints, routing preferences, and application fee behavior.',
+        'Configure MayaZero node endpoints, referral preferences, analytics, and developer tooling.',
     }),
   component: SettingsPage,
 })
@@ -68,10 +68,8 @@ function SettingsPage() {
     mayanodeUrl: settings.mayanodeUrl,
     midgardUrl: settings.midgardUrl,
     tendermintUrl: settings.tendermintUrl,
-    useZeroPercentFee: settings.useZeroPercentFee,
     useVultisigSwap: settings.useVultisigSwap,
     analyticsDisabled: settings.analyticsDisabled,
-    supportFeePercent: settings.supportFeePercent,
     referralMayaName: settings.referralMayaName,
     impersonationEnabled: settings.impersonationEnabled,
     impersonationAddresses: settings.impersonationAddresses,
@@ -268,72 +266,12 @@ function SettingsPage() {
               <div className="flex flex-col gap-3 p-4 bg-[var(--chip-bg)] border border-[var(--line)] rounded-xl">
                 <div className="flex flex-col gap-1">
                   <span className="text-xs uppercase font-bold text-[var(--sea-ink-soft)]">
-                    MayaZero Support Banner
+                    Referral Capture
                   </span>
-                  <span className="text-[10px] leading-tight text-[var(--sea-ink-soft)]">
-                    Reset the dedicated swap banner for MayaZero support if you dismissed it earlier. This does not affect automatic `m0` tracking.
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className="w-full sm:w-auto secondary-btn px-5 py-3"
-                  disabled={!settings.interfaceSupportBannerDismissed}
-                  onClick={() =>
-                    settings.updateInterfaceSupportSettings({
-                      interfaceSupportBannerDismissed: false,
-                    })
-                  }
-                >
-                  {settings.interfaceSupportBannerDismissed
-                    ? 'Show MayaZero support banner again'
-                    : 'MayaZero support banner is visible'}
-                </button>
-              </div>
-
-              <div className="flex flex-col gap-3 p-4 bg-[var(--chip-bg)] border border-[var(--line)] rounded-xl">
-                <div className="flex flex-col gap-1">
-                  <span className="text-xs uppercase font-bold text-[var(--sea-ink-soft)]">
-                    Platform Fee Controls
-                  </span>
-                  <span className="text-[10px] leading-tight text-[var(--sea-ink-soft)]">
-                    These settings are separate from opt-in referrer support on the swap page. Referred swaps stay at 0% by default until the user enables support manually.
-                  </span>
-                </div>
-
-              <label className="flex items-center gap-3 p-4 bg-[var(--bg-base)] border rounded-xl transition-colors cursor-pointer border-[var(--line)] hover:border-[var(--cacao-neon)]">
-                <input 
-                  type="checkbox" 
-                  className="w-5 h-5 accent-[var(--cacao-neon)] bg-[var(--surface)] border-[var(--line)] cursor-pointer disabled:cursor-not-allowed"
-                  checked={formConfig.useZeroPercentFee}
-                  // disabled={formConfig.useVultisigSwap}
-                  onChange={e => setFormConfig(p => ({...p, useZeroPercentFee: e.target.checked}))}
-                />
-                <div className="flex flex-col">
-                  <span className="font-bold text-[var(--sea-ink)]">Use 0% Swap Fee</span>
-                  <span className="text-xs text-[var(--sea-ink-soft)]">
-                    Disable transaction support fee. {/* (Not available when using Vultisig Route) */}
-                  </span>
-                </div>
-              </label>
-
-              {(!formConfig.useZeroPercentFee /* && !formConfig.useVultisigSwap */) && (
-                <div className="flex flex-col p-4 bg-[var(--bg-base)] border border-[var(--line)] rounded-xl gap-2">
-                  <div className="flex justify-between">
-                    <label className="text-xs font-bold text-[var(--sea-ink)]">Reserved Platform Fee (%)</label>
-                    <span className="text-[var(--sea-ink-soft)] font-mono text-xs">{formConfig.supportFeePercent}%</span>
-                  </div>
-                  <input 
-                    type="range"
-                    min="0" max="1" step="0.05"
-                    className="w-full accent-[var(--maya-teal)] cursor-pointer"
-                    value={formConfig.supportFeePercent}
-                    onChange={e => setFormConfig(p => ({...p, supportFeePercent: parseFloat(e.target.value)}))}
-                  />
                   <p className="text-[10px] text-[var(--sea-ink-soft)] leading-tight mt-1">
-                    This fee voluntarily supports the creator of this interface. Minimum is 0.1% if 0% is not checked.
+                    MayaZero stores the MAYAName captured from referral links so users can optionally support that referrer on the swap page. The built-in `m0` MAYAName remains tracking-only.
                   </p>
                 </div>
-              )}
               </div>
 
               {/* Temporarily hidden while Vultisig functionality targets THORChain natively
@@ -347,7 +285,6 @@ function SettingsPage() {
                     setFormConfig(p => ({
                       ...p, 
                       useVultisigSwap: checked,
-                      ...(checked ? { useZeroPercentFee: false } : {}) 
                     }))
                   }}
                 />

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  fetchCurrentMayaBlockHeight,
   fetchCacaoPoolHistory,
   fetchCacaoPoolPosition,
   fetchCacaoPoolSnapshot,
@@ -218,5 +219,33 @@ describe('cacao-pool service', () => {
     expect(formatTimestamp(Number.NaN)).toBe('n/a')
     expect(formatHistoryLabel('')).toBe('n/a')
     expect(formatHistoryLabel('2026-04-08T10:30:00Z')).toBe('Apr 8')
+  })
+
+  it('loads the current MayaChain block height from lastblock', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.includes('/mayachain/lastblock')) {
+        return {
+          ok: true,
+          json: async () => [
+            { mayachain: 123 },
+            { mayachain: '456' },
+          ],
+        }
+      }
+
+      return {
+        ok: false,
+        status: 404,
+        json: async () => ({}),
+      }
+    }) as unknown as typeof fetch
+
+    await expect(
+      fetchCurrentMayaBlockHeight({
+        fetch: fetchMock,
+        mayanodeUrl: 'https://mayanode.test',
+      }),
+    ).resolves.toBe(456)
   })
 })

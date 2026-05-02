@@ -26,6 +26,7 @@ const primaryLinks = [
 const toolLinks = [
   { to: "/pooled-nodes", label: "Pooled Nodes" },
   { to: "/cacao-pool", label: "CACAOPool" },
+  { to: "/maya-token", label: "Maya Token" },
   { to: "/mayanames", label: "MAYANames" },
   { to: "/maya-masks", label: "Maya Masks" },
   { to: "/settings", label: "Settings" },
@@ -76,6 +77,7 @@ export default function Header() {
           if (!hypertune.beta({ fallback: false })) {
             setFilteredToolLinks([
               { to: "/cacao-pool", label: "CACAOPool" },
+              { to: "/maya-token", label: "Maya Token" },
               { to: "/mayanames", label: "MAYANames" },
               { to: "/maya-masks", label: "Maya Masks" },
               { to: "/settings", label: "Settings" },
@@ -84,6 +86,7 @@ export default function Header() {
             setFilteredToolLinks([
               { to: "/pooled-nodes", label: "Pooled Nodes" },
               { to: "/cacao-pool", label: "CACAOPool" },
+              { to: "/maya-token", label: "Maya Token" },
               { to: "/mayanames", label: "MAYANames" },
               { to: "/maya-masks", label: "Maya Masks" },
               { to: "/settings", label: "Settings" },

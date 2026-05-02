@@ -119,6 +119,7 @@ function createMenuProps(
     availableChains:
       overrides.availableChains ?? [Chain.Ethereum, Chain.MayaChain],
     actionChain: overrides.actionChain ?? Chain.Ethereum,
+    canConnect: overrides.canConnect ?? false,
     canFetchData: overrides.canFetchData ?? true,
     canExport: overrides.canExport ?? true,
     showDebugControls: overrides.showDebugControls ?? false,
@@ -140,6 +141,7 @@ function createMenuProps(
     onCreateVault: overrides.onCreateVault ?? vi.fn(),
     onSessionClick: overrides.onSessionClick ?? vi.fn(),
     onSelectChain: overrides.onSelectChain ?? vi.fn(),
+    onConnect: overrides.onConnect ?? vi.fn(),
     onRefreshData: overrides.onRefreshData ?? vi.fn(),
     onToggleVaultLock: overrides.onToggleVaultLock ?? vi.fn(),
     onInitialize: overrides.onInitialize ?? vi.fn(),
@@ -171,23 +173,30 @@ describe("WalletManagerMenuContent", () => {
     expect(onCreateVault).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the export placeholder instead of a button for extension sessions", () => {
+  it("shows a connect button for extension sessions and wires it to the callback", () => {
     const extensionSession = createExtensionSession();
+    const onConnect = vi.fn();
     const tree = WalletManagerMenuContent(
       createMenuProps({
         activeSession: extensionSession,
         sessions: [extensionSession],
+        canConnect: true,
         canExport: false,
         availableChains: [Chain.Ethereum],
         actionChain: Chain.Ethereum,
+        onConnect,
       }),
     );
+    const connectButton = findButtonByText(tree, /connect extension/i);
     const text = collectText(tree);
 
     expect(text).toContain("Vultisig Extension");
-    expect(text).toContain("Export is available for the active SDK vault.");
-    expect(text).toContain("Create a new vault or import an existing one from setup.");
+    expect(text).toContain("Connect Extension");
     expect(findButtonByText(tree, /export vault/i)).toBeUndefined();
+
+    connectButton?.props.onClick?.();
+
+    expect(onConnect).toHaveBeenCalledTimes(1);
   });
 
   it("surfaces the export modal state and forwards submit handlers", () => {

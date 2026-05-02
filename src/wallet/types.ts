@@ -1,4 +1,6 @@
 import type {
+  CacaotrackerTxTrackerSessionResponse,
+  CacaotrackerTxTrackerState,
   Balance,
   Chain,
   DiscoveredToken,
@@ -160,6 +162,48 @@ export type WalletJourneyStep = {
   chain?: WalletChain
 }
 
+export type WalletJourneyTrackingSource = 'local' | 'cacaotracker-ws' | 'fallback'
+export type WalletJourneyTransportStatus =
+  | 'idle'
+  | 'connecting'
+  | 'subscribed'
+  | 'live'
+  | 'fallback'
+  | 'closed'
+
+export type WalletJourneySwapTracking = {
+  context?: {
+    fromAsset: string
+    fromTicker: string
+    toAsset: string
+    toTicker: string
+    amount: string
+    executionMode?: 'send' | 'erc20-router' | 'deposit'
+    memo?: string
+    inboundAddress?: string
+    router?: string
+    streaming?: {
+      enabled: boolean
+      interval?: number
+      quantity?: number
+      blocks?: number
+      totalSeconds?: number
+    }
+  }
+  trackingSource: WalletJourneyTrackingSource
+  transportStatus: WalletJourneyTransportStatus
+  historyHref?: string
+  session?: Pick<
+    CacaotrackerTxTrackerSessionResponse,
+    'expiresAt' | 'heartbeatSeconds'
+  >
+  acceptedTxHashes?: string[]
+  rejectedTxHashes?: string[]
+  trackerState?: CacaotrackerTxTrackerState
+  lastMessageType?: string
+  fallbackReason?: string
+}
+
 export type WalletJourney = {
   id: string
   kind: WalletJourneyKind
@@ -186,6 +230,7 @@ export type WalletJourney = {
     deviceId?: string
   }
   operationIds?: string[]
+  swapTracking?: WalletJourneySwapTracking
 }
 
 export type WalletJourneyDialogState = {

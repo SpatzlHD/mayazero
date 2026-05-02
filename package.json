@@ -10,7 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "copy:vultisig-wasm": "powershell -NoProfile -Command \"Get-ChildItem 'node_modules/@vultisig/sdk/dist' -Recurse -Filter *.wasm | Copy-Item -Destination 'public' -Force; Copy-Item 'node_modules/@trustwallet/wallet-core/dist/lib/wallet-core.wasm' -Destination 'public' -Force\""
+    "copy:vultisig-wasm": "powershell -NoProfile -Command \"Get-ChildItem 'node_modules/@vultisig/sdk/dist' -Recurse -Filter *.wasm | Copy-Item -Destination 'public' -Force; Copy-Item 'node_modules/@trustwallet/wallet-core/dist/lib/wallet-core.wasm' -Destination 'public' -Force; Copy-Item 'node_modules/7z-wasm/7zz.wasm' -Destination 'public' -Force\""
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.18",
@@ -19,7 +19,7 @@
     "@tanstack/react-router-devtools": "latest",
     "@tanstack/router-plugin": "^1.132.0",
     "@vercel/analytics": "^2.0.1",
-    "@vultisig/sdk": "^0.12.0",
+    "@vultisig/sdk": "^0.17.1",
     "@xchainjs/xchain-crypto": "^1.0.6",
     "hypertune": "^2.10.1",
     "install": "^0.13.0",

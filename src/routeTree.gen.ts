@@ -14,6 +14,7 @@ import { Route as SwapRouteImport } from './routes/swap'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PooledNodesRouteImport } from './routes/pooled-nodes'
 import { Route as MayanamesRouteImport } from './routes/mayanames'
+import { Route as MayaTokenRouteImport } from './routes/maya-token'
 import { Route as MayaMasksRouteImport } from './routes/maya-masks'
 import { Route as LiquidityRouteImport } from './routes/liquidity'
 import { Route as ChangelogRouteImport } from './routes/changelog'
@@ -45,6 +46,11 @@ const PooledNodesRoute = PooledNodesRouteImport.update({
 const MayanamesRoute = MayanamesRouteImport.update({
   id: '/mayanames',
   path: '/mayanames',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MayaTokenRoute = MayaTokenRouteImport.update({
+  id: '/maya-token',
+  path: '/maya-token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MayaMasksRoute = MayaMasksRouteImport.update({
@@ -90,6 +96,7 @@ export interface FileRoutesByFullPath {
   '/changelog': typeof ChangelogRoute
   '/liquidity': typeof LiquidityRoute
   '/maya-masks': typeof MayaMasksRoute
+  '/maya-token': typeof MayaTokenRoute
   '/mayanames': typeof MayanamesRoute
   '/pooled-nodes': typeof PooledNodesRoute
   '/settings': typeof SettingsRoute
@@ -104,6 +111,7 @@ export interface FileRoutesByTo {
   '/changelog': typeof ChangelogRoute
   '/liquidity': typeof LiquidityRoute
   '/maya-masks': typeof MayaMasksRoute
+  '/maya-token': typeof MayaTokenRoute
   '/mayanames': typeof MayanamesRoute
   '/pooled-nodes': typeof PooledNodesRoute
   '/settings': typeof SettingsRoute
@@ -119,6 +127,7 @@ export interface FileRoutesById {
   '/changelog': typeof ChangelogRoute
   '/liquidity': typeof LiquidityRoute
   '/maya-masks': typeof MayaMasksRoute
+  '/maya-token': typeof MayaTokenRoute
   '/mayanames': typeof MayanamesRoute
   '/pooled-nodes': typeof PooledNodesRoute
   '/settings': typeof SettingsRoute
@@ -135,6 +144,7 @@ export interface FileRouteTypes {
     | '/changelog'
     | '/liquidity'
     | '/maya-masks'
+    | '/maya-token'
     | '/mayanames'
     | '/pooled-nodes'
     | '/settings'
@@ -149,6 +159,7 @@ export interface FileRouteTypes {
     | '/changelog'
     | '/liquidity'
     | '/maya-masks'
+    | '/maya-token'
     | '/mayanames'
     | '/pooled-nodes'
     | '/settings'
@@ -163,6 +174,7 @@ export interface FileRouteTypes {
     | '/changelog'
     | '/liquidity'
     | '/maya-masks'
+    | '/maya-token'
     | '/mayanames'
     | '/pooled-nodes'
     | '/settings'
@@ -178,6 +190,7 @@ export interface RootRouteChildren {
   ChangelogRoute: typeof ChangelogRoute
   LiquidityRoute: typeof LiquidityRoute
   MayaMasksRoute: typeof MayaMasksRoute
+  MayaTokenRoute: typeof MayaTokenRoute
   MayanamesRoute: typeof MayanamesRoute
   PooledNodesRoute: typeof PooledNodesRoute
   SettingsRoute: typeof SettingsRoute
@@ -221,6 +234,13 @@ declare module '@tanstack/react-router' {
       path: '/mayanames'
       fullPath: '/mayanames'
       preLoaderRoute: typeof MayanamesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/maya-token': {
+      id: '/maya-token'
+      path: '/maya-token'
+      fullPath: '/maya-token'
+      preLoaderRoute: typeof MayaTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/maya-masks': {
@@ -282,6 +302,7 @@ const rootRouteChildren: RootRouteChildren = {
   ChangelogRoute: ChangelogRoute,
   LiquidityRoute: LiquidityRoute,
   MayaMasksRoute: MayaMasksRoute,
+  MayaTokenRoute: MayaTokenRoute,
   MayanamesRoute: MayanamesRoute,
   PooledNodesRoute: PooledNodesRoute,
   SettingsRoute: SettingsRoute,

@@ -1,6 +1,6 @@
-import { Activity, AlertCircle, CheckCircle2, Clock3, Loader2, X } from 'lucide-react'
+import { Activity, AlertCircle, CheckCircle2, Clock3, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react'
 import QRCode from 'react-qr-code'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
   getJourneySourceLabel,
@@ -76,8 +76,8 @@ export function TransactionJourneyHost() {
 
   return (
     <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-[var(--bg-base)]/82 backdrop-blur-md p-4">
-      <div className="glass-panel-strong w-full max-w-5xl max-h-[90vh] overflow-hidden border border-[var(--line)] rounded-[2rem] shadow-2xl">
-        <div className="flex items-center justify-between px-6 py-5 border-b border-[var(--line)]">
+      <div className="glass-panel-strong w-full max-w-5xl max-h-[90vh] overflow-hidden border border-[var(--line)] rounded-[2rem] shadow-2xl flex flex-col">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-[var(--line)] shrink-0">
           <div>
             <div className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--sea-ink-soft)]">
               Transaction Tracker
@@ -88,15 +88,15 @@ export function TransactionJourneyHost() {
           </div>
           <button
             type="button"
-            className="p-2 rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink-soft)] hover:text-[var(--sea-ink)]"
+            className="p-2 rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink-soft)] hover:text-[var(--sea-ink)] shrink-0"
             onClick={() => wallet.closeJourneyDialog()}
           >
             <X size={18} />
           </button>
         </div>
 
-        <div className="grid lg:grid-cols-[280px_minmax(0,1fr)] max-h-[calc(90vh-92px)]">
-          <aside className="border-r border-[var(--line)] bg-[var(--surface)]/50 p-4 overflow-y-auto custom-scrollbar">
+        <div className="grid lg:grid-cols-[280px_minmax(0,1fr)] flex-1 min-h-0">
+          <aside className="border-r border-[var(--line)] bg-[var(--surface)]/50 p-4 shrink-0 overflow-y-auto custom-scrollbar">
             <div className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--sea-ink-soft)] mb-3">
               Recent Journeys
             </div>
@@ -129,92 +129,43 @@ export function TransactionJourneyHost() {
           </aside>
 
           <section className="p-6 overflow-y-auto custom-scrollbar">
-            <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_280px]">
-              <div className="space-y-5">
-                <JourneySummaryCard journey={activeJourney} />
-                <div className="glass-panel p-5 rounded-[1.5rem]">
-                  <div className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--sea-ink-soft)] mb-4">
-                    Progress
-                  </div>
-                  <div className="space-y-4">
-                    {activeJourney.steps.map((step) => (
-                      <JourneyStepRow key={step.key} step={step} />
-                    ))}
-                  </div>
+            <div className="max-w-[700px] mx-auto space-y-6">
+              <JourneySummaryCard journey={activeJourney} />
+
+              <SwapJourneyRealizedActionPanel journey={activeJourney} />
+
+              <SwapJourneyStreamingPanel journey={activeJourney} />
+
+              <div className="glass-panel p-5 rounded-[1.5rem]">
+                <div className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--sea-ink-soft)] mb-4">
+                  Progress
+                </div>
+                <div className="space-y-4">
+                  {activeJourney.steps.map((step) => (
+                    <JourneyStepRow key={step.key} step={step} />
+                  ))}
                 </div>
               </div>
 
-              <div className="space-y-5">
-                {activeJourney.qrPayload ? (
-                  <div className="glass-panel p-5 rounded-[1.5rem]">
-                    <div className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--sea-ink-soft)] mb-4">
-                      Scan To Continue
-                    </div>
-                    <div className="bg-white p-4 rounded-[1.5rem] inline-flex">
-                      <QRCode value={activeJourney.qrPayload} size={180} />
-                    </div>
-                    <p className="mt-4 text-sm text-[var(--sea-ink-soft)]">
-                      Open Vultisig on the participating device and scan the session QR code.
-                    </p>
-                  </div>
-                ) : null}
+              <JourneyDevicePanels journey={activeJourney} />
 
-                {activeJourney.deviceJoin ? (
-                  <div className="glass-panel p-5 rounded-[1.5rem]">
-                    <div className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--sea-ink-soft)] mb-4">
-                      Device Join
-                    </div>
-                    <div className="flex justify-between text-sm font-semibold text-[var(--sea-ink)] mb-2">
-                      <span>Joined devices</span>
-                      <span>
-                        {activeJourney.deviceJoin.joined} / {activeJourney.deviceJoin.required}
-                      </span>
-                    </div>
-                    <div className="h-3 rounded-full overflow-hidden border border-[var(--line)] bg-[var(--surface-strong)] flex">
-                      {Array.from({
-                        length: Math.max(activeJourney.deviceJoin.required, 2),
-                      }).map((_, index) => (
-                        <div
-                          key={index}
-                          className={`flex-1 border-r border-[var(--line)] last:border-r-0 ${
-                            index < activeJourney.deviceJoin.joined
-                              ? 'bg-[var(--cacao-neon)]'
-                              : 'bg-transparent'
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
+              <AdvancedDetailsToggle journey={activeJourney} />
 
-                <div className="glass-panel p-5 rounded-[1.5rem]">
-                  <div className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--sea-ink-soft)] mb-4">
-                    Transaction Data
-                  </div>
-                  <div className="space-y-3 text-sm">
-                    <InfoLine label="Source" value={getJourneySourceLabel(activeJourney.source)} />
-                    <InfoLine label="Chain" value={activeJourney.chain ?? 'n/a'} />
-                    <InfoLine label="Primary hash" value={activeJourney.primaryTxHash ?? 'n/a'} mono />
-                    <InfoLine label="Secondary hash" value={activeJourney.secondaryTxHash ?? 'n/a'} mono />
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => wallet.dismissJourney(activeJourney.id)}
-                    className="secondary-btn px-5 py-3"
-                  >
-                    Dismiss
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => wallet.closeJourneyDialog()}
-                    className="cacao-btn px-5 py-3"
-                  >
-                    Close
-                  </button>
-                </div>
+              <div className="flex justify-end gap-3 pt-4 pb-8">
+                <button
+                  type="button"
+                  onClick={() => wallet.dismissJourney(activeJourney.id)}
+                  className="secondary-btn px-5 py-3"
+                >
+                  Dismiss
+                </button>
+                <button
+                  type="button"
+                  onClick={() => wallet.closeJourneyDialog()}
+                  className="cacao-btn px-5 py-3"
+                >
+                  Close
+                </button>
               </div>
             </div>
           </section>
@@ -226,6 +177,7 @@ export function TransactionJourneyHost() {
 
 function JourneyToastCard({ journey }: { journey: WalletJourney }) {
   const step = resolvePrimaryStep(journey)
+  const summary = journey.swapTracking?.trackerState?.summary
   return (
     <div className="flex items-start gap-3">
       <div className="mt-0.5">{renderStatusIcon(journey.status)}</div>
@@ -234,8 +186,8 @@ function JourneyToastCard({ journey }: { journey: WalletJourney }) {
           {journey.title}
         </div>
         <div className="mt-1 text-xs text-[var(--sea-ink-soft)]">
-          {step?.label ?? 'Tracking update'}
-          {step?.message ? `: ${step.message}` : ''}
+          {summary ?? step?.label ?? 'Tracking update'}
+          {!summary && step?.message ? `: ${step.message}` : ''}
         </div>
       </div>
     </div>
@@ -244,6 +196,7 @@ function JourneyToastCard({ journey }: { journey: WalletJourney }) {
 
 function JourneySummaryCard({ journey }: { journey: WalletJourney }) {
   const step = resolvePrimaryStep(journey)
+  const trackerState = journey.swapTracking?.trackerState
   return (
     <div className="glass-panel p-5 rounded-[1.5rem]">
       <div className="flex items-start justify-between gap-4">
@@ -252,11 +205,51 @@ function JourneySummaryCard({ journey }: { journey: WalletJourney }) {
             Current Status
           </div>
           <div className="mt-2 text-xl font-bold text-[var(--sea-ink)]">
-            {step?.label ?? journey.title}
+            {trackerState?.summary ?? step?.label ?? journey.title}
           </div>
           <p className="mt-2 text-sm text-[var(--sea-ink-soft)]">
             {resolveAttentionMessage(journey, step)}
           </p>
+          {journey.kind === 'swap' && journey.swapTracking ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <MiniPill
+                label={formatTrackerTransportLabel(
+                  journey.swapTracking.transportStatus,
+                )}
+              />
+              {trackerState?.stage ? (
+                <MiniPill label={trackerState.stage} accent />
+              ) : null}
+              {trackerState?.swapType ? (
+                <MiniPill label={trackerState.swapType} />
+              ) : null}
+            </div>
+          ) : null}
+
+          {journey.primaryTxHash || journey.secondaryTxHash ? (
+            <div className="mt-4 space-y-2">
+              {journey.primaryTxHash ? (
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-[var(--sea-ink-soft)] mb-1">
+                    Primary Hash
+                  </div>
+                  <div className="text-xs font-mono text-[var(--maya-teal)] break-all bg-[var(--maya-teal)]/10 px-2.5 py-1.5 rounded-lg border border-[var(--maya-teal)]/20 inline-block max-w-full">
+                    {journey.primaryTxHash}
+                  </div>
+                </div>
+              ) : null}
+              {journey.secondaryTxHash ? (
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-[var(--sea-ink-soft)] mb-1">
+                    Secondary Hash
+                  </div>
+                  <div className="text-xs font-mono text-[var(--maya-teal)] break-all bg-[var(--maya-teal)]/10 px-2.5 py-1.5 rounded-lg border border-[var(--maya-teal)]/20 inline-block max-w-full">
+                    {journey.secondaryTxHash}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
         <StatusPill status={journey.status} />
       </div>
@@ -334,6 +327,20 @@ function InfoLine(props: { label: string; value: string; mono?: boolean }) {
   )
 }
 
+function MiniPill(props: { label: string; accent?: boolean }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] ${
+        props.accent
+          ? 'border-[var(--maya-teal)]/30 bg-[var(--maya-teal)]/10 text-[var(--maya-teal)]'
+          : 'border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink-soft)]'
+      }`}
+    >
+      {props.label}
+    </span>
+  )
+}
+
 function resolvePrimaryStep(journey: WalletJourney) {
   return (
     journey.steps.find((step) => step.status === 'attention') ??
@@ -347,6 +354,15 @@ function resolveAttentionMessage(
   journey: WalletJourney,
   step?: WalletJourneyStep,
 ) {
+  if (journey.kind === 'swap' && journey.swapTracking?.trackerState?.summary) {
+    if (journey.swapTracking.transportStatus === 'fallback') {
+      return (
+        journey.swapTracking.fallbackReason ??
+        'Live protocol tracking is unavailable. Falling back to local transaction confirmation.'
+      )
+    }
+    return journey.swapTracking.trackerState.summary
+  }
   if (journey.qrPayload) {
     return 'Scan the QR code in Vultisig to continue the journey.'
   }
@@ -360,6 +376,269 @@ function resolveAttentionMessage(
     return 'The provider accepted the request without returning a hash, so tracking cannot continue automatically.'
   }
   return step?.message ?? 'Tracking the latest wallet activity.'
+}
+
+function formatTrackerTransportLabel(
+  value: NonNullable<WalletJourney['swapTracking']>['transportStatus'],
+) {
+  switch (value) {
+    case 'connecting':
+      return 'Connecting'
+    case 'subscribed':
+      return 'Subscribed'
+    case 'live':
+      return 'Live Updates'
+    case 'fallback':
+      return 'Fallback'
+    case 'closed':
+      return 'Closed'
+    default:
+      return 'Local'
+  }
+}
+
+function formatTrackerStateLabel(value?: string | null) {
+  if (!value) {
+    return 'n/a'
+  }
+  return value.replace(/_/g, ' ')
+}
+
+function SwapJourneyRealizedActionPanel({ journey }: { journey: WalletJourney }) {
+  const tracking = journey.swapTracking
+  const state = tracking?.trackerState
+  if (journey.kind !== 'swap' || !state || !state.from || !state.to) {
+    return null
+  }
+
+  return (
+    <div className="glass-panel p-5 rounded-[1.5rem]">
+      <div className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--sea-ink-soft)] mb-4">
+        Action Details
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface)] px-4 py-4 dark:bg-[var(--surface-strong)]">
+          <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--sea-ink-soft)]">
+            Swapping From
+          </div>
+          <div className="mt-2 text-2xl font-bold text-[var(--sea-ink)] flex items-end gap-2">
+            {state.from.display.amount.compact ?? state.from.display.amount.exact ?? 'n/a'}
+            <span className="text-base font-semibold text-[var(--sea-ink-soft)] mb-1">{state.from.display.symbol}</span>
+          </div>
+          <div className="mt-2 text-xs text-[var(--sea-ink-soft)] break-all opacity-70">
+            {state.from.address}
+          </div>
+        </div>
+        <div className="rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface)] px-4 py-4 dark:bg-[var(--surface-strong)]">
+          <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--sea-ink-soft)]">
+            Receiving
+          </div>
+          <div className="mt-2 text-2xl font-bold text-[var(--sea-ink)] flex items-end gap-2">
+            {(state.to.display.amountReceived.compact ??
+              state.to.display.amountExpected.compact ??
+              state.to.display.amountReceived.exact ??
+              state.to.display.amountExpected.exact ??
+              'n/a')}
+            <span className="text-base font-semibold text-[var(--sea-ink-soft)] mb-1">{state.to.display.symbol}</span>
+          </div>
+          <div className="mt-2 text-xs text-[var(--sea-ink-soft)] break-all opacity-70">
+            {state.to.address}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SwapJourneyStreamingPanel({ journey }: { journey: WalletJourney }) {
+  const tracking = journey.swapTracking
+  const state = tracking?.trackerState
+  if (journey.kind !== 'swap' || !state?.streaming) {
+    return null
+  }
+
+  return (
+    <div className="glass-panel p-5 rounded-[1.5rem]">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--sea-ink-soft)]">
+          Streaming Progress
+        </div>
+        <div className="text-sm font-semibold text-[var(--sea-ink)]">
+          {state.streaming.progressPercent.toFixed(0)}%
+        </div>
+      </div>
+      <div className="mt-4 h-3 overflow-hidden rounded-full border border-[var(--line)] bg-[var(--surface)]">
+        <div
+          className="h-full bg-[var(--maya-teal)] transition-[width] duration-300"
+          style={{
+            width: `${Math.max(
+              0,
+              Math.min(100, state.streaming.progressPercent),
+            )}%`,
+          }}
+        />
+      </div>
+      <div className="mt-4 flex flex-wrap gap-8 text-sm">
+         <div className="flex flex-col">
+           <span className="text-[10px] uppercase font-bold text-[var(--sea-ink-soft)] tracking-wider">Completed Splits</span>
+           <span className="font-semibold text-[var(--sea-ink)]">{state.streaming.count} / {state.streaming.quantity}</span>
+         </div>
+         <div className="flex flex-col">
+           <span className="text-[10px] uppercase font-bold text-[var(--sea-ink-soft)] tracking-wider">Swapped In</span>
+           <span className="font-semibold text-[var(--sea-ink)]">{state.streaming.swappedInAmount}</span>
+         </div>
+      </div>
+      {state.streaming.failedReasons.length ? (
+        <div className="mt-4 rounded-[1rem] border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-400">
+          {state.streaming.failedReasons.join(', ')}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function JourneyDevicePanels({ journey }: { journey: WalletJourney }) {
+  if (!journey.qrPayload && !journey.deviceJoin) return null;
+
+  return (
+    <div className="space-y-5">
+      {journey.qrPayload ? (
+        <div className="glass-panel p-5 rounded-[1.5rem]">
+          <div className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--sea-ink-soft)] mb-4">
+            Scan To Continue
+          </div>
+          <div className="bg-white p-4 rounded-[1.5rem] inline-flex">
+            <QRCode value={journey.qrPayload} size={180} />
+          </div>
+          <p className="mt-4 text-sm text-[var(--sea-ink-soft)]">
+            Open Vultisig on the participating device and scan the session QR code.
+          </p>
+        </div>
+      ) : null}
+
+      {journey.deviceJoin ? (
+        <div className="glass-panel p-5 rounded-[1.5rem]">
+          <div className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--sea-ink-soft)] mb-4">
+            Device Join
+          </div>
+          <div className="flex justify-between text-sm font-semibold text-[var(--sea-ink)] mb-2">
+            <span>Joined devices</span>
+            <span>
+              {journey.deviceJoin.joined} / {journey.deviceJoin.required}
+            </span>
+          </div>
+          <div className="h-3 rounded-full overflow-hidden border border-[var(--line)] bg-[var(--surface-strong)] flex">
+            {Array.from({
+              length: Math.max(journey.deviceJoin.required, 2),
+            }).map((_, index) => (
+              <div
+                key={index}
+                className={`flex-1 border-r border-[var(--line)] last:border-r-0 ${
+                  index < journey.deviceJoin.joined
+                    ? 'bg-[var(--cacao-neon)]'
+                    : 'bg-transparent'
+                }`}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function AdvancedDetailsToggle({ journey }: { journey: WalletJourney }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const tracking = journey.swapTracking;
+  const state = tracking?.trackerState;
+
+  return (
+    <div className="glass-panel rounded-[1.5rem] overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between p-5 text-left hover:bg-[var(--surface)]/50 transition-colors"
+      >
+        <span className="text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--sea-ink-soft)]">
+          Advanced Details
+        </span>
+        <div className="text-[var(--sea-ink-soft)]">
+          {isOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="p-5 pt-0 border-t border-[var(--line)] space-y-6">
+          <div className="space-y-4 pt-4">
+            <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--sea-ink)]">
+              Transaction Data
+            </div>
+            <div className="space-y-3 text-sm">
+              <InfoLine label="Source" value={getJourneySourceLabel(journey.source)} />
+              <InfoLine label="Chain" value={journey.chain ?? 'n/a'} />
+            </div>
+          </div>
+
+          {journey.kind === 'swap' && tracking ? (
+            <>
+              <div className="space-y-4">
+                <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--sea-ink)]">
+                  Protocol Tracker
+                </div>
+                <div className="space-y-3 text-sm">
+                  <InfoLine label="Transport" value={formatTrackerTransportLabel(tracking.transportStatus)} />
+                  <InfoLine label="Tracking Source" value={tracking.trackingSource} />
+                  <InfoLine label="Protocol Status" value={formatTrackerStateLabel(state?.status)} />
+                  <InfoLine label="Stage" value={formatTrackerStateLabel(state?.stage)} />
+                  <InfoLine label="Swap Type" value={formatTrackerStateLabel(state?.swapType)} />
+                  <InfoLine label="Affiliate" value={
+                    state?.affiliate?.interface?.name && state.affiliate.interface.code
+                      ? `${state.affiliate.interface.name} (${state.affiliate.interface.code})`
+                      : state?.affiliate?.interface?.name ?? state?.affiliate?.raw ?? 'n/a'
+                  } />
+                  {tracking.fallbackReason ? (
+                    <InfoLine label="Fallback Note" value={tracking.fallbackReason} />
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--sea-ink)]">
+                  Technical Details
+                </div>
+                <div className="space-y-3 text-sm">
+                   <InfoLine
+                    label="Pair"
+                    value={
+                      tracking.context
+                        ? `${tracking.context.fromTicker} -> ${tracking.context.toTicker}`
+                        : journey.title
+                    }
+                  />
+                  <InfoLine label="Amount" value={tracking.context?.amount ?? 'n/a'} />
+                  <InfoLine label="Execution" value={tracking.context?.executionMode ?? 'n/a'} />
+                  <InfoLine label="Memo" value={tracking.context?.memo ?? 'n/a'} mono />
+                  <InfoLine label="Inbound Address" value={tracking.context?.inboundAddress ?? 'n/a'} mono />
+                  <InfoLine label="Router" value={tracking.context?.router ?? 'n/a'} mono />
+                  <InfoLine label="Inbound Seen" value={state ? (state.chain.inboundSeen ? 'Yes' : 'No') : 'n/a'} />
+                  <InfoLine label="Last Event" value={state?.chain.lastEventType ?? 'n/a'} />
+                  <InfoLine label="Chain Height" value={String(state?.chain.height ?? 'n/a')} />
+                </div>
+                {tracking.historyHref ? (
+                  <a
+                    href={tracking.historyHref}
+                    className="mt-4 inline-flex items-center rounded-full border border-[var(--line)] bg-[var(--surface)] px-4 py-2 text-sm font-semibold text-[var(--sea-ink)] no-underline hover:border-[var(--maya-teal)] hover:text-[var(--maya-teal)] transition-colors"
+                  >
+                    Open Portfolio History
+                  </a>
+                ) : null}
+              </div>
+            </>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function renderStatusIcon(status: WalletJourney['status']) {

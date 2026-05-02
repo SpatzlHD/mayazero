@@ -12,9 +12,6 @@ export type SupportReferrerState = {
   supportReferrerEnabled: boolean;
   supportReferrerBps: string;
   supportReferrerForMayaName: string;
-  interfaceSupportSwapEnabled: boolean;
-  interfaceSupportSwapBps: string;
-  interfaceSupportBannerDismissed: boolean;
 };
 
 export function normalizeSupportReferrerBps(
@@ -28,17 +25,10 @@ export function normalizeSupportReferrerBps(
   return String(Math.min(MAX_SUPPORT_REFERRER_BPS, Math.round(parsed)));
 }
 
-export function createInterfaceAffiliateDraft(
-  settings: Pick<
-    SupportReferrerState,
-    "interfaceSupportSwapEnabled" | "interfaceSupportSwapBps"
-  >,
-): AffiliateDraftLike {
+export function createInterfaceAffiliateDraft(): AffiliateDraftLike {
   return {
     value: INTERFACE_AFFILIATE_MAYANAME,
-    bps: settings.interfaceSupportSwapEnabled
-      ? normalizeSupportReferrerBps(settings.interfaceSupportSwapBps)
-      : "0",
+    bps: "0",
   };
 }
 
@@ -101,31 +91,6 @@ export function setSupportReferrerPreferences<T extends SupportReferrerState>(
     supportReferrerForMayaName:
       next.supportReferrerForMayaName?.trim() ??
       settings.supportReferrerForMayaName,
-  };
-}
-
-export function setInterfaceSupportPreferences<T extends SupportReferrerState>(
-  settings: T,
-  next: Partial<
-    Pick<
-      SupportReferrerState,
-      | "interfaceSupportSwapEnabled"
-      | "interfaceSupportSwapBps"
-      | "interfaceSupportBannerDismissed"
-    >
-  >,
-): T {
-  return {
-    ...settings,
-    interfaceSupportSwapEnabled:
-      next.interfaceSupportSwapEnabled ?? settings.interfaceSupportSwapEnabled,
-    interfaceSupportSwapBps:
-      next.interfaceSupportSwapBps === undefined
-        ? settings.interfaceSupportSwapBps
-        : normalizeSupportReferrerBps(next.interfaceSupportSwapBps),
-    interfaceSupportBannerDismissed:
-      next.interfaceSupportBannerDismissed ??
-      settings.interfaceSupportBannerDismissed,
   };
 }
 

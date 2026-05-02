@@ -176,4 +176,57 @@ describe('wallet CACAOPool helper', () => {
       }),
     )
   })
+
+  it('forwards custom withdraw memos through the deposit helper', async () => {
+    const requests: Array<{ method: string; params?: unknown[] }> = []
+    const manager = new MayaWalletManager({
+      sdk: createFakeSdkClient().sdk,
+      extensionWindow: {
+        vultisig: {
+          mayachain: {
+            request: async ({ method, params }) => {
+              requests.push({ method, params })
+              if (method === 'get_accounts' || method === 'request_accounts') {
+                return ['maya1extension']
+              }
+              if (method === 'deposit_transaction') {
+                return 'maya-withdraw-hash'
+              }
+              return null
+            },
+          },
+        },
+      },
+      prefsStorage: createMemoryStorage(),
+    })
+
+    await manager.initialize()
+    await manager.selectSession('extension:vultisig')
+
+    const result = await depositToCacaoPool(manager, {
+      amountBaseUnits: '1',
+      memo: 'POOL-:2500',
+      sessionId: 'extension:vultisig',
+    })
+
+    expect(result).toMatchObject({
+      route: 'extension',
+      txHash: 'maya-withdraw-hash',
+      memo: 'POOL-:2500',
+    })
+    expect(requests).toContainEqual(
+      expect.objectContaining({
+        method: 'deposit_transaction',
+        params: [
+          expect.objectContaining({
+            amount: {
+              amount: '1',
+              decimals: 10,
+            },
+            memo: 'POOL-:2500',
+          }),
+        ],
+      }),
+    )
+  })
 })

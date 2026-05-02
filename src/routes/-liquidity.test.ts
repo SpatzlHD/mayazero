@@ -5,6 +5,7 @@ import {
   filterVisibleLiquidityPools,
   getInitialLiquidityPoolAsset,
   getLiquidityPrimaryAction,
+  inferRecoverablePendingSymmetricDeposit,
   sortLiquidityPools,
   syncSymmetricDepositAmounts,
 } from './liquidity'
@@ -93,10 +94,42 @@ describe('liquidity route helpers', () => {
           cacaoAmountBaseUnits: '1',
           interfaceAffiliateBps: '0',
           poolAsset: 'BTC.BTC',
+          source: 'stored',
           sessionId: 'vault-1',
         },
       ),
     ).toBe('BTC.BTC')
+  })
+
+  it('uses pending positions for initial selection when no local pending state exists', () => {
+    expect(
+      getInitialLiquidityPoolAsset(
+        [makePool(), makePool({ asset: 'BTC.BTC' })],
+        [makePosition({ pool: 'BTC.BTC', state: 'pending', units: '0', pendingAsset: '100', pendingCacao: '0' })],
+        null,
+      ),
+    ).toBe('BTC.BTC')
+  })
+
+  it('infers a recoverable symmetric pending deposit from pending asset-side LP state', () => {
+    expect(
+      inferRecoverablePendingSymmetricDeposit('vault-1', [
+        makePosition({
+          pool: 'BTC.BTC',
+          state: 'pending',
+          units: '0',
+          pendingAsset: '123',
+          pendingCacao: '0',
+        }),
+      ]),
+    ).toEqual({
+      assetAmountBaseUnits: '123',
+      cacaoAmountBaseUnits: '',
+      interfaceAffiliateBps: '0',
+      poolAsset: 'BTC.BTC',
+      source: 'recovered',
+      sessionId: 'vault-1',
+    })
   })
 
   it('hides staged pools outside power-user mode', () => {
@@ -194,6 +227,7 @@ describe('liquidity route helpers', () => {
         isViewOnly: true,
         isSubmitting: false,
         pendingDepositMatches: false,
+        pendingDepositStoredAmount: false,
         pool: makePool(),
         withdrawBasisPoints: 0,
       }),
@@ -201,6 +235,54 @@ describe('liquidity route helpers', () => {
       expect.objectContaining({
         disabled: true,
         label: 'View Only',
+      }),
+    )
+
+    expect(
+      getLiquidityPrimaryAction({
+        activeTab: 'deposit',
+        assetAmountBaseUnits: '1',
+        assetBalanceBaseUnits: '10',
+        cacaoAmountBaseUnits: null,
+        cacaoBalanceBaseUnits: '10',
+        depositMode: 'symmetric',
+        hasPosition: false,
+        hasSession: true,
+        isSubmitting: false,
+        pendingDepositMatches: true,
+        pendingDepositStoredAmount: false,
+        pool: makePool(),
+        withdrawBasisPoints: 0,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        disabled: true,
+        kind: 'resume',
+        label: 'Enter CACAO Amount',
+      }),
+    )
+
+    expect(
+      getLiquidityPrimaryAction({
+        activeTab: 'deposit',
+        assetAmountBaseUnits: '1',
+        assetBalanceBaseUnits: '10',
+        cacaoAmountBaseUnits: '1',
+        cacaoBalanceBaseUnits: '10',
+        depositMode: 'symmetric',
+        hasPosition: false,
+        hasSession: true,
+        isSubmitting: false,
+        pendingDepositMatches: true,
+        pendingDepositStoredAmount: false,
+        pool: makePool(),
+        withdrawBasisPoints: 0,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        disabled: false,
+        kind: 'resume',
+        label: 'Submit CACAO Leg',
       }),
     )
 
@@ -216,6 +298,7 @@ describe('liquidity route helpers', () => {
         hasSession: true,
         isSubmitting: false,
         pendingDepositMatches: false,
+        pendingDepositStoredAmount: false,
         pool: makePool(),
         withdrawBasisPoints: 2500,
       }),

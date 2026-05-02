@@ -73,6 +73,18 @@ vi.mock("#/provider/PreferencesProvider", () => ({
   }),
 }));
 
+vi.mock("#/provider/ImpersonationProvider", () => ({
+  useImpersonationState: () => ({
+    isViewOnly: false,
+  }),
+}));
+
+vi.mock("#/generated/hypertune.react", () => ({
+  useHypertune: () => ({
+    beta: () => true,
+  }),
+}));
+
 vi.mock("./ThemeToggle", () => ({
   default: () => <button type="button">Theme Toggle</button>,
 }));
@@ -117,6 +129,7 @@ describe("Header", () => {
     expect(screen.getByRole("menu", { name: "Tools" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Pooled Nodes" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "CACAOPool" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Maya Token" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "MAYANames" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Maya Masks" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Settings" })).toBeTruthy();
@@ -183,6 +196,7 @@ describe("Header", () => {
     expect(screen.getAllByText("Tools").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Interface").length).toBeGreaterThan(0);
     expect(screen.getByText("Pooled Nodes")).toBeTruthy();
+    expect(screen.getByText("Maya Token")).toBeTruthy();
     expect(screen.getByText("Theme & Display")).toBeTruthy();
     expect(screen.getAllByText("Pro Mode").length).toBeGreaterThan(0);
   });

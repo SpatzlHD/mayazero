@@ -45,6 +45,7 @@ type WalletManagerMenuContentProps = {
   activeSessionId: string | null;
   availableChains: Chain[];
   actionChain: Chain;
+  canConnect: boolean;
   canFetchData: boolean;
   canExport: boolean;
   showDebugControls: boolean;
@@ -66,6 +67,7 @@ type WalletManagerMenuContentProps = {
   onCreateVault: () => void;
   onSessionClick: (sessionId: string, status: string) => void;
   onSelectChain: (chain: Chain) => void;
+  onConnect: () => void;
   onRefreshData: () => void;
   onToggleVaultLock: () => void;
   onInitialize: () => void;
@@ -119,6 +121,7 @@ export function WalletManagerMenuContent({
   activeSessionId,
   availableChains,
   actionChain,
+  canConnect,
   canFetchData,
   canExport,
   showDebugControls,
@@ -140,6 +143,7 @@ export function WalletManagerMenuContent({
   onCreateVault,
   onSessionClick,
   onSelectChain,
+  onConnect,
   onRefreshData,
   onToggleVaultLock,
   onInitialize,
@@ -478,7 +482,19 @@ export function WalletManagerMenuContent({
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1">
+            <div
+              className={`grid gap-2 ${canConnect ? "grid-cols-2" : "grid-cols-1"}`}
+            >
+              {canConnect && (
+                <button
+                  onClick={onConnect}
+                  className="p-2.5 rounded-lg text-xs font-bold bg-[var(--maya-teal)] text-[var(--bg-base)] shadow-[0_0_10px_rgba(26,154,141,0.2)] hover:scale-[1.02] disabled:opacity-50 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <WalletCards size={14} />
+                  Connect Extension
+                </button>
+              )}
+
               <button
                 disabled={!canFetchData}
                 onClick={onRefreshData}
@@ -574,6 +590,12 @@ export function WalletManager() {
   const canFetchData = wallet.canExecute("addresses.list", {
     sessionId: activeSession?.id,
   });
+  const canConnect =
+    activeSession?.source === "extension"
+      ? wallet.canExecute("accounts.connect", {
+          sessionId: activeSession.id,
+        })
+      : false;
   const canExport =
     activeSession?.source === "sdk"
       ? wallet.canExecute("vault.export", {
@@ -672,6 +694,15 @@ export function WalletManager() {
     } finally {
       setIsUnlocking(false);
     }
+  }
+
+  async function connectExtensionAccounts() {
+    if (!activeSession || activeSession.source !== "extension") return;
+
+    await wallet.execute("accounts.connect", {
+      sessionId: activeSession.id,
+      input: {},
+    });
   }
 
   async function handleExportSubmit(e: React.FormEvent) {
@@ -780,6 +811,7 @@ export function WalletManager() {
           activeSessionId={state.activeSessionId}
           availableChains={availableChains}
           actionChain={actionChain}
+          canConnect={canConnect}
           canFetchData={canFetchData}
           canExport={canExport}
           showDebugControls={showDebugControls}
@@ -804,6 +836,9 @@ export function WalletManager() {
           }}
           onSelectChain={(chain) => {
             void runWalletAction(() => wallet.selectChain(chain));
+          }}
+          onConnect={() => {
+            void runWalletAction(connectExtensionAccounts);
           }}
           onRefreshData={() => {
             void runWalletAction(loadAllData);

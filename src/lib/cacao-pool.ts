@@ -96,9 +96,11 @@ export type CacaoPoolSnapshot = {
 export type CacaoPoolServiceOptions = {
   fetch?: FetchLike
   midgardUrl?: string
+  mayanodeUrl?: string
 }
 
 const DEFAULT_MIDGARD_URL = 'https://midgard.mayachain.info'
+const DEFAULT_MAYANODE_URL = 'https://mayanode.mayachain.info'
 const CACAO_DECIMALS = 10
 
 function defaultFetchMissing(): never {
@@ -119,6 +121,10 @@ function resolveFetchImplementation(customFetch?: FetchLike): FetchLike {
 
 function normalizeMidgardUrl(value?: string): string {
   return (value ?? DEFAULT_MIDGARD_URL).replace(/\/+$/, '')
+}
+
+function normalizeMayanodeUrl(value?: string): string {
+  return (value ?? DEFAULT_MAYANODE_URL).replace(/\/+$/, '')
 }
 
 async function getJson<T>(
@@ -215,6 +221,35 @@ export async function fetchCacaoPoolSnapshot(
     activity,
     fetchedAt: new Date().toISOString(),
   }
+}
+
+export async function fetchCurrentMayaBlockHeight(
+  options: CacaoPoolServiceOptions = {},
+): Promise<number> {
+  const response = await resolveFetchImplementation(options.fetch)(
+    `${normalizeMayanodeUrl(options.mayanodeUrl)}/mayachain/lastblock`,
+    {
+      headers: {
+        Accept: 'application/json',
+      },
+    },
+  )
+
+  if (!response.ok) {
+    throw new Error(`Failed to load MayaChain block height (${response.status})`)
+  }
+
+  const payload = (await response.json()) as Array<{ mayachain?: number | string }>
+  const highest = payload
+    .map((entry) => Number(entry.mayachain ?? 0))
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .reduce((current, value) => Math.max(current, value), 0)
+
+  if (!Number.isFinite(highest) || highest <= 0) {
+    throw new Error('Failed to resolve the current MayaChain block height.')
+  }
+
+  return Math.floor(highest)
 }
 
 export function normalizeCacaoPoolActivity(

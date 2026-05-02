@@ -135,18 +135,18 @@ export function createAffiliateDrafts(
 }
 
 export function resolveQuoteStrategy(
-  settings: SettingsState,
-  affiliateDrafts: AffiliateDraft[] = [],
+  _settings: SettingsState,
+  _affiliateDrafts: AffiliateDraft[] = [],
 ): QuoteStrategy {
   return "maya";
 }
 
 export function resolveEffectiveAffiliates(
-  settings: SettingsState,
+  _settings: SettingsState,
   affiliateDrafts: AffiliateDraft[] = [],
 ): EffectiveAffiliate[] {
   const interfaceAffiliate = resolveAffiliateDraft(
-    createInterfaceAffiliateDraft(settings),
+    createInterfaceAffiliateDraft(),
     "interface",
   );
   const userDrafts = affiliateDrafts.filter(

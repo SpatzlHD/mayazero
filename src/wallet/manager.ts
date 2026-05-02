@@ -853,6 +853,8 @@ export class MayaWalletManager {
       patch.status && patch.status !== 'pending'
         ? this.resolveJourneyOutcomeStatus(patch.status)
         : undefined
+    const terminalJourneyStatus =
+      finalStatus && finalStatus !== 'success' ? finalStatus : undefined
 
     this.patchJourney(operation.journeyId, (journey) => {
       let nextSteps = stepKey
@@ -928,7 +930,7 @@ export class MayaWalletManager {
             ? Boolean(patch.qrPayload)
             : patch.deviceJoin
               ? true
-              : finalStatus === 'error'
+              : terminalJourneyStatus === 'error'
                 ? true
                 : journey.requiresAttention,
         openOnUpdate:
@@ -936,11 +938,11 @@ export class MayaWalletManager {
             ? Boolean(patch.qrPayload)
             : patch.deviceJoin
               ? true
-              : finalStatus === 'error'
+              : terminalJourneyStatus === 'error'
                 ? true
                 : journey.openOnUpdate,
         status:
-          finalStatus ??
+          terminalJourneyStatus ??
           (patch.qrPayload !== undefined || patch.deviceJoin
             ? 'attention'
             : journey.status),

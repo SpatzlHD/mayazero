@@ -265,6 +265,15 @@ describe('wallet swap helper', () => {
   })
 
   it('submits SDK Maya deposits using the selected MayaChain asset metadata', async () => {
+    const mayaSpecific = {
+      accountNumber: 4n,
+      sequence: 7n,
+      isDeposit: false,
+    }
+    Object.defineProperty(mayaSpecific, '__bufMessage', {
+      value: true,
+      enumerable: false,
+    })
     const prepareSendTx = vi.fn(async (params) => ({
       coin: params.coin,
       toAddress: params.receiver,
@@ -272,11 +281,7 @@ describe('wallet swap helper', () => {
       memo: params.memo,
       blockchainSpecific: {
         case: 'mayaSpecific',
-        value: {
-          accountNumber: 4n,
-          sequence: 7n,
-          isDeposit: false,
-        },
+        value: mayaSpecific,
       },
     }))
     const sign = vi.fn(async () => ({
@@ -340,8 +345,9 @@ describe('wallet swap helper', () => {
         amount: 15000n,
         coin: expect.objectContaining({
           chain: Chain.MayaChain,
+          contractAddress: 'MAYA.MAYA',
           decimals: 4,
-          isNativeToken: true,
+          isNativeToken: false,
           ticker: 'MAYA',
         }),
         memo: '=:ARB.USDC-0XAF88D065E77C8CC2239327C5EDB3A432268E5831:0x8CcB8B8B30faBe30591b20D9A1B55CfAeF69B4e2:585190444/3/0',
@@ -350,6 +356,30 @@ describe('wallet swap helper', () => {
     )
     expect(sign).toHaveBeenCalled()
     expect(broadcastTx).toHaveBeenCalled()
+    const signedPayload = sign.mock.calls[0]?.[0]?.transaction as {
+      coin?: { contractAddress?: string; isNativeToken?: boolean; ticker?: string }
+      toAddress?: string
+      toAmount?: string
+      memo?: string
+      blockchainSpecific?: { case?: string; value?: unknown }
+    }
+    expect(signedPayload.coin).toEqual(
+      expect.objectContaining({
+        contractAddress: 'MAYA.MAYA',
+        isNativeToken: false,
+        ticker: 'MAYA',
+      }),
+    )
+    expect(signedPayload.toAddress).toBe('')
+    expect(signedPayload.toAmount).toBe('15000')
+    expect(signedPayload.memo).toBe(
+      '=:ARB.USDC-0XAF88D065E77C8CC2239327C5EDB3A432268E5831:0x8CcB8B8B30faBe30591b20D9A1B55CfAeF69B4e2:585190444/3/0',
+    )
+    expect(signedPayload.blockchainSpecific?.case).toBe('mayaSpecific')
+    expect(signedPayload.blockchainSpecific?.value).toBe(mayaSpecific)
+    expect(
+      Object.getOwnPropertyDescriptor(mayaSpecific, '__bufMessage')?.value,
+    ).toBe(true)
   })
 
   it('submits extension ERC-20 router swaps via approval and router eth_sendTransaction calls', async () => {
@@ -364,6 +394,9 @@ describe('wallet swap helper', () => {
               requests.push({ method, params })
               if (method === 'eth_accounts' || method === 'eth_requestAccounts') {
                 return ['0xextension']
+              }
+              if (method === 'wallet_switchEthereumChain') {
+                return null
               }
               if (method === 'eth_sendTransaction') {
                 return requests.filter((request) => request.method === 'eth_sendTransaction').length === 1
@@ -386,6 +419,7 @@ describe('wallet swap helper', () => {
 
     await manager.initialize()
     await manager.selectSession('extension:vultisig')
+    await manager.selectChain(Chain.Arbitrum)
 
     const statuses: string[] = []
     const result = await submitSwap(manager, {
@@ -416,6 +450,96 @@ describe('wallet swap helper', () => {
     })
     expect(statuses).toEqual(['approving', 'waiting-approval', 'submitting'])
     expect(requests.filter((request) => request.method === 'eth_sendTransaction')).toHaveLength(2)
+    expect(requests).toContainEqual(
+      expect.objectContaining({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0x1' }],
+      }),
+    )
+  })
+
+  it('submits extension native EVM swaps as value transfers with the memo hex-encoded in data', async () => {
+    const requests: Array<{ method: string; params?: unknown[] }> = []
+    const manager = new MayaWalletManager({
+      sdk: createFakeSdkClient().sdk,
+      extensionWindow: {
+        vultisig: {
+          ethereum: {
+            request: async ({ method, params }) => {
+              requests.push({ method, params })
+              if (method === 'eth_accounts' || method === 'eth_requestAccounts') {
+                return ['0xextension']
+              }
+              if (method === 'wallet_switchEthereumChain') {
+                return null
+              }
+              if (method === 'eth_sendTransaction') {
+                return '0xnative-router-swap'
+              }
+              return null
+            },
+          },
+        },
+      },
+      prefsStorage: createMemoryStorage(),
+    })
+
+    await manager.initialize()
+    await manager.selectSession('extension:vultisig')
+    await manager.selectChain(Chain.Arbitrum)
+    await manager.selectChain(Chain.Ethereum)
+
+    const statuses: string[] = []
+    const result = await submitSwap(manager, {
+      amount: '0.0005',
+      fromAsset: makeAsset({
+        id: 'arb-eth',
+        chain: Chain.Arbitrum,
+        mayaAsset: 'ARB.ETH',
+      }),
+      quote: makeQuote({
+        inboundAddress: '0XAB1722696E2320687B80D9DC62030BD6FBC8BBFD',
+        inboundDetails: {
+          chain: 'ARB',
+          inboundAddress: '0XAB1722696E2320687B80D9DC62030BD6FBC8BBFD',
+          lpActionsPaused: false,
+          tradingPaused: false,
+          halted: false,
+          dustThreshold: '0',
+          router: '0X700E97EF07219440487840DC472E7120A7FF11F4',
+        },
+        memo: '=:ARB.USDC-0XAF88D065E77C8CC2239327C5EDB3A432268E5831:0xreceiver',
+      }),
+      sessionId: 'extension:vultisig',
+      onStatusChange: (status) => {
+        statuses.push(status)
+      },
+    })
+
+    expect(result).toMatchObject({
+      mode: 'send',
+      route: 'extension',
+      txHash: '0xnative-router-swap',
+    })
+    expect(statuses).toEqual(['submitting'])
+    expect(requests).toContainEqual(
+      expect.objectContaining({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0xa4b1' }],
+      }),
+    )
+    const txRequests = requests.filter((request) => request.method === 'eth_sendTransaction')
+    expect(txRequests).toHaveLength(1)
+    expect(txRequests[0]).toMatchObject({
+      params: [
+        {
+          from: '0xextension',
+          to: '0xAB1722696e2320687B80D9dc62030bd6fBc8Bbfd',
+          value: '0x1c6bf52634000',
+          data: '0x3d3a4152422e555344432d3058414638384430363545373743384343323233393332374335454442334134333232363845353833313a30787265636569766572',
+        },
+      ],
+    })
   })
 
   it('submits SDK router swaps through raw signing and raw broadcast after approval confirmation', async () => {

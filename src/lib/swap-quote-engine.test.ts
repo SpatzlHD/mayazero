@@ -20,24 +20,22 @@ function createSettings(overrides: Partial<SettingsState> = {}): SettingsState {
     mayanodeUrl: 'https://mayanode.mayachain.info',
     midgardUrl: 'https://midgard.mayachain.info',
     tendermintUrl: 'https://tendermint.mayachain.info',
-    useZeroPercentFee: true,
     useVultisigSwap: false,
-    supportFeePercent: 0.1,
+    analyticsDisabled: false,
     referralMayaName: '',
     supportReferrerEnabled: false,
     supportReferrerBps: DEFAULT_SUPPORT_REFERRER_BPS,
     supportReferrerForMayaName: '',
-    interfaceSupportSwapEnabled: false,
-    interfaceSupportSwapBps: DEFAULT_SUPPORT_REFERRER_BPS,
-    interfaceSupportBannerDismissed: false,
+    impersonationEnabled: false,
+    impersonationAddresses: {},
     updateSettings: () => {},
     setReferralMayaName: () => {},
     clearReferralMayaName: () => {},
     updateSupportReferrerSettings: () => {},
     resetSupportReferrerSettings: () => {},
-    updateInterfaceSupportSettings: () => {},
+    clearImpersonationSettings: () => {},
     ...overrides,
-  }
+  } as SettingsState
 }
 
 function createAsset(overrides: Partial<ProtocolAsset>): ProtocolAsset {
@@ -68,7 +66,6 @@ describe('swap-quote-engine', () => {
 
   it('prepends m0 and accepts up to four manual affiliates', () => {
     const settings = createSettings({
-      useZeroPercentFee: true,
       useVultisigSwap: false,
     })
 
@@ -101,9 +98,7 @@ describe('swap-quote-engine', () => {
   })
 
   it('accepts a custom affiliate address with basis points', () => {
-    const settings = createSettings({
-      useZeroPercentFee: true,
-    })
+    const settings = createSettings()
 
     const result = resolveEffectiveAffiliates(
       settings,
@@ -118,9 +113,7 @@ describe('swap-quote-engine', () => {
   })
 
   it('rejects more than four manual affiliates because m0 is reserved', () => {
-    const settings = createSettings({
-      useZeroPercentFee: false,
-    })
+    const settings = createSettings()
 
     expect(() =>
       resolveEffectiveAffiliates(
@@ -241,26 +234,6 @@ describe('swap-quote-engine', () => {
 
     expect(search.get('affiliate')).toBe(INTERFACE_AFFILIATE_MAYANAME)
     expect(search.get('affiliate_bps')).toBe('0')
-  })
-
-  it('serializes explicit m0 support bps when interface support is enabled', () => {
-    const settings = createSettings({
-      interfaceSupportSwapEnabled: true,
-      interfaceSupportSwapBps: '25',
-    })
-    const url = buildMayaQuoteUrl({
-      settings,
-      fromAsset: createAsset({ mayaAsset: 'MAYA.CACAO', decimals: 10 }),
-      toAsset: createAsset({ id: 'eth', ticker: 'ETH', mayaAsset: 'ETH.ETH', chain: Chain.Ethereum, decimals: 18 }),
-      destinationAddress: '0xreceiver',
-      amount: '1',
-      slippageBps: '50',
-      effectiveAffiliates: resolveEffectiveAffiliates(settings, []),
-    })
-    const search = new URL(url).searchParams
-
-    expect(search.get('affiliate')).toBe(INTERFACE_AFFILIATE_MAYANAME)
-    expect(search.get('affiliate_bps')).toBe('25')
   })
 
   it('encodes Maya quote amounts in source-asset base units', () => {
@@ -505,7 +478,7 @@ describe('swap-quote-engine', () => {
         estimatedOutput: 12345n,
         fees: { network: 10n, affiliate: 2n, total: 12n },
         provider: 'thorchain',
-        quote: {},
+        quote: { quote: '', discounts: [] },
         balance: 100n,
         maxSwapable: 90n,
         requiresApproval: false,
@@ -517,12 +490,11 @@ describe('swap-quote-engine', () => {
     }))
     const settings = createSettings({
       useVultisigSwap: true,
-      useZeroPercentFee: false,
     })
 
     const result = await quoteSwap({
       wallet: {
-        execute,
+        execute: execute as any,
         canExecute: (command) => command === 'swap.quote' || command === 'swap.prepare',
       },
       settings,
@@ -632,7 +604,6 @@ describe('swap-quote-engine', () => {
       canPrepare: false,
       prepareReason: 'Maya-native quotes require the custom execution flow.',
     })
-    expect(result.route === 'maya' ? result.router : undefined).toBeUndefined()
     if (result.route === 'maya') {
       expect(result.inboundDetails?.router).toBe('0xrouter')
     }

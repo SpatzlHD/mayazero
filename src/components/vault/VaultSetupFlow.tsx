@@ -12,10 +12,12 @@ import {
   WalletCards,
   Zap,
 } from "lucide-react";
+import QRCode from "react-qr-code";
 import {
   createFastVaultImportJourneySteps,
   createFastVaultJourneySteps,
   createFastVaultVerifyJourneySteps,
+  createSecureVaultJourneySteps,
   trackTransactionJourney,
   useMayaWalletActions,
   useMayaWalletState,
@@ -25,7 +27,7 @@ import {
   normalizeMnemonic,
 } from "#/wallet/import-utils";
 
-type SetupMode = "fast" | "seed" | "keystore";
+type SetupMode = "fast" | "seed" | "keystore" | "secure";
 
 type StatusStep = {
   key: string;
@@ -33,6 +35,14 @@ type StatusStep = {
   status: string;
   message?: string;
 };
+
+type VaultSetupFlowProps = {
+  allowSecureVaultCreation?: boolean;
+};
+
+function getDefaultSecureThreshold(devices: number) {
+  return Math.min(devices, Math.max(2, Math.ceil((devices * 2) / 3)));
+}
 
 function SetupFields(props: {
   name: string;
@@ -164,7 +174,70 @@ function StatusPanel(props: {
   );
 }
 
-export function VaultSetupFlow() {
+function SecureVaultPairingPanel(props: {
+  qrPayload: string | null;
+  deviceJoin?: {
+    joined: number;
+    required: number;
+  };
+}) {
+  if (!props.qrPayload && !props.deviceJoin) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 space-y-4">
+      {props.qrPayload ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-[var(--sea-ink)]">
+            <ShieldCheck size={16} className="text-[var(--maya-teal)]" />
+            <span className="text-sm font-bold">Scan To Continue</span>
+          </div>
+          <div className="rounded-2xl bg-white p-4 inline-flex">
+            <QRCode value={props.qrPayload} size={180} />
+          </div>
+          <p className="text-sm text-[var(--sea-ink-soft)]">
+            Open Vultisig on each participating device and scan the session QR
+            code.
+          </p>
+        </div>
+      ) : null}
+
+      {props.deviceJoin ? (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-sm font-bold text-[var(--sea-ink)]">
+            <span>Devices Joined</span>
+            <span>
+              {props.deviceJoin.joined} / {props.deviceJoin.required}
+            </span>
+          </div>
+          <div className="h-3 rounded-full overflow-hidden border border-[var(--line)] bg-[var(--surface-strong)] flex">
+            {Array.from({
+              length: Math.max(props.deviceJoin.required, 2),
+            }).map((_, index) => (
+              <div
+                key={index}
+                className={`flex-1 border-r border-[var(--line)] last:border-r-0 ${
+                  index < props.deviceJoin.joined
+                    ? "bg-[var(--cacao-neon)]"
+                    : "bg-transparent"
+                }`}
+              />
+            ))}
+          </div>
+          <p className="text-xs text-[var(--sea-ink-soft)]">
+            {props.deviceJoin.joined} of {props.deviceJoin.required} devices
+            have joined this secure vault session.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function VaultSetupFlow({
+  allowSecureVaultCreation = true,
+}: VaultSetupFlowProps) {
   const navigate = useNavigate();
   const wallet = useMayaWalletActions();
   const state = useMayaWalletState();
@@ -177,24 +250,34 @@ export function VaultSetupFlow() {
   const [mnemonic, setMnemonic] = useState("");
   const [keystoreFile, setKeystoreFile] = useState<File | null>(null);
   const [keystorePassword, setKeystorePassword] = useState("");
+  const [secureDevices, setSecureDevices] = useState(2);
+  const [secureThreshold, setSecureThreshold] = useState(2);
   const [vaultId, setVaultId] = useState<string | null>(null);
   const [verificationCode, setVerificationCode] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState("");
 
+  const activeJourneyKinds =
+    step === 3
+      ? ["vault.fast.verify"]
+      : mode === "secure"
+        ? ["vault.secure.create"]
+        : ["vault.fast.create", "vault.fast.import"];
+  const activeOperationNames =
+    step === 3
+      ? ["vault.verify.fast"]
+      : mode === "secure"
+        ? ["vault.create.secure"]
+        : ["vault.create.fast", "vault.create.fast.import"];
   const activeJourney = state.journeys.find(
     (journey) =>
       (journey.status === "pending" || journey.status === "attention") &&
-      (journey.kind === "vault.fast.create" ||
-        journey.kind === "vault.fast.import" ||
-        journey.kind === "vault.fast.verify"),
+      activeJourneyKinds.includes(journey.kind),
   );
   const activeOperation = state.operations.find(
     (operation) =>
       operation.status === "pending" &&
-      (operation.name === "vault.create.fast" ||
-        operation.name === "vault.create.fast.import" ||
-        operation.name === "vault.verify.fast"),
+      activeOperationNames.includes(operation.name),
   );
   const progressMessage =
     activeOperation?.progress?.message ??
@@ -203,6 +286,8 @@ export function VaultSetupFlow() {
     "";
   const visibleSteps =
     activeJourney?.steps.filter((item) => item.status !== "pending") ?? [];
+  const qrPayload = activeOperation?.qrPayload ?? activeJourney?.qrPayload ?? null;
+  const deviceJoin = activeOperation?.deviceJoin ?? activeJourney?.deviceJoin;
 
   async function submitFastVault(e: React.FormEvent) {
     e.preventDefault();
@@ -419,12 +504,75 @@ export function VaultSetupFlow() {
     }
   }
 
+  async function submitSecureVault(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name) {
+      setError("Please enter a vault name");
+      return;
+    }
+    if (secureDevices < 2) {
+      setError("Secure vaults require at least 2 devices");
+      return;
+    }
+    if (secureThreshold < 2 || secureThreshold > secureDevices) {
+      setError("Threshold must be between 2 and the number of devices");
+      return;
+    }
+
+    setError("");
+    setIsProcessing(true);
+    try {
+      const result = await trackTransactionJourney(wallet, {
+        kind: "vault.secure.create",
+        title: `Create Secure Vault: ${name}`,
+        source: "secure-vault",
+        routePath: "/vault-setup",
+        analytics: {
+          action: "secure_create",
+          route: "/vault-setup",
+          subject: "vault",
+        },
+        steps: createSecureVaultJourneySteps(),
+        run: async (journey) => {
+          const next = await wallet.createSecureVault({
+            name,
+            password: password || undefined,
+            devices: secureDevices,
+            threshold: secureThreshold,
+            journeyId: journey.journeyId,
+          });
+          journey.completeStep(
+            "creating-session",
+            "Secure vault session created.",
+          );
+          journey.completeStep("scan-qr", "QR pairing completed.");
+          journey.completeStep(
+            "devices-joined",
+            "All participating devices joined the session.",
+          );
+          journey.completeStep("keygen", "Secure key generation completed.");
+          journey.completeStep("vault-ready", "Secure vault is ready.");
+          journey.complete(next);
+          return next;
+        },
+      });
+      setVaultId(result.vaultId);
+      setStep(4);
+    } catch (err: any) {
+      setError(err?.message || "Failed to create secure vault");
+    } finally {
+      setIsProcessing(false);
+    }
+  }
+
   return (
     <div className="max-w-xl mx-auto w-full rise-in">
       <div className="mb-8 text-center">
         <h2 className="terminal-title">Create or Import Vault</h2>
         <p className="text-[var(--sea-ink-soft)] font-medium mt-2">
-          Fast Vultisig vault setup with seedphrase and xchain keystore import.
+          {allowSecureVaultCreation
+            ? "Create a Fast or Secure Vultisig vault, or import from seedphrase and xchain keystore."
+            : "Create a Fast Vultisig vault, or import from seedphrase and xchain keystore."}
         </p>
       </div>
 
@@ -466,25 +614,118 @@ export function VaultSetupFlow() {
               setError("");
             }}
           />
-          <button
-            type="button"
-            disabled
-            aria-disabled="true"
-            className="w-full glass-panel-strong p-6 rounded-3xl flex items-center gap-5 text-left opacity-60 cursor-not-allowed border-transparent"
-          >
-            <div className="w-12 h-12 rounded-full bg-[rgba(232,122,78,0.1)] flex items-center justify-center text-[var(--cacao-neon)] shrink-0">
-              <ShieldCheck size={24} />
-            </div>
-            <div className="flex-1">
-              <div className="font-bold text-lg text-[var(--sea-ink)] mb-1">
-                Secure Vault
-              </div>
-              <p className="text-sm text-[var(--sea-ink-soft)] font-medium">
-                Due to a bug in the Vultisig SDK this will be available shortly!
-              </p>
-            </div>
-          </button>
+          {allowSecureVaultCreation ? (
+            <ModeCard
+              title="Secure Vault"
+              body="Create a multi-device secure vault with QR pairing."
+              icon={<ShieldCheck size={24} />}
+              onClick={() => {
+                setMode("secure");
+                setStep(2);
+                setError("");
+              }}
+            />
+          ) : null}
         </div>
+      )}
+
+      {step === 2 && mode === "secure" && (
+        <SetupForm
+          title="Secure Vault Setup"
+          icon={<ShieldCheck size={20} className="text-[var(--cacao-neon)]" />}
+          onSubmit={submitSecureVault}
+          isProcessing={isProcessing}
+          onBack={() => setStep(1)}
+          submitLabel="Create Secure Vault"
+        >
+          <Field label="Vault Name">
+            <input
+              type="text"
+              required
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Team Vault"
+              className="super-input"
+              disabled={isProcessing}
+            />
+          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Devices">
+              <input
+                type="number"
+                min={2}
+                value={secureDevices}
+                onChange={(event) => {
+                  const nextDevices = Math.max(
+                    2,
+                    Number(event.target.value) || 2,
+                  );
+                  setSecureDevices(nextDevices);
+                  setSecureThreshold((current) =>
+                    Math.min(
+                      nextDevices,
+                      current || getDefaultSecureThreshold(nextDevices),
+                    ),
+                  );
+                }}
+                className="super-input"
+                disabled={isProcessing}
+              />
+            </Field>
+            <Field label="Threshold">
+              <input
+                type="number"
+                min={2}
+                max={secureDevices}
+                value={secureThreshold}
+                onChange={(event) =>
+                  setSecureThreshold(
+                    Math.max(
+                      2,
+                      Math.min(
+                        secureDevices,
+                        Number(event.target.value) || secureDevices,
+                      ),
+                    ),
+                  )
+                }
+                className="super-input"
+                disabled={isProcessing}
+              />
+            </Field>
+          </div>
+          <p className="text-xs text-[var(--sea-ink-soft)] -mt-2">
+            The threshold is how many devices must approve signing. The default
+            follows the SDK recommendation for secure vaults.
+          </p>
+          <Field label="Vault Password (Optional)">
+            <div className="flex items-center gap-2">
+              <Lock size={16} className="text-[var(--sea-ink-soft)] shrink-0" />
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Encrypt this device share"
+                className="super-input"
+                disabled={isProcessing}
+              />
+            </div>
+          </Field>
+          <p className="text-xs leading-relaxed text-[var(--sea-ink-soft)] -mt-2">
+            MayaZero starts the secure vault session on this device. Use the QR
+            code below to join from the other participating devices in the
+            Vultisig mobile app.
+          </p>
+          <SecureVaultPairingPanel
+            qrPayload={qrPayload}
+            deviceJoin={deviceJoin}
+          />
+          <StatusPanel
+            message={progressMessage}
+            steps={visibleSteps}
+            isProcessing={isProcessing}
+          />
+        </SetupForm>
       )}
 
       {step === 2 && mode === "fast" && (
@@ -679,10 +920,12 @@ export function VaultSetupFlow() {
             <CheckCircle2 size={40} />
           </div>
           <h2 className="text-3xl font-black text-[var(--sea-ink)] tracking-tight">
-            Vault Ready
+            {mode === "secure" ? "Secure Vault Ready" : "Vault Ready"}
           </h2>
           <p className="text-[var(--sea-ink-soft)] font-medium max-w-sm mx-auto">
-            Your Fast Vault is verified and ready to use across MayaZero.
+            {mode === "secure"
+              ? "Your Secure Vault is created and ready to use across MayaZero."
+              : "Your Fast Vault is verified and ready to use across MayaZero."}
           </p>
           <button
             onClick={() => navigate({ to: "/" })}

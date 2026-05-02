@@ -9,7 +9,8 @@ import {
   http,
   keccak256,
   serializeTransaction,
-  zeroAddress,
+  stringToHex,
+  toHex,
 } from 'viem'
 import { arbitrum, base, mainnet } from 'viem/chains'
 import type { ProtocolAsset } from '#/components/ProtocolPrimitives'
@@ -344,6 +345,34 @@ async function submitStandardMemoSwap(
   const sourceAddress = session.addresses[fromAsset.chain]!
 
   if (session.source === 'extension') {
+    await ensureExtensionChain(manager, session, fromAsset.chain)
+    if (isEvmChain(fromAsset.chain) && !fromAsset.tokenId) {
+      const result = await manager.execute('tx.send', {
+        sessionId: session.id,
+        ...(input.journeyId
+          ? { journey: { id: input.journeyId, stepKey: 'provider' } }
+          : {}),
+        input: {
+          chain: fromAsset.chain,
+          transaction: {
+            data: encodeEvmMemoData(input.memo),
+            from: sourceAddress,
+            to: normalizeEvmAddress(input.inboundAddress),
+            value: toHex(BigInt(input.amountBaseUnits)),
+          },
+        },
+      })
+
+      return {
+        inboundAddress: input.inboundAddress,
+        memo: input.memo,
+        mode: 'send',
+        rawResult: result.result,
+        route: 'extension',
+        txHash: extractTxHash(result.result),
+      }
+    }
+
     const result = await manager.execute('tx.send', {
       sessionId: session.id,
       ...(input.journeyId
@@ -449,6 +478,8 @@ async function submitMayaDepositSwap(
     throw new Error('No MayaChain address is connected for the selected wallet session.')
   }
 
+  const assetIdentifier = resolveMayaChainAssetIdentifier(fromAsset)
+
   if (session.source === 'extension') {
     const result = await manager.execute('tx.send', {
       sessionId: session.id,
@@ -466,6 +497,7 @@ async function submitMayaDepositSwap(
           asset: {
             chain: Chain.MayaChain,
             ticker: fromAsset.ticker.toLowerCase(),
+            ...(assetIdentifier ? { id: assetIdentifier } : {}),
           },
           from: sourceAddress,
           memo: input.memo,
@@ -492,8 +524,9 @@ async function submitMayaDepositSwap(
       coin: {
         address: sourceAddress,
         chain: Chain.MayaChain,
+        ...(assetIdentifier ? { contractAddress: assetIdentifier } : {}),
         decimals: fromAsset.decimals,
-        isNativeToken: true,
+        isNativeToken: !assetIdentifier,
         ticker: fromAsset.ticker,
       },
       memo: input.memo,
@@ -505,13 +538,7 @@ async function submitMayaDepositSwap(
   payload.toAddress = ''
   payload.toAmount = input.amountBaseUnits
   payload.memo = input.memo
-  payload.blockchainSpecific = {
-    case: 'mayaSpecific',
-    value: {
-      ...extractMayaSpecific(payload.blockchainSpecific),
-      isDeposit: true,
-    },
-  }
+  markMayaPayloadAsDeposit(payload)
 
   const signature = await manager.execute('tx.sign', {
     sessionId: session.id,
@@ -596,6 +623,7 @@ async function submitErc20RouterSwap(
   })
 
   if (session.source === 'extension') {
+    await ensureExtensionChain(manager, session, fromAsset.chain)
     input.onStatusChange?.('approving')
     const approval = await manager.execute('tx.send', {
       sessionId: session.id,
@@ -871,7 +899,13 @@ function normalizeTxState(status: unknown): 'pending' | 'success' | 'error' {
     const record = status as Record<string, unknown>
     if (typeof record.status === 'string') {
       const normalized = record.status.toLowerCase()
-      if (normalized === 'success') {
+      if (
+        normalized === 'success' ||
+        normalized === 'completed' ||
+        normalized === 'confirmed' ||
+        normalized === 'finalized' ||
+        normalized === 'done'
+      ) {
         return 'success'
       }
       if (normalized === 'error' || normalized === 'failed' || normalized === 'reverted') {
@@ -879,8 +913,42 @@ function normalizeTxState(status: unknown): 'pending' | 'success' | 'error' {
       }
     }
 
-    if (record.blockHash || record.blockNumber) {
+    if (
+      record.blockHash ||
+      record.blockNumber ||
+      record.block_height ||
+      record.height ||
+      (typeof record.confirmations === 'number' && record.confirmations > 0) ||
+      (typeof record.confirmations === 'string' && Number(record.confirmations) > 0)
+    ) {
       return 'success'
+    }
+
+    if (typeof record.receipt === 'object' && record.receipt !== null) {
+      const receipt = record.receipt as Record<string, unknown>
+      if (
+        receipt.blockHash ||
+        receipt.blockNumber ||
+        receipt.block_height ||
+        receipt.height ||
+        receipt.status === 1 ||
+        receipt.status === '1' ||
+        receipt.status === '0x1'
+      ) {
+        return 'success'
+      }
+
+      if (receipt.status === 0 || receipt.status === '0' || receipt.status === '0x0') {
+        return 'error'
+      }
+    }
+
+    if (record.status === 1 || record.status === '1' || record.status === '0x1') {
+      return 'success'
+    }
+
+    if (record.status === 0 || record.status === '0' || record.status === '0x0') {
+      return 'error'
     }
   }
 
@@ -1114,10 +1182,18 @@ function resolveRequiredSession(
   return session
 }
 
-function extractMayaSpecific(blockchainSpecific: unknown): {
-  accountNumber?: bigint
-  sequence?: bigint
-} {
+function markMayaPayloadAsDeposit(payload: Record<string, unknown>): void {
+  const mayaSpecific = extractMayaSpecific(payload.blockchainSpecific)
+  if (!mayaSpecific) {
+    throw new Error('Prepared MayaChain payload is missing mayaSpecific signing details.')
+  }
+
+  mayaSpecific.isDeposit = true
+}
+
+function extractMayaSpecific(
+  blockchainSpecific: unknown,
+): { accountNumber?: bigint; sequence?: bigint; isDeposit?: boolean } | null {
   if (
     typeof blockchainSpecific === 'object' &&
     blockchainSpecific !== null &&
@@ -1127,21 +1203,51 @@ function extractMayaSpecific(blockchainSpecific: unknown): {
   ) {
     const value = (blockchainSpecific as { value?: unknown }).value
     if (typeof value === 'object' && value !== null) {
-      const record = value as Record<string, unknown>
-      return {
-        accountNumber:
-          typeof record.accountNumber === 'bigint'
-            ? record.accountNumber
-            : undefined,
-        sequence:
-          typeof record.sequence === 'bigint' ? record.sequence : undefined,
+      return value as {
+        accountNumber?: bigint
+        sequence?: bigint
+        isDeposit?: boolean
       }
     }
   }
 
-  return {}
+  return null
+}
+
+function resolveMayaChainAssetIdentifier(asset: ProtocolAsset): string | undefined {
+  return asset.mayaAsset.toUpperCase() === 'MAYA.CACAO' ? undefined : asset.mayaAsset
 }
 
 function isEvmChain(chain: WalletChain): boolean {
   return chain === Chain.Ethereum || chain === Chain.Arbitrum || chain === Chain.Base
+}
+
+function encodeEvmMemoData(memo: string): Hex {
+  const trimmed = memo.trim()
+  if (!trimmed) {
+    throw new Error('The latest Maya quote is missing memo data.')
+  }
+
+  return stringToHex(trimmed)
+}
+
+async function ensureExtensionChain(
+  manager: MayaWalletManager,
+  session: WalletSession,
+  chain: WalletChain,
+): Promise<void> {
+  if (session.source !== 'extension' || !isEvmChain(chain)) {
+    return
+  }
+
+  const activeChain = manager.getState().activeChain
+  if (activeChain === chain) {
+    return
+  }
+
+  await manager.execute('chain.switch', {
+    sessionId: session.id,
+    input: { chain },
+    track: false,
+  })
 }

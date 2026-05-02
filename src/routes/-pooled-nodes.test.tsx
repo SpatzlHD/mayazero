@@ -4,10 +4,18 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { Chain } from '@vultisig/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PooledNode } from '#/lib/pooled-nodes'
+import type { PooledNodesDetailResponse } from '#/lib/cacaotracker-types'
+import { ImpersonationProvider } from '#/provider/ImpersonationProvider'
 import { SettingsProvider } from '#/provider/SettingsProvider'
 import { MayaWalletManager, MayaWalletProvider, type PooledNodeActionResult } from '#/wallet'
 import { createFakeSdkClient, createFakeVault, createMemoryStorage } from '#/wallet/test-utils'
 import { PooledNodesPage } from './pooled-nodes'
+
+vi.mock('#/generated/hypertune.react', () => ({
+  useHypertune: () => ({
+    beta: () => true,
+  }),
+}))
 
 afterEach(() => {
   cleanup()
@@ -89,17 +97,21 @@ function renderPage(
   manager: MayaWalletManager,
   options?: {
     loadNodes?: (input: { connectedAddress: string; mayanodeUrl: string }) => Promise<PooledNode[]>
+    loadAnalytics?: (address: string) => Promise<PooledNodesDetailResponse>
     submitAction?: typeof import('#/wallet').submitPooledNodeAction
   },
 ) {
   return render(
     <SettingsProvider>
       <MayaWalletProvider manager={manager}>
-        <PooledNodesPage
-          loadNodes={options?.loadNodes}
-          onMissingSession={() => {}}
-          submitAction={options?.submitAction}
-        />
+        <ImpersonationProvider>
+          <PooledNodesPage
+            loadNodes={options?.loadNodes}
+            loadAnalytics={options?.loadAnalytics ?? (async () => ({ providerBond: null }))}
+            onMissingSession={() => {}}
+            submitAction={options?.submitAction}
+          />
+        </ImpersonationProvider>
       </MayaWalletProvider>
     </SettingsProvider>,
   )

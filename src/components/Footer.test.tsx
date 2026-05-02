@@ -66,4 +66,23 @@ describe("Footer", () => {
 
     expect(changelogLink).toBeTruthy();
   });
+
+  it("includes external content site links", () => {
+    const tree = Footer();
+    const blogLink = findElement(
+      tree,
+      (element) =>
+        element.props.href === "http://localhost:3001/blog" &&
+        collectText(element.props.children).includes("Blog"),
+    );
+    const kbLink = findElement(
+      tree,
+      (element) =>
+        element.props.href === "http://localhost:3001/knowledge-base" &&
+        collectText(element.props.children).includes("Knowledge Base"),
+    );
+
+    expect(blogLink).toBeTruthy();
+    expect(kbLink).toBeTruthy();
+  });
 });

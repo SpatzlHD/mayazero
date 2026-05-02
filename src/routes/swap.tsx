@@ -7,7 +7,6 @@ import {
   ChevronDown,
   ChevronUp,
   Loader2,
-  X,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import {
@@ -17,7 +16,10 @@ import {
   createExecutionJourneySteps,
   createJourneyStep,
   getSwapExecutionSupport,
+  patchSwapJourneyTracking,
+  resolveJourneyStatusFromTrackerState,
   submitSwap,
+  trackSwapJourneyWithCacaotracker,
   trackTransactionJourney,
   useWalletBalanceRefreshTick,
   type AddressBalanceAsset,
@@ -25,6 +27,7 @@ import {
   waitForJourneyTransactionSettlement,
   WalletSessionNotFoundError,
 } from "#/wallet";
+import { fetchCacaotrackerTxTrackerSession } from "#/lib/cacaotracker";
 import { VIEW_ONLY_IMPERSONATION_REASON } from "#/lib/impersonation";
 import {
   AssetIcon,
@@ -45,7 +48,6 @@ import {
   type SwapQuoteEngineResult,
 } from "#/lib/swap-quote-engine";
 import {
-  INTERFACE_AFFILIATE_MAYANAME,
   hasManualAffiliateOverride,
   isSupportReferrerEnabledForCurrentReferral,
   normalizeSupportReferrerBps,
@@ -310,11 +312,6 @@ function SwapTerminalPage() {
   const supportReferrerBps = normalizeSupportReferrerBps(
     settings.supportReferrerBps,
   );
-  const isSupportingMayaZero = settings.interfaceSupportSwapEnabled;
-  const interfaceSupportSwapBps = normalizeSupportReferrerBps(
-    settings.interfaceSupportSwapBps,
-  );
-  const showMayaZeroBanner = !settings.interfaceSupportBannerDismissed;
   const effectiveAffiliateDrafts = resolveSwapAffiliateDrafts(
     settings,
     swapForm.affiliateDrafts,
@@ -477,8 +474,6 @@ function SwapTerminalPage() {
     swapForm.streamingInterval,
     swapForm.streamingQuantity,
     JSON.stringify(effectiveAffiliateDrafts),
-    settings.interfaceSupportSwapEnabled,
-    settings.interfaceSupportSwapBps,
     swapForm.customRecipient,
     swapForm.customRefund,
   ]);
@@ -587,6 +582,45 @@ function SwapTerminalPage() {
             "preparing",
             "Refreshing quote and execution route.",
           );
+          journey.patchJourney({
+            swapTracking: {
+              trackingSource: "local",
+              transportStatus: "idle",
+              historyHref: "/",
+              context: {
+                fromAsset: fromAsset.mayaAsset,
+                fromTicker: fromAsset.ticker,
+                toAsset: toAsset.mayaAsset,
+                toTicker: toAsset.ticker,
+                amount: swapForm.amount,
+                executionMode: executionSupport.mode,
+                memo: freshQuote.memo,
+                inboundAddress: freshQuote.inboundAddress,
+                router: freshQuote.inboundDetails?.router,
+                streaming: {
+                  enabled:
+                    Boolean(freshQuote.rawQuote.streaming_swap_blocks) &&
+                    Number(freshQuote.rawQuote.streaming_swap_blocks) > 0,
+                  interval: normalizeOptionalNumber(
+                    swapForm.streamingEnabled
+                      ? swapForm.streamingInterval
+                      : undefined,
+                  ),
+                  quantity: normalizeOptionalNumber(
+                    swapForm.streamingEnabled
+                      ? swapForm.streamingQuantity
+                      : undefined,
+                  ),
+                  blocks: normalizeOptionalNumber(
+                    freshQuote.rawQuote.streaming_swap_blocks,
+                  ),
+                  totalSeconds: normalizeOptionalNumber(
+                    freshQuote.rawQuote.total_swap_seconds,
+                  ),
+                },
+              },
+            },
+          });
           if (freshQuote.inboundAddress) {
             journey.updateStep("routing", {
               status: "success",
@@ -662,6 +696,15 @@ function SwapTerminalPage() {
             "Waiting for on-chain confirmation.",
           );
 
+          const trackerTimeoutMs = resolveTrackerTimeoutMs(freshQuote);
+          const liveTrackingPromise = trackSwapJourneyWithCacaotracker(wallet, {
+            journeyId: journey.journeyId,
+            txHash: result.txHash,
+            createSession: () => fetchCacaotrackerTxTrackerSession(),
+            historyHref: "/",
+            timeoutMs: trackerTimeoutMs,
+          });
+
           const settlement = await waitForJourneyTransactionSettlement(wallet, {
             chain: fromAsset.chain,
             journeyId: journey.journeyId,
@@ -672,7 +715,76 @@ function SwapTerminalPage() {
           });
 
           if (settlement === "success") {
-            journey.completeStep("complete", "Swap confirmed on-chain.");
+            journey.activateStep(
+              "complete",
+              "Inbound transaction confirmed. Waiting for protocol execution.",
+            );
+          }
+
+          const liveTracking = await liveTrackingPromise;
+
+          if (liveTracking.outcome === "final" && liveTracking.trackerState) {
+            const trackerStatus = resolveJourneyStatusFromTrackerState(
+              liveTracking.trackerState,
+            );
+
+            journey.completeStep(
+              "confirming",
+              settlement === "success"
+                ? "Confirmed on-chain."
+                : "Observed by the live protocol tracker.",
+            );
+
+            if (trackerStatus === "error") {
+              journey.updateStep(
+                "complete",
+                {
+                  status: "error",
+                  message: liveTracking.trackerState.summary,
+                },
+                {
+                  status: "error",
+                  requiresAttention: true,
+                  openOnUpdate: true,
+                },
+              );
+            } else if (trackerStatus === "unconfirmed") {
+              journey.updateStep(
+                "complete",
+                {
+                  status: "attention",
+                  message: liveTracking.trackerState.summary,
+                },
+                {
+                  status: "unconfirmed",
+                  requiresAttention: true,
+                  openOnUpdate: true,
+                },
+              );
+            } else {
+              journey.completeStep(
+                "complete",
+                liveTracking.trackerState.summary,
+              );
+            }
+
+            journey.complete(
+              {
+                ...result,
+                trackerState: liveTracking.trackerState,
+              },
+              trackerStatus,
+            );
+          } else if (settlement === "success") {
+            patchSwapJourneyTracking(wallet, journey.journeyId, {
+              trackingSource: "fallback",
+              transportStatus: "fallback",
+              historyHref: "/",
+            });
+            journey.completeStep(
+              "complete",
+              "Swap confirmed on-chain. Live protocol tracking unavailable.",
+            );
             journey.complete(result);
           } else {
             journey.updateStep("complete", {
@@ -894,112 +1006,6 @@ function SwapTerminalPage() {
             )}
           </div>
         </div>
-
-        {showMayaZeroBanner ? (
-          <div className="mt-3 bg-[var(--chip-bg)]/50 backdrop-blur-md rounded-[1.75rem] border border-[var(--line)] p-4 sm:p-5 transition-all">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex flex-col gap-1.5 flex-1 pr-2">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--sea-ink-soft)]">
-                    Support MayaZero
-                  </span>
-                  <span className="text-sm font-semibold text-[var(--sea-ink)] truncate">
-                    {INTERFACE_AFFILIATE_MAYANAME}
-                  </span>
-                </div>
-                <p className="text-[10px] sm:text-[11px] leading-relaxed text-[var(--sea-ink-soft)]/90 mt-1">
-                  MayaZero attribution is always attached with 0 bps for
-                  tracking. Enable support to raise the interface fee above 0%.
-                </p>
-              </div>
-              <div className="flex items-start gap-2">
-                <div
-                  className={`mt-1 flex-shrink-0 flex items-center justify-between bg-[var(--bg-base)] border rounded-xl px-3 py-2 transition-all cursor-pointer ${
-                    isSupportingMayaZero
-                      ? "border-[var(--maya-teal)] shadow-[0_0_0_1px_rgba(79,209,197,0.3)]"
-                      : "border-[var(--line)] hover:border-[var(--line-strong)]"
-                  }`}
-                  onClick={() =>
-                    settings.updateInterfaceSupportSettings({
-                      interfaceSupportSwapEnabled: !isSupportingMayaZero,
-                    })
-                  }
-                >
-                  <span
-                    className={`text-xs font-semibold mr-3 transition-colors ${
-                      isSupportingMayaZero
-                        ? "text-[var(--sea-ink)]"
-                        : "text-[var(--sea-ink-soft)]"
-                    }`}
-                  >
-                    {isSupportingMayaZero ? "Enabled" : "Tracking only"}
-                  </span>
-                  <div
-                    className={`w-8 h-4.5 rounded-full p-1 transition-colors duration-300 ease-in-out flex items-center ${
-                      isSupportingMayaZero
-                        ? "bg-[var(--maya-teal)]"
-                        : "bg-[var(--sea-ink-soft)]/30"
-                    }`}
-                  >
-                    <div
-                      className={`w-3 h-3 bg-white rounded-full shadow-sm transform transition-transform duration-300 ease-in-out ${
-                        isSupportingMayaZero
-                          ? "translate-x-3.5"
-                          : "translate-x-0"
-                      }`}
-                    />
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded-xl border border-[var(--line)] bg-[var(--bg-base)] px-2.5 py-2 text-xs font-semibold text-[var(--sea-ink-soft)] hover:text-[var(--sea-ink)]"
-                  onClick={() =>
-                    settings.updateInterfaceSupportSettings({
-                      interfaceSupportBannerDismissed: true,
-                    })
-                  }
-                >
-                  <X size={14} />
-                  Dismiss
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-4 pt-4 border-t border-[var(--line)]/50 flex flex-col gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--sea-ink-soft)]">
-                  Interface Fee
-                </span>
-                <span className="text-sm font-semibold text-[var(--sea-ink)]">
-                  {(
-                    Number(
-                      isSupportingMayaZero ? interfaceSupportSwapBps : "0",
-                    ) / 100
-                  ).toFixed(2)}
-                  %
-                </span>
-              </div>
-              <input
-                type="range"
-                min="1"
-                max="500"
-                step="1"
-                className="w-full accent-[var(--maya-teal)]"
-                value={interfaceSupportSwapBps}
-                onChange={(event) =>
-                  settings.updateInterfaceSupportSettings({
-                    interfaceSupportSwapBps: event.target.value,
-                  })
-                }
-              />
-              <p className="text-[10px] leading-relaxed text-[var(--sea-ink-soft)]/80">
-                Disabling support keeps the fixed {INTERFACE_AFFILIATE_MAYANAME}{" "}
-                entry at 0 bps so swaps remain attributable without charging an
-                interface fee.
-              </p>
-            </div>
-          </div>
-        ) : null}
 
         {hasStoredReferral ? (
           <div className="mt-3 bg-[var(--chip-bg)]/50 backdrop-blur-md rounded-[1.75rem] border border-[var(--line)] p-4 sm:p-5 transition-all">
@@ -1533,13 +1539,9 @@ function SwapTerminalPage() {
                         <span className="font-bold uppercase tracking-wider text-[var(--sea-ink-soft)]">
                           {manualAffiliateOverride
                             ? "Affiliate Fee"
-                            : isSupportingMayaZero && isSupportingReferrer
-                              ? `Support Fees (${(Number(interfaceSupportSwapBps) / 100).toFixed(2)}% + ${(Number(supportReferrerBps) / 100).toFixed(2)}%)`
-                              : isSupportingMayaZero
-                                ? `MayaZero Support (${(Number(interfaceSupportSwapBps) / 100).toFixed(2)}%)`
-                                : isSupportingReferrer
-                                  ? `Referrer Support (${(Number(supportReferrerBps) / 100).toFixed(2)}%)`
-                                  : "Affiliate Fee"}
+                            : isSupportingReferrer
+                              ? `Referrer Support (${(Number(supportReferrerBps) / 100).toFixed(2)}%)`
+                              : "Affiliate Fee"}
                         </span>
                         <span className="font-semibold">
                           {formatQuoteFeeAmount(
@@ -1893,6 +1895,31 @@ function formatQuoteExpiry(expiryMs: number): string {
 
   const remainingHours = Math.ceil(remainingMinutes / 60);
   return `${remainingHours}h remaining`;
+}
+
+function normalizeOptionalNumber(
+  value: number | string | undefined,
+): number | undefined {
+  if (value === undefined || value === "") {
+    return undefined;
+  }
+
+  const normalized = Number(value);
+  return Number.isFinite(normalized) ? normalized : undefined;
+}
+
+function resolveTrackerTimeoutMs(
+  quote: Extract<SwapQuoteEngineResult, { route: "maya" }>,
+): number {
+  const streamingSeconds = normalizeOptionalNumber(
+    quote.rawQuote.total_swap_seconds,
+  );
+
+  if (!streamingSeconds || streamingSeconds <= 0) {
+    return 90_000;
+  }
+
+  return Math.max(90_000, streamingSeconds * 1_000 + 30_000);
 }
 
 export function getSwapPrimaryAction(params: {

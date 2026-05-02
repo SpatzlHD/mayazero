@@ -16,6 +16,14 @@ import {
   shortenAddress,
 } from "#/components/ProtocolPrimitives";
 import {
+  fetchCacaotrackerLiquidityPoolDetail,
+  fetchCacaotrackerLiquiditySummary,
+} from "#/lib/cacaotracker";
+import type {
+  LiquidityPoolDetailResponse,
+  LiquiditySummaryResponse,
+} from "#/lib/cacaotracker-types";
+import {
   type LiquidityActivityItem,
   type LiquidityDepositMode,
   type LiquidityPool,
@@ -69,6 +77,7 @@ type PendingSymmetricDeposit = {
   cacaoAmountBaseUnits: string;
   interfaceAffiliateBps: string;
   poolAsset: string;
+  source: "stored" | "recovered";
   sessionId: string;
 };
 
@@ -80,12 +89,13 @@ type LiquidityActionState = {
 };
 
 const PENDING_DEPOSIT_STORAGE_KEY = "maya-liquidity-pending-symmetric";
-const MAX_LP_INTERFACE_FEE_BPS = 1000;
+const INTERFACE_TRACKING_BPS = "0";
 
 function LiquidityTerminalPage() {
   const navigate = useNavigate();
   const wallet = useMayaWalletActions();
   const activeSession = useEffectiveWalletSession();
+  const mayaAddress = activeSession?.addresses[Chain.MayaChain] ?? "";
   const isViewOnly = useIsViewOnlyImpersonation();
   const balanceRefreshTick = useWalletBalanceRefreshTick();
   const { isPowerUser } = usePreferences();
@@ -103,7 +113,6 @@ function LiquidityTerminalPage() {
     useState<LiquidityWithdrawMode>("symmetric");
   const [assetAmount, setAssetAmount] = useState("");
   const [cacaoAmount, setCacaoAmount] = useState("");
-  const [interfaceAffiliateBps, setInterfaceAffiliateBps] = useState("0");
   const [withdrawShare, setWithdrawShare] = useState("25");
   const [selectedPoolAsset, setSelectedPoolAsset] = useState("");
   const [pools, setPools] = useState<LiquidityPool[]>([]);
@@ -121,8 +130,18 @@ function LiquidityTerminalPage() {
   const [isBalanceLoading, setIsBalanceLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [pendingDeposit, setPendingDeposit] =
+  const [storedPendingDeposit, setStoredPendingDeposit] =
     useState<PendingSymmetricDeposit | null>(null);
+  const [liquiditySummary, setLiquiditySummary] =
+    useState<LiquiditySummaryResponse | null>(null);
+  const [liquiditySummaryError, setLiquiditySummaryError] = useState<
+    string | null
+  >(null);
+  const [liquidityPoolDetail, setLiquidityPoolDetail] =
+    useState<LiquidityPoolDetailResponse | null>(null);
+  const [liquidityPoolDetailError, setLiquidityPoolDetailError] = useState<
+    string | null
+  >(null);
 
   const visiblePools = useMemo(
     () => filterVisibleLiquidityPools(pools, isPowerUser),
@@ -156,6 +175,15 @@ function LiquidityTerminalPage() {
       ) ?? null,
     [visiblePositions, selectedPool?.asset],
   );
+  const inferredPendingDeposit = useMemo(
+    () =>
+      inferRecoverablePendingSymmetricDeposit(
+        activeSession?.id,
+        visiblePositions,
+      ),
+    [activeSession?.id, visiblePositions],
+  );
+  const pendingDeposit = storedPendingDeposit ?? inferredPendingDeposit;
   const selectedActivity = useMemo(
     () =>
       activity.filter((item) => item.pool === selectedPool?.asset).slice(0, 5),
@@ -208,6 +236,10 @@ function LiquidityTerminalPage() {
       activeSession?.id === pendingDeposit.sessionId &&
       selectedPool?.asset === pendingDeposit.poolAsset &&
       depositMode === "symmetric",
+    ),
+    pendingDepositStoredAmount: Boolean(
+      pendingDeposit?.cacaoAmountBaseUnits &&
+        pendingDeposit.cacaoAmountBaseUnits !== "0",
     ),
     pool: selectedPool,
     withdrawBasisPoints,
@@ -340,12 +372,51 @@ function LiquidityTerminalPage() {
 
   useEffect(() => {
     const pending = loadPendingSymmetricDeposit(activeSession?.id);
-    setPendingDeposit(pending);
+    setStoredPendingDeposit(pending);
     if (pending && !selectedPoolAsset) {
       setSelectedPoolAsset(pending.poolAsset);
     }
-    setInterfaceAffiliateBps(pending?.interfaceAffiliateBps ?? "0");
   }, [activeSession?.id, selectedPoolAsset]);
+
+  useEffect(() => {
+    if (
+      !pendingDeposit ||
+      pendingDeposit.source !== "recovered" ||
+      !selectedPool ||
+      selectedPool.asset !== pendingDeposit.poolAsset
+    ) {
+      return;
+    }
+
+    if (!assetAmount.trim()) {
+      setAssetAmount(
+        formatBaseUnits(
+          pendingDeposit.assetAmountBaseUnits,
+          selectedPool.decimals,
+        ) || "",
+      );
+    }
+
+    if (!cacaoAmount.trim()) {
+      const assetValue = formatBaseUnits(
+        pendingDeposit.assetAmountBaseUnits,
+        selectedPool.decimals,
+      );
+      const estimated = syncSymmetricDepositAmounts({
+        assetPrice: selectedPool.assetPrice,
+        field: "asset",
+        nextValue: assetValue || "",
+      }).cacaoAmount;
+      if (estimated) {
+        setCacaoAmount(estimated);
+      }
+    }
+  }, [
+    assetAmount,
+    cacaoAmount,
+    pendingDeposit,
+    selectedPool,
+  ]);
 
   useEffect(() => {
     const initialPoolAsset = getInitialLiquidityPoolAsset(
@@ -357,6 +428,69 @@ function LiquidityTerminalPage() {
       setSelectedPoolAsset(initialPoolAsset);
     }
   }, [pendingDeposit, visiblePositions, selectedPoolAsset, sortedPools]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function refreshLiquiditySummary() {
+      if (!mayaAddress) {
+        setLiquiditySummary(null);
+        setLiquiditySummaryError(null);
+        return;
+      }
+
+      setLiquiditySummaryError(null);
+      try {
+        const nextSummary = await fetchCacaotrackerLiquiditySummary(mayaAddress);
+        if (!cancelled) {
+          setLiquiditySummary(nextSummary);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLiquiditySummary(null);
+          setLiquiditySummaryError((error as Error).message);
+        }
+      }
+    }
+
+    void refreshLiquiditySummary();
+    return () => {
+      cancelled = true;
+    };
+  }, [balanceRefreshTick, mayaAddress]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function refreshSelectedPoolAnalytics() {
+      if (!mayaAddress || !selectedPool?.asset) {
+        setLiquidityPoolDetail(null);
+        setLiquidityPoolDetailError(null);
+        return;
+      }
+
+      setLiquidityPoolDetailError(null);
+      try {
+        const nextDetail = await fetchCacaotrackerLiquidityPoolDetail(
+          mayaAddress,
+          selectedPool.asset,
+        );
+        if (!cancelled) {
+          setLiquidityPoolDetail(nextDetail);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLiquidityPoolDetail(null);
+          setLiquidityPoolDetailError((error as Error).message);
+        }
+      }
+    }
+
+    void refreshSelectedPoolAnalytics();
+    return () => {
+      cancelled = true;
+    };
+  }, [balanceRefreshTick, mayaAddress, selectedPool?.asset]);
 
   async function connectPoolChain() {
     if (isViewOnly) {
@@ -514,13 +648,18 @@ function LiquidityTerminalPage() {
           pendingDeposit.poolAsset === selectedPool.asset &&
           depositMode === "symmetric"
         ) {
+          const resumedCacaoAmountBaseUnits =
+            pendingDeposit.cacaoAmountBaseUnits || cacaoAmountBaseUnits;
+          if (!resumedCacaoAmountBaseUnits || resumedCacaoAmountBaseUnits === "0") {
+            throw new Error("Enter the CACAO amount needed to complete this symmetric deposit.");
+          }
           const steps = prepareLiquidityDepositSteps(wallet, {
             affiliate: {
               affiliateBps: pendingDeposit.interfaceAffiliateBps,
               affiliateName: INTERFACE_AFFILIATE_MAYANAME,
             },
             assetAmountBaseUnits: pendingDeposit.assetAmountBaseUnits,
-            cacaoAmountBaseUnits: pendingDeposit.cacaoAmountBaseUnits,
+            cacaoAmountBaseUnits: resumedCacaoAmountBaseUnits,
             mode: "symmetric",
             pool: selectedPool,
             sessionId: activeSession.id,
@@ -544,14 +683,13 @@ function LiquidityTerminalPage() {
             successMessage: "Symmetric deposit completed.",
           });
           clearPendingSymmetricDeposit();
-          setPendingDeposit(null);
+          setStoredPendingDeposit(null);
           setAssetAmount("");
           setCacaoAmount("");
-          setInterfaceAffiliateBps("0");
         } else {
           const steps = prepareLiquidityDepositSteps(wallet, {
             affiliate: {
-              affiliateBps: interfaceAffiliateBps,
+              affiliateBps: INTERFACE_TRACKING_BPS,
               affiliateName: INTERFACE_AFFILIATE_MAYANAME,
             },
             assetAmountBaseUnits,
@@ -569,8 +707,9 @@ function LiquidityTerminalPage() {
             const nextPending: PendingSymmetricDeposit = {
               assetAmountBaseUnits,
               cacaoAmountBaseUnits,
-              interfaceAffiliateBps,
+              interfaceAffiliateBps: INTERFACE_TRACKING_BPS,
               poolAsset: selectedPool.asset,
+              source: "stored",
               sessionId: activeSession.id,
             };
             await trackLiquidityJourney({
@@ -587,7 +726,7 @@ function LiquidityTerminalPage() {
                 "Asset leg confirmed. Resume the CACAO leg to finish the symmetric add.",
             });
             persistPendingSymmetricDeposit(nextPending);
-            setPendingDeposit(nextPending);
+            setStoredPendingDeposit(nextPending);
           } else {
             const activeStep = steps[0]!;
             await trackLiquidityJourney({
@@ -607,7 +746,6 @@ function LiquidityTerminalPage() {
             });
             setAssetAmount("");
             setCacaoAmount("");
-            setInterfaceAffiliateBps("0");
           }
         }
       } else {
@@ -873,31 +1011,16 @@ function LiquidityTerminalPage() {
                       <span className="font-mono text-[var(--sea-ink)]">
                         {INTERFACE_AFFILIATE_MAYANAME}
                       </span>{" "}
-                      at 0 bps for tracking. Raising the fee mints that LP share
-                      to MayaZero and is intended to stay in-pool, but it is not
-                      an irreversible burn.
+                      at 0 bps for tracking only. MayaZero attribution is kept on
+                      the deposit without exposing any user-configurable fee.
                     </p>
                   </div>
                   <span className="rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-1 text-xs font-bold text-[var(--sea-ink)]">
-                    {(Number(interfaceAffiliateBps) / 100).toFixed(2)}%
+                    0.00%
                   </span>
                 </div>
-                <input
-                  className="mt-4 w-full cursor-pointer accent-[var(--maya-teal)]"
-                  max={String(MAX_LP_INTERFACE_FEE_BPS)}
-                  min="0"
-                  step="1"
-                  type="range"
-                  value={interfaceAffiliateBps}
-                  onChange={(event) =>
-                    setInterfaceAffiliateBps(
-                      normalizeLiquidityInterfaceBps(event.target.value),
-                    )
-                  }
-                />
-                <div className="mt-3 flex items-center justify-between gap-3 text-[10px] uppercase tracking-wider text-[var(--sea-ink-soft)]">
-                  <span>0 bps = tracking only</span>
-                  <span>{MAX_LP_INTERFACE_FEE_BPS} bps max</span>
+                <div className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-[10px] uppercase tracking-wider text-[var(--sea-ink-soft)]">
+                  Fixed at 0 bps for attribution
                 </div>
               </div>
             </div>
@@ -968,12 +1091,10 @@ function LiquidityTerminalPage() {
                 />
                 <p className="leading-snug">
                   Symmetric deposit pending for {pendingDeposit.poolAsset}.
-                  Resume with the CACAO leg on the deposit tab using the stored{" "}
-                  {INTERFACE_AFFILIATE_MAYANAME} fee of{" "}
-                  {(Number(pendingDeposit.interfaceAffiliateBps) / 100).toFixed(
-                    2,
-                  )}
-                  %.
+                  Resume with the CACAO leg on the deposit tab.
+                  {pendingDeposit.source === "recovered"
+                    ? " Recovery was inferred from your on-chain LP state because the local pending record is missing."
+                    : ` The stored ${INTERFACE_AFFILIATE_MAYANAME} affiliate remains tracking-only at 0%.`}
                 </p>
               </div>
             ) : null}
@@ -1227,40 +1348,134 @@ function LiquidityTerminalPage() {
               </div>
             </div>
 
+            {liquiditySummary ? (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 mb-6">
+                <MetricTile
+                  label="Tracked Positions"
+                  value={String(liquiditySummary.ilSummary.position_count)}
+                  size="sm"
+                />
+                <MetricTile
+                  label="Total IL"
+                  value={formatUsdCompact(
+                    liquiditySummary.ilSummary.total_il_amount_usd,
+                  )}
+                  size="sm"
+                />
+                <MetricTile
+                  label="ILP Eligible"
+                  value={formatUsdCompact(
+                    liquiditySummary.ilSummary.total_ilp_eligible_usd,
+                  )}
+                  size="sm"
+                />
+                <MetricTile
+                  label="30D Rewards"
+                  value={formatUsdCompact(
+                    liquiditySummary.rewardsByPool.reduce(
+                      (sum, item) => sum + item.total_usd,
+                      0,
+                    ),
+                  )}
+                  size="sm"
+                  highlight
+                />
+              </div>
+            ) : null}
+
+            {liquiditySummaryError ? (
+              <div className="mb-6 flex items-start gap-3 rounded-[1.25rem] border border-amber-500/20 bg-amber-500/10 p-3.5 text-xs text-amber-500 font-medium">
+                <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                <p className="leading-snug">{liquiditySummaryError}</p>
+              </div>
+            ) : null}
+
             <div className="grid lg:grid-cols-2 gap-6">
               <div>
                 <h3 className="text-xs uppercase font-bold text-[var(--sea-ink-soft)] tracking-wider mb-4">
                   Selected Pool Metrics
                 </h3>
                 {selectedPool ? (
-                  <div className="grid grid-cols-2 gap-3 mb-6">
-                    <MetricTile
-                      label="APR"
-                      value={formatPercent(selectedPool.apr)}
-                      highlight
-                    />
-                    <MetricTile
-                      label="Depth Usd"
-                      value={formatUsdCompact(selectedPool.depthUsd)}
-                      size="sm"
-                    />
-                    <MetricTile
-                      label="24h volume"
-                      value={formatUsdCompact(
-                        Number(formatBaseUnits(selectedPool.volume24h, 8)),
-                      )}
-                      size="sm"
-                    />
-                    <MetricTile
-                      label="Status"
-                      value={
-                        selectedPool.actionAvailability?.lpActionsPaused
-                          ? "Paused"
-                          : selectedPool.status
-                      }
-                      size="sm"
-                    />
-                  </div>
+                  <>
+                    <div className="grid grid-cols-2 gap-3 mb-4">
+                      <MetricTile
+                        label="APR"
+                        value={
+                          liquidityPoolDetail
+                            ? formatAnalyticsPercent(
+                                liquidityPoolDetail.analytics.apr,
+                              )
+                            : formatPercent(selectedPool.apr)
+                        }
+                        highlight
+                      />
+                      <MetricTile
+                        label="Depth Usd"
+                        value={formatUsdCompact(selectedPool.depthUsd)}
+                        size="sm"
+                      />
+                      <MetricTile
+                        label="24h volume"
+                        value={
+                          liquidityPoolDetail
+                            ? formatUsdCompact(
+                                liquidityPoolDetail.analytics.volume24hUSD,
+                              )
+                            : formatUsdCompact(
+                                Number(formatBaseUnits(selectedPool.volume24h, 8)),
+                              )
+                        }
+                        size="sm"
+                      />
+                      <MetricTile
+                        label="Status"
+                        value={
+                          selectedPool.actionAvailability?.lpActionsPaused
+                            ? "Paused"
+                            : selectedPool.status
+                        }
+                        size="sm"
+                      />
+                    </div>
+
+                    {liquidityPoolDetail ? (
+                      <div className="grid grid-cols-2 gap-3 mb-6">
+                        <MetricTile
+                          label="LUVI"
+                          value={liquidityPoolDetail.analytics.luvi.toFixed(2)}
+                          size="sm"
+                        />
+                        <MetricTile
+                          label="24h Fees"
+                          value={formatUsdCompact(
+                            liquidityPoolDetail.analytics.feesEarned24hUSD,
+                          )}
+                          size="sm"
+                        />
+                        <MetricTile
+                          label="Net Earnings"
+                          value={formatUsdCompact(
+                            liquidityPoolDetail.analytics.netEarnings24hUSD,
+                          )}
+                          size="sm"
+                        />
+                        <MetricTile
+                          label="IL Protection"
+                          value={formatUsdCompact(
+                            liquidityPoolDetail.analytics.ilProtectionPaid24hUSD,
+                          )}
+                          size="sm"
+                        />
+                      </div>
+                    ) : null}
+
+                    {liquidityPoolDetailError ? (
+                      <div className="mb-6 flex items-start gap-3 rounded-[1.25rem] border border-amber-500/20 bg-amber-500/10 p-3.5 text-xs text-amber-500 font-medium">
+                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                        <p className="leading-snug">{liquidityPoolDetailError}</p>
+                      </div>
+                    ) : null}
+                  </>
                 ) : (
                   <div className="h-32 flex items-center justify-center text-sm font-medium text-[var(--sea-ink-soft)] bg-[var(--bg-base)] border border-[var(--line)] rounded-2xl mb-6">
                     Select a pool to view health.
@@ -1306,6 +1521,39 @@ function LiquidityTerminalPage() {
                     )}
                   </div>
                 </div>
+
+                {liquidityPoolDetail?.ilAnalysis ? (
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <MetricTile
+                      label="Pool IL"
+                      value={formatUsdCompact(
+                        liquidityPoolDetail.ilAnalysis.impermanentLoss.amountUSD,
+                      )}
+                      size="sm"
+                    />
+                    <MetricTile
+                      label="Coverage"
+                      value={`${liquidityPoolDetail.ilAnalysis.protection.coveragePercent.toFixed(0)}%`}
+                      size="sm"
+                    />
+                    <MetricTile
+                      label="Days In Pool"
+                      value={String(
+                        liquidityPoolDetail.ilAnalysis.protection.daysInPool,
+                      )}
+                      size="sm"
+                    />
+                    <MetricTile
+                      label="Rank"
+                      value={
+                        liquidityPoolDetail.comparison
+                          ? `#${liquidityPoolDetail.comparison.rank}`
+                          : "n/a"
+                      }
+                      size="sm"
+                    />
+                  </div>
+                ) : null}
               </div>
             </div>
           </section>
@@ -1391,9 +1639,8 @@ function loadPendingSymmetricDeposit(
     }
     return {
       ...parsed,
-      interfaceAffiliateBps: normalizeLiquidityInterfaceBps(
-        parsed.interfaceAffiliateBps,
-      ),
+      interfaceAffiliateBps: INTERFACE_TRACKING_BPS,
+      source: "stored",
     };
   } catch {
     return null;
@@ -1423,15 +1670,6 @@ function clearPendingSymmetricDeposit(): void {
   } catch {
     // ignored
   }
-}
-
-function normalizeLiquidityInterfaceBps(value: string | undefined): string {
-  const parsed = Number(value ?? "0");
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return "0";
-  }
-
-  return String(Math.min(MAX_LP_INTERFACE_FEE_BPS, Math.round(parsed)));
 }
 
 export function sortLiquidityPools(
@@ -1486,10 +1724,44 @@ export function getInitialLiquidityPoolAsset(
   if (pendingDeposit) {
     return pendingDeposit.poolAsset;
   }
+  const pendingPosition = positions.find(
+    (position) => position.state === "pending",
+  );
+  if (pendingPosition) {
+    return pendingPosition.pool;
+  }
   const activePosition = positions.find(
     (position) => position.state === "active",
   );
   return activePosition?.pool ?? pools[0]?.asset ?? "";
+}
+
+export function inferRecoverablePendingSymmetricDeposit(
+  sessionId: string | undefined,
+  positions: LiquidityPosition[],
+): PendingSymmetricDeposit | null {
+  if (!sessionId) {
+    return null;
+  }
+
+  const candidate = positions.find(
+    (position) =>
+      position.state === "pending" &&
+      position.pendingAsset !== "0" &&
+      position.pendingCacao === "0",
+  );
+  if (!candidate) {
+    return null;
+  }
+
+  return {
+    assetAmountBaseUnits: candidate.pendingAsset,
+    cacaoAmountBaseUnits: "",
+    interfaceAffiliateBps: INTERFACE_TRACKING_BPS,
+    poolAsset: candidate.pool,
+    source: "recovered",
+    sessionId,
+  };
 }
 
 export function syncSymmetricDepositAmounts(input: {
@@ -1536,6 +1808,7 @@ export function getLiquidityPrimaryAction(input: {
   isViewOnly?: boolean;
   isSubmitting: boolean;
   pendingDepositMatches: boolean;
+  pendingDepositStoredAmount?: boolean;
   pool: LiquidityPool | null;
   withdrawBasisPoints: number;
   withdrawSupportReason?: string;
@@ -1600,6 +1873,12 @@ export function getLiquidityPrimaryAction(input: {
       };
     }
     if (input.pendingDepositMatches) {
+      if (
+        !input.pendingDepositStoredAmount &&
+        (!input.cacaoAmountBaseUnits || input.cacaoAmountBaseUnits === "0")
+      ) {
+        return { disabled: true, kind: "resume", label: "Enter CACAO Amount" };
+      }
       return { disabled: false, kind: "resume", label: "Submit CACAO Leg" };
     }
     if (input.depositMode !== "cacao") {
@@ -1665,6 +1944,15 @@ export function getLiquidityPrimaryAction(input: {
 function formatPercent(value: string): string {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? `${(numeric * 100).toFixed(2)}%` : "n/a";
+}
+
+function formatAnalyticsPercent(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "n/a";
+  }
+
+  const normalized = Math.abs(value) <= 1 ? value * 100 : value;
+  return `${normalized.toFixed(2)}%`;
 }
 
 function formatUsdCompact(value: number): string {

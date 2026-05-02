@@ -5,6 +5,8 @@ import { MayaWalletManager } from './manager'
 import {
   createExecutionJourneySteps,
   createSecureVaultJourneySteps,
+  resolveJourneyStatusFromTrackerState,
+  trackSwapJourneyWithCacaotracker,
   trackTransactionJourney,
   waitForJourneyTransactionSettlement,
 } from './journeys'
@@ -14,6 +16,34 @@ import {
   createFakeVault,
   createMemoryStorage,
 } from './test-utils'
+
+class FakeWebSocket {
+  private listeners = new Map<string, Set<(event: unknown) => void>>()
+  sent: string[] = []
+  closed = false
+
+  addEventListener(type: string, listener: (event: unknown) => void) {
+    const current = this.listeners.get(type) ?? new Set()
+    current.add(listener)
+    this.listeners.set(type, current)
+  }
+
+  removeEventListener(type: string, listener: (event: unknown) => void) {
+    this.listeners.get(type)?.delete(listener)
+  }
+
+  send(payload: string) {
+    this.sent.push(payload)
+  }
+
+  close() {
+    this.closed = true
+  }
+
+  emit(type: string, event: unknown = {}) {
+    this.listeners.get(type)?.forEach((listener) => listener(event))
+  }
+}
 
 vi.mock('#/analytics', async () => {
   const actual = await vi.importActual<typeof import('#/analytics')>('#/analytics')
@@ -111,6 +141,7 @@ describe('wallet journeys', () => {
 
     const journey = manager.getState().journeys.find((item) => item.id === journeyId)
     expect(journey?.operationIds?.length).toBeGreaterThan(0)
+    expect(journey?.status).toBe('pending')
     expect(journey?.steps.find((step) => step.key === 'signing')).toMatchObject({
       message: 'Signing payload',
       progress: 50,
@@ -192,6 +223,110 @@ describe('wallet journeys', () => {
     expect(journey?.steps.find((step) => step.key === 'confirming')?.message).toContain(
       'automatic tracking is unavailable',
     )
+  })
+
+  it('downgrades confirmation probe failures to unconfirmed instead of erroring the journey', async () => {
+    const vault = createFakeVault({
+      id: 'probe-failure-vault',
+      name: 'Probe Failure Vault',
+      chains: [Chain.THORChain],
+      getTxStatus: async () => {
+        throw new Error('Temporary provider outage')
+      },
+    })
+    const manager = new MayaWalletManager({
+      sdk: createFakeSdkClient({
+        vaults: [vault],
+        activeVaultId: vault.id,
+      }).sdk,
+      extensionWindow: createFakeExtensionWindow(),
+      prefsStorage: createMemoryStorage(),
+    })
+
+    await manager.initialize()
+    await manager.selectSession(vault.id)
+
+    const journeyId = manager.createJourney({
+      kind: 'liquidity',
+      title: 'RUNE deposit',
+      sessionId: vault.id,
+      source: 'sdk',
+      chain: Chain.THORChain,
+      steps: createExecutionJourneySteps({
+        source: 'sdk',
+        finalLabel: 'Liquidity Update Complete',
+      }),
+    })
+
+    const outcome = await waitForJourneyTransactionSettlement(manager, {
+      chain: Chain.THORChain,
+      journeyId,
+      sessionId: vault.id,
+      stepKey: 'confirming',
+      txHash: 'thor-hash',
+    })
+
+    const journey = manager.getState().journeys.find((item) => item.id === journeyId)
+    expect(outcome).toBe('unconfirmed')
+    expect(journey?.status).toBe('unconfirmed')
+    expect(journey?.steps.find((step) => step.key === 'confirming')).toMatchObject({
+      status: 'unconfirmed',
+      txHash: 'thor-hash',
+    })
+    expect(journey?.steps.find((step) => step.key === 'confirming')?.message).toContain(
+      'automatic confirmation tracking failed',
+    )
+  })
+
+  it('treats confirmed height-based status payloads as successful confirmations', async () => {
+    const vault = createFakeVault({
+      id: 'height-success-vault',
+      name: 'Height Success Vault',
+      chains: [Chain.THORChain],
+      getTxStatus: async () => ({
+        height: '12345678',
+        txHash: 'thor-hash',
+      }),
+    })
+    const manager = new MayaWalletManager({
+      sdk: createFakeSdkClient({
+        vaults: [vault],
+        activeVaultId: vault.id,
+      }).sdk,
+      extensionWindow: createFakeExtensionWindow(),
+      prefsStorage: createMemoryStorage(),
+    })
+
+    await manager.initialize()
+    await manager.selectSession(vault.id)
+
+    const journeyId = manager.createJourney({
+      kind: 'liquidity',
+      title: 'RUNE deposit success',
+      sessionId: vault.id,
+      source: 'sdk',
+      chain: Chain.THORChain,
+      steps: createExecutionJourneySteps({
+        source: 'sdk',
+        finalLabel: 'Liquidity Update Complete',
+      }),
+    })
+
+    const outcome = await waitForJourneyTransactionSettlement(manager, {
+      chain: Chain.THORChain,
+      journeyId,
+      sessionId: vault.id,
+      stepKey: 'confirming',
+      txHash: 'thor-hash',
+    })
+
+    const journey = manager.getState().journeys.find((item) => item.id === journeyId)
+    expect(outcome).toBe('success')
+    expect(journey?.steps.find((step) => step.key === 'confirming')).toMatchObject({
+      status: 'success',
+      txHash: 'thor-hash',
+      message: 'Confirmed on-chain.',
+    })
   })
 
   it('bumps the balance refresh tick when a balance-relevant journey completes', () => {
@@ -331,5 +466,334 @@ describe('wallet journeys', () => {
         chain: Chain.Ethereum,
       },
     ])
+  })
+
+  it('hydrates swap journeys from tracker snapshots and final updates', async () => {
+    const manager = new MayaWalletManager({
+      sdk: createFakeSdkClient().sdk,
+      extensionWindow: createFakeExtensionWindow(),
+      prefsStorage: createMemoryStorage(),
+    })
+
+    const journeyId = manager.createJourney({
+      kind: 'swap',
+      title: 'Tracker swap',
+      source: 'sdk',
+      chain: Chain.MayaChain,
+      steps: createExecutionJourneySteps({
+        source: 'sdk',
+        finalLabel: 'Swap Complete',
+      }),
+    })
+
+    const ws = new FakeWebSocket()
+    const trackingPromise = trackSwapJourneyWithCacaotracker(manager, {
+      journeyId,
+      txHash: 'F0C9',
+      createSession: async () => ({
+        wsUrl: 'wss://tracker.test/session',
+        expiresAt: '2026-04-25T12:00:00.000Z',
+        heartbeatSeconds: 30,
+      }),
+      webSocketFactory: () => ws,
+      timeoutMs: 5_000,
+    })
+
+    await Promise.resolve()
+    ws.emit('open')
+    expect(ws.sent).toEqual([
+      JSON.stringify({ type: 'subscribe', txHashes: ['F0C9'] }),
+    ])
+
+    ws.emit('message', {
+      data: JSON.stringify({
+        type: 'subscribed',
+        accepted: ['F0C9'],
+        rejected: [],
+      }),
+    })
+    ws.emit('message', {
+      data: JSON.stringify({
+        type: 'snapshot',
+        state: {
+          txHash: 'F0C9',
+          updatedAt: '2026-04-25T12:54:24.278Z',
+          observedAt: '2026-04-25T12:54:24.277Z',
+          source: 'mayanode',
+          status: 'streaming',
+          stage: 'streaming',
+          isFinal: false,
+          swapType: 'streaming',
+          summary: 'Streaming swap in progress: MAYA.CACAO -> MAYA.MAYA',
+          affiliate: null,
+          from: {
+            asset: 'MAYA.CACAO',
+            amount: '330000000000',
+            amountBase: '330000000000',
+            address: 'maya1from',
+            display: {
+              assetName: 'MAYA.CACAO',
+              symbol: 'CACAO',
+              icon: '/images/icons/cacao.svg',
+              amount: {
+                exact: '33',
+                compact: '33',
+                decimals: 10,
+              },
+            },
+          },
+          to: {
+            asset: 'MAYA.MAYA',
+            amountExpected: null,
+            amountReceived: '5287',
+            address: 'maya1to',
+            outboundTxHashes: [],
+            display: {
+              assetName: 'MAYA.MAYA',
+              symbol: 'MAYA',
+              icon: '/images/icons/maya.svg',
+              amountExpected: {
+                exact: null,
+                compact: null,
+                decimals: 4,
+              },
+              amountReceived: {
+                exact: '0.5287',
+                compact: '0.5287',
+                decimals: 4,
+              },
+            },
+          },
+          streaming: {
+            interval: 3,
+            quantity: 3,
+            count: 2,
+            progressPercent: 66.6,
+            depositedAmount: '330000000000',
+            swappedInAmount: '220000000000',
+            swappedOutAmount: '5287',
+            failedSwaps: [],
+            failedReasons: [],
+            lastHeight: 16276797,
+          },
+          chain: {
+            height: 16276799,
+            inboundSeen: true,
+            lastEventType: 'streaming_swap',
+          },
+          rawRefs: {
+            streamingSwapHash: 'F0C9',
+          },
+        },
+      }),
+    })
+
+    expect(
+      manager.getState().journeys.find((journey) => journey.id === journeyId)?.swapTracking,
+    ).toMatchObject({
+      trackingSource: 'cacaotracker-ws',
+      transportStatus: 'live',
+      trackerState: expect.objectContaining({
+        status: 'streaming',
+        summary: 'Streaming swap in progress: MAYA.CACAO -> MAYA.MAYA',
+      }),
+    })
+
+    ws.emit('message', {
+      data: JSON.stringify({
+        type: 'tx_update',
+        state: {
+          txHash: 'F0C9',
+          updatedAt: '2026-04-25T12:54:32.057Z',
+          observedAt: '2026-04-25T12:54:24.277Z',
+          source: 'mixed',
+          status: 'completed',
+          stage: 'final',
+          isFinal: true,
+          swapType: 'streaming',
+          summary: 'Swap completed: MAYA.CACAO -> MAYA.MAYA',
+          affiliate: null,
+          from: {
+            asset: 'MAYA.CACAO',
+            amount: '330000000000',
+            amountBase: '330000000000',
+            address: 'maya1from',
+            display: {
+              assetName: 'MAYA.CACAO',
+              symbol: 'CACAO',
+              icon: '/images/icons/cacao.svg',
+              amount: {
+                exact: '33',
+                compact: '33',
+                decimals: 10,
+              },
+            },
+          },
+          to: {
+            asset: 'MAYA.MAYA',
+            amountExpected: null,
+            amountReceived: '5287',
+            address: 'maya1to',
+            outboundTxHashes: [],
+            display: {
+              assetName: 'MAYA.MAYA',
+              symbol: 'MAYA',
+              icon: '/images/icons/maya.svg',
+              amountExpected: {
+                exact: null,
+                compact: null,
+                decimals: 4,
+              },
+              amountReceived: {
+                exact: '0.5287',
+                compact: '0.5287',
+                decimals: 4,
+              },
+            },
+          },
+          streaming: null,
+          chain: {
+            height: 16276800,
+            inboundSeen: true,
+            lastEventType: 'streaming_swap',
+          },
+          rawRefs: {
+            streamingSwapHash: 'F0C9',
+          },
+        },
+        changedFields: ['status', 'stage', 'isFinal'],
+      }),
+    })
+
+    await expect(trackingPromise).resolves.toMatchObject({
+      outcome: 'final',
+      trackerState: expect.objectContaining({
+        status: 'completed',
+        isFinal: true,
+      }),
+    })
+    expect(
+      manager.getState().journeys.find((journey) => journey.id === journeyId)?.swapTracking,
+    ).toMatchObject({
+      transportStatus: 'closed',
+      trackerState: expect.objectContaining({
+        status: 'completed',
+      }),
+    })
+  })
+
+  it('falls back when the tracker rejects the tx hash subscription', async () => {
+    const manager = new MayaWalletManager({
+      sdk: createFakeSdkClient().sdk,
+      extensionWindow: createFakeExtensionWindow(),
+      prefsStorage: createMemoryStorage(),
+    })
+
+    const journeyId = manager.createJourney({
+      kind: 'swap',
+      title: 'Rejected tracker swap',
+      source: 'sdk',
+      chain: Chain.MayaChain,
+      steps: createExecutionJourneySteps({
+        source: 'sdk',
+        finalLabel: 'Swap Complete',
+      }),
+    })
+
+    const ws = new FakeWebSocket()
+    const trackingPromise = trackSwapJourneyWithCacaotracker(manager, {
+      journeyId,
+      txHash: 'BADHASH',
+      createSession: async () => ({
+        wsUrl: 'wss://tracker.test/session',
+        expiresAt: '2026-04-25T12:00:00.000Z',
+        heartbeatSeconds: 30,
+      }),
+      webSocketFactory: () => ws,
+      timeoutMs: 5_000,
+    })
+
+    await Promise.resolve()
+    ws.emit('open')
+    ws.emit('message', {
+      data: JSON.stringify({
+        type: 'subscribed',
+        accepted: [],
+        rejected: ['BADHASH'],
+      }),
+    })
+
+    await expect(trackingPromise).resolves.toEqual({
+      outcome: 'fallback',
+    })
+    expect(
+      manager.getState().journeys.find((journey) => journey.id === journeyId)?.swapTracking,
+    ).toMatchObject({
+      trackingSource: 'fallback',
+      transportStatus: 'fallback',
+      rejectedTxHashes: ['BADHASH'],
+    })
+  })
+
+  it('maps tracker refund-like states to unconfirmed journey outcomes', () => {
+    expect(
+      resolveJourneyStatusFromTrackerState({
+        txHash: 'tx-refund',
+        updatedAt: '2026-04-25T12:54:32.057Z',
+        observedAt: '2026-04-25T12:54:24.277Z',
+        source: 'mixed',
+        status: 'refunded',
+        stage: 'final',
+        isFinal: true,
+        swapType: 'streaming',
+        summary: 'Swap refunded',
+        affiliate: null,
+        from: {
+          asset: 'MAYA.CACAO',
+          amount: '1',
+          amountBase: '1',
+          address: 'maya1from',
+          display: {
+            assetName: 'MAYA.CACAO',
+            symbol: 'CACAO',
+            icon: null,
+            amount: {
+              exact: '0.0000000001',
+              compact: '0.0000000001',
+              decimals: 10,
+            },
+          },
+        },
+        to: {
+          asset: 'MAYA.MAYA',
+          amountExpected: null,
+          amountReceived: null,
+          address: 'maya1to',
+          outboundTxHashes: [],
+          display: {
+            assetName: 'MAYA.MAYA',
+            symbol: 'MAYA',
+            icon: null,
+            amountExpected: {
+              exact: null,
+              compact: null,
+              decimals: 4,
+            },
+            amountReceived: {
+              exact: null,
+              compact: null,
+              decimals: 4,
+            },
+          },
+        },
+        streaming: null,
+        chain: {
+          height: 1,
+          inboundSeen: true,
+          lastEventType: 'refund',
+        },
+        rawRefs: null,
+      }),
+    ).toBe('unconfirmed')
   })
 })

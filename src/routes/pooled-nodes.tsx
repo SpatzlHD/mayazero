@@ -5,6 +5,11 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { VIEW_ONLY_IMPERSONATION_REASON } from "#/lib/impersonation";
 import { buildPageSeoHead } from "#/lib/seo";
 import { formatBaseUnits } from "#/lib/cacao-pool";
+import { fetchCacaotrackerPooledNodesDetail } from "#/lib/cacaotracker";
+import type {
+  BondProviderResponse,
+  PooledNodesDetailResponse,
+} from "#/lib/cacaotracker-types";
 import {
   fetchPooledNodes,
   getPooledNodeWarnings,
@@ -48,6 +53,7 @@ type Props = {
   loadNodes?: LoadNodes;
   onMissingSession?: () => void;
   submitAction?: typeof submitPooledNodeAction;
+  loadAnalytics?: (address: string) => Promise<PooledNodesDetailResponse>;
 };
 
 const defaultLoadNodes: LoadNodes = (input) =>
@@ -69,6 +75,7 @@ export function PooledNodesPage({
   loadNodes = defaultLoadNodes,
   onMissingSession,
   submitAction = submitPooledNodeAction,
+  loadAnalytics = fetchCacaotrackerPooledNodesDetail,
 }: Props) {
   const wallet = useMayaWalletActions();
   const settings = useSettings();
@@ -99,6 +106,11 @@ export function PooledNodesPage({
     useState("");
   const [operatorRemoveProviderAmount, setOperatorRemoveProviderAmount] =
     useState("");
+  const [providerBondData, setProviderBondData] =
+    useState<BondProviderResponse>(null);
+  const [providerBondError, setProviderBondError] = useState<string | null>(
+    null,
+  );
   const loadNodesRef = useRef(loadNodes);
 
   useEffect(() => {
@@ -139,6 +151,8 @@ export function PooledNodesPage({
       setSelectedNodeAddress("");
       setLoadError(null);
       setIsLoading(false);
+      setProviderBondData(null);
+      setProviderBondError(null);
       return;
     }
     let cancelled = false;
@@ -172,6 +186,36 @@ export function PooledNodesPage({
       cancelled = true;
     };
   }, [balanceRefreshTick, mayaAddress, settings.mayanodeUrl]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function refreshProviderBondAnalytics() {
+      if (!mayaAddress) {
+        setProviderBondData(null);
+        setProviderBondError(null);
+        return;
+      }
+
+      setProviderBondError(null);
+      try {
+        const next = await loadAnalytics(mayaAddress);
+        if (!cancelled) {
+          setProviderBondData(next.providerBond);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setProviderBondData(null);
+          setProviderBondError((error as Error).message);
+        }
+      }
+    }
+
+    void refreshProviderBondAnalytics()
+    return () => {
+      cancelled = true;
+    };
+  }, [balanceRefreshTick, loadAnalytics, mayaAddress]);
 
   async function connectMayaChain() {
     if (isViewOnly) {
@@ -480,6 +524,34 @@ export function PooledNodesPage({
                 </div>
               ))}
             </div>
+          </PrimaryPanel>
+          <PrimaryPanel>
+            <h2 className="text-xl font-bold">CacaoTracker Bond Summary</h2>
+            {providerBondError ? (
+              <Warning>{providerBondError}</Warning>
+            ) : providerBondData ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {summarizeProviderBond(providerBondData).length ? (
+                  summarizeProviderBond(providerBondData).map((item) => (
+                    <Metric
+                      key={item.label}
+                      label={item.label}
+                      value={item.value}
+                    />
+                  ))
+                ) : (
+                  <div className="rounded-2xl border border-[var(--line)] p-4 text-sm text-[var(--sea-ink-soft)] sm:col-span-2">
+                    Provider bond enrichment is connected, but the upstream
+                    payload did not include summary fields MayaZero can render
+                    safely.
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-[var(--line)] p-4 text-sm text-[var(--sea-ink-soft)]">
+                No provider bond enrichment is available for this Maya address.
+              </div>
+            )}
           </PrimaryPanel>
           {selectedNode?.isProvider || selectedNode?.isOperator ? (
             <PrimaryPanel>
@@ -821,4 +893,89 @@ function formatAmountPreview(value: string): string {
   if (!/^\d+$/.test(normalized))
     return "Amounts must use raw on-chain integers only.";
   return `Preview: ${formatBaseUnits(normalized, 10) || "0"} CACAO`;
+}
+
+function summarizeProviderBond(
+  payload: BondProviderResponse,
+): Array<{ label: string; value: string }> {
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+
+  const record = payload as Record<string, unknown>;
+  const summaries: Array<{ label: string; value: string }> = [];
+  const bondedCacao = findNumericField(record, [
+    "totalBondedCacao",
+    "total_bonded_cacao",
+    "bondedCacao",
+  ]);
+  const rewardCacao = findNumericField(record, [
+    "totalRewardCacao",
+    "total_reward_cacao",
+    "reward",
+    "rewards",
+  ]);
+  const providerCount = findNumericField(record, [
+    "providerCount",
+    "provider_count",
+  ]);
+  const nodeCount = findNumericField(record, ["nodeCount", "node_count"]);
+
+  if (bondedCacao != null) {
+    summaries.push({
+      label: "Bonded CACAO",
+      value: formatCompactCacaoValue(bondedCacao),
+    });
+  }
+  if (rewardCacao != null) {
+    summaries.push({
+      label: "Rewards",
+      value: formatCompactCacaoValue(rewardCacao),
+    });
+  }
+  if (providerCount != null) {
+    summaries.push({
+      label: "Providers",
+      value: String(Math.round(providerCount)),
+    });
+  }
+  if (nodeCount != null) {
+    summaries.push({
+      label: "Nodes",
+      value: String(Math.round(nodeCount)),
+    });
+  }
+
+  return summaries;
+}
+
+function findNumericField(
+  record: Record<string, unknown>,
+  keys: string[],
+): number | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return null;
+}
+
+function formatCompactCacaoValue(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "n/a";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    notation: Math.abs(value) >= 1_000_000 ? "compact" : "standard",
+    maximumFractionDigits: Math.abs(value) >= 1_000 ? 0 : 2,
+  }).format(value);
 }

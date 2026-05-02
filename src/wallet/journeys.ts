@@ -1,5 +1,13 @@
 import { serializeWalletError } from './errors'
 import {
+  createCacaotrackerTxTrackerSubscribeMessage,
+  parseCacaotrackerTxTrackerMessage,
+} from '#/lib/cacaotracker'
+import type {
+  CacaotrackerTxTrackerSessionResponse,
+  CacaotrackerTxTrackerState,
+} from '#/lib/cacaotracker-types'
+import {
   trackAnalyticsEvent,
   type JourneyAnalyticsContext,
   type JourneyStatus,
@@ -16,6 +24,24 @@ import type {
 
 const DEFAULT_POLL_INTERVAL_MS = 2_500
 const DEFAULT_MAX_WAIT_MS = 300_000
+const DEFAULT_TRACKER_WAIT_MS = 120_000
+
+type WebSocketLike = {
+  addEventListener: (
+    type: 'open' | 'message' | 'error' | 'close',
+    listener: (event: unknown) => void,
+  ) => void
+  removeEventListener: (
+    type: 'open' | 'message' | 'error' | 'close',
+    listener: (event: unknown) => void,
+  ) => void
+  send: (data: string) => void
+  close: () => void
+}
+
+type MessageEventLike = {
+  data?: string
+}
 
 export type JourneyController = {
   journeyId: string
@@ -35,6 +61,7 @@ export type JourneyController = {
   complete: (result?: unknown, status?: Exclude<WalletJourneyStatus, 'pending' | 'attention'>) => void
   setPrimaryTxHash: (txHash: string | null | undefined) => void
   setSecondaryTxHash: (txHash: string | null | undefined) => void
+  patchJourney: (patch: Partial<WalletJourney>) => void
 }
 
 export async function trackTransactionJourney<T>(
@@ -172,6 +199,9 @@ export async function trackTransactionJourney<T>(
         secondaryTxHash: txHash ?? undefined,
       })
     },
+    patchJourney: (patch) => {
+      manager.patchJourney(journeyId, patch)
+    },
   }
 
   try {
@@ -248,14 +278,35 @@ export async function waitForJourneyTransactionSettlement(
   const deadline = Date.now() + (input.maxWaitMs ?? DEFAULT_MAX_WAIT_MS)
 
   while (Date.now() < deadline) {
-    const statusResult = await manager.execute('tx.status', {
-      sessionId: input.sessionId,
-      input: {
-        chain: input.chain,
-        txHash: input.txHash,
-      },
-      track: false,
-    })
+    let statusResult
+    try {
+      statusResult = await manager.execute('tx.status', {
+        sessionId: input.sessionId,
+        input: {
+          chain: input.chain,
+          txHash: input.txHash,
+        },
+        track: false,
+      })
+    } catch (error) {
+      const serialized = serializeWalletError(error)
+      patchJourneyStep(
+        manager,
+        input.journeyId,
+        input.stepKey,
+        {
+          status: 'unconfirmed',
+          txHash: input.txHash,
+          chain: input.chain,
+          message: `Submitted, but automatic confirmation tracking failed${serialized.message ? `: ${serialized.message}` : '.'}`,
+        },
+        {
+          status: 'unconfirmed',
+          openOnUpdate: true,
+        },
+      )
+      return 'unconfirmed'
+    }
 
     const state = normalizeTxState(statusResult.status)
     if (state === 'success') {
@@ -333,6 +384,256 @@ export function patchJourneyStep(
       ? { openOnUpdate: options.openOnUpdate }
       : {}),
   }))
+}
+
+export function patchSwapJourneyTracking(
+  manager: MayaWalletManager,
+  journeyId: string,
+  patch: Partial<NonNullable<WalletJourney['swapTracking']>>,
+): void {
+  manager.patchJourney(journeyId, (journey) => ({
+    swapTracking: {
+      trackingSource: journey.swapTracking?.trackingSource ?? 'local',
+      transportStatus: journey.swapTracking?.transportStatus ?? 'idle',
+      ...(journey.swapTracking ?? {}),
+      ...patch,
+    },
+  }))
+}
+
+export function resolveJourneyStatusFromTrackerState(
+  state: CacaotrackerTxTrackerState,
+): Exclude<WalletJourneyStatus, 'pending' | 'attention'> {
+  const normalized = state.status.trim().toLowerCase()
+  if (
+    normalized.includes('fail') ||
+    normalized.includes('error') ||
+    normalized.includes('reject')
+  ) {
+    return 'error'
+  }
+
+  if (
+    normalized.includes('refund') ||
+    normalized.includes('cancel') ||
+    normalized.includes('revert')
+  ) {
+    return 'unconfirmed'
+  }
+
+  return 'success'
+}
+
+export async function trackSwapJourneyWithCacaotracker(
+  manager: MayaWalletManager,
+  input: {
+    journeyId: string
+    txHash: string | null | undefined
+    createSession: () => Promise<CacaotrackerTxTrackerSessionResponse>
+    historyHref?: string
+    timeoutMs?: number
+    webSocketFactory?: (url: string) => WebSocketLike
+  },
+): Promise<{
+  outcome: 'final' | 'fallback'
+  trackerState?: CacaotrackerTxTrackerState
+}> {
+  if (!input.txHash) {
+    patchSwapJourneyTracking(manager, input.journeyId, {
+      trackingSource: 'fallback',
+      transportStatus: 'fallback',
+      fallbackReason: 'Submitted swap did not return a transaction hash.',
+      historyHref: input.historyHref,
+    })
+    return { outcome: 'fallback' }
+  }
+
+  patchSwapJourneyTracking(manager, input.journeyId, {
+    trackingSource: 'cacaotracker-ws',
+    transportStatus: 'connecting',
+    historyHref: input.historyHref,
+    fallbackReason: undefined,
+  })
+
+  let session: CacaotrackerTxTrackerSessionResponse
+  try {
+    session = await input.createSession()
+  } catch (error) {
+    patchSwapJourneyTracking(manager, input.journeyId, {
+      trackingSource: 'fallback',
+      transportStatus: 'fallback',
+      fallbackReason:
+        error instanceof Error
+          ? error.message
+          : 'Failed to create a live tracker session.',
+    })
+    return { outcome: 'fallback' }
+  }
+
+  patchSwapJourneyTracking(manager, input.journeyId, {
+    trackingSource: 'cacaotracker-ws',
+    transportStatus: 'connecting',
+    session: {
+      expiresAt: session.expiresAt,
+      heartbeatSeconds: session.heartbeatSeconds,
+    },
+  })
+
+  const webSocketFactory =
+    input.webSocketFactory ??
+    ((url: string) => new WebSocket(url) as unknown as WebSocketLike)
+
+  let ws: WebSocketLike
+  try {
+    ws = webSocketFactory(session.wsUrl)
+  } catch (error) {
+    patchSwapJourneyTracking(manager, input.journeyId, {
+      trackingSource: 'fallback',
+      transportStatus: 'fallback',
+      fallbackReason:
+        error instanceof Error
+          ? error.message
+          : 'Failed to open the live tracker websocket.',
+    })
+    return { outcome: 'fallback' }
+  }
+
+  return new Promise((resolve) => {
+    let settled = false
+    const timeout = setTimeout(() => {
+      finalize('fallback')
+    }, input.timeoutMs ?? DEFAULT_TRACKER_WAIT_MS)
+
+    const cleanup = () => {
+      clearTimeout(timeout)
+      ws.removeEventListener('open', handleOpen)
+      ws.removeEventListener('message', handleMessage)
+      ws.removeEventListener('error', handleError)
+      ws.removeEventListener('close', handleClose)
+    }
+
+    const finalize = (
+      outcome: 'final' | 'fallback',
+      trackerState?: CacaotrackerTxTrackerState,
+    ) => {
+      if (settled) {
+        return
+      }
+      settled = true
+      cleanup()
+      try {
+        ws.close()
+      } catch {
+        // Ignore close failures.
+      }
+
+      if (outcome === 'final') {
+        patchSwapJourneyTracking(manager, input.journeyId, {
+          transportStatus: 'closed',
+          trackerState,
+          lastMessageType: 'tx_update',
+        })
+      } else {
+        patchSwapJourneyTracking(manager, input.journeyId, {
+          trackingSource: 'fallback',
+          transportStatus: 'fallback',
+          fallbackReason:
+            manager
+              .getState()
+              .journeys.find((journey) => journey.id === input.journeyId)
+              ?.swapTracking?.fallbackReason ??
+            'Live tracker disconnected before a final protocol update arrived.',
+        })
+      }
+
+      resolve(
+        outcome === 'final'
+          ? { outcome, trackerState }
+          : { outcome },
+      )
+    }
+
+    const handleOpen = () => {
+      ws.send(createCacaotrackerTxTrackerSubscribeMessage([input.txHash!]))
+    }
+
+    const handleMessage = (event: unknown) => {
+      const payload = parseCacaotrackerTxTrackerMessage(
+        String((event as MessageEventLike).data ?? ''),
+      )
+      if (!payload) {
+        return
+      }
+
+      if (payload.type === 'ready') {
+        patchSwapJourneyTracking(manager, input.journeyId, {
+          transportStatus: 'connecting',
+          lastMessageType: payload.type,
+          session: {
+            expiresAt: session.expiresAt,
+            heartbeatSeconds:
+              payload.heartbeatSeconds ?? session.heartbeatSeconds,
+          },
+        })
+        return
+      }
+
+      if (payload.type === 'subscribed') {
+        const accepted = payload.accepted ?? []
+        const rejected = payload.rejected ?? []
+        patchSwapJourneyTracking(manager, input.journeyId, {
+          transportStatus: accepted.includes(input.txHash!)
+            ? 'subscribed'
+            : 'fallback',
+          acceptedTxHashes: accepted,
+          rejectedTxHashes: rejected,
+          lastMessageType: payload.type,
+          ...(rejected.includes(input.txHash!)
+            ? {
+                trackingSource: 'fallback',
+                fallbackReason:
+                  'Live tracker rejected the submitted transaction hash.',
+              }
+            : {}),
+        })
+        if (!accepted.includes(input.txHash!)) {
+          finalize('fallback')
+        }
+        return
+      }
+
+      if (payload.type === 'snapshot' || payload.type === 'tx_update') {
+        patchSwapJourneyTracking(manager, input.journeyId, {
+          trackingSource: 'cacaotracker-ws',
+          transportStatus: payload.state.isFinal ? 'closed' : 'live',
+          trackerState: payload.state,
+          lastMessageType: payload.type,
+        })
+
+        if (payload.state.isFinal) {
+          finalize('final', payload.state)
+        }
+      }
+    }
+
+    const handleError = () => {
+      patchSwapJourneyTracking(manager, input.journeyId, {
+        trackingSource: 'fallback',
+        transportStatus: 'fallback',
+        fallbackReason: 'Live tracker websocket returned an error.',
+      })
+      finalize('fallback')
+    }
+
+    const handleClose = () => {
+      finalize('fallback')
+    }
+
+    ws.addEventListener('open', handleOpen)
+    ws.addEventListener('message', handleMessage)
+    ws.addEventListener('error', handleError)
+    ws.addEventListener('close', handleClose)
+  })
 }
 
 export function createJourneyStep(
@@ -452,7 +753,13 @@ function normalizeTxState(status: unknown): 'pending' | 'success' | 'error' {
     const record = status as Record<string, unknown>
     if (typeof record.status === 'string') {
       const normalized = record.status.toLowerCase()
-      if (normalized === 'success') {
+      if (
+        normalized === 'success' ||
+        normalized === 'completed' ||
+        normalized === 'confirmed' ||
+        normalized === 'finalized' ||
+        normalized === 'done'
+      ) {
         return 'success'
       }
       if (
@@ -464,8 +771,55 @@ function normalizeTxState(status: unknown): 'pending' | 'success' | 'error' {
       }
     }
 
-    if (record.blockHash || record.blockNumber) {
+    if (
+      record.blockHash ||
+      record.blockNumber ||
+      record.block_height ||
+      record.height ||
+      (typeof record.confirmations === 'number' && record.confirmations > 0) ||
+      (typeof record.confirmations === 'string' &&
+        Number(record.confirmations) > 0)
+    ) {
       return 'success'
+    }
+
+    if (typeof record.receipt === 'object' && record.receipt !== null) {
+      const receipt = record.receipt as Record<string, unknown>
+      if (
+        receipt.blockHash ||
+        receipt.blockNumber ||
+        receipt.block_height ||
+        receipt.height ||
+        receipt.status === 1 ||
+        receipt.status === '1' ||
+        receipt.status === '0x1'
+      ) {
+        return 'success'
+      }
+
+      if (
+        receipt.status === 0 ||
+        receipt.status === '0' ||
+        receipt.status === '0x0'
+      ) {
+        return 'error'
+      }
+    }
+
+    if (
+      record.status === 1 ||
+      record.status === '1' ||
+      record.status === '0x1'
+    ) {
+      return 'success'
+    }
+
+    if (
+      record.status === 0 ||
+      record.status === '0' ||
+      record.status === '0x0'
+    ) {
+      return 'error'
     }
   }
 

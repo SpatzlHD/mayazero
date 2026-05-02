@@ -11,6 +11,10 @@ const wallet = {
   createFastVaultFromSeedphrase: vi.fn(async () => ({
     vaultId: 'pending-imported-fast-vault',
   })),
+  createSecureVault: vi.fn(async () => ({
+    vaultId: 'secure-vault-id',
+    sessionId: 'secure-session',
+  })),
   verifyFastVault: vi.fn(async () => ({ vaultId: 'verified-fast-vault' })),
 }
 
@@ -19,11 +23,21 @@ let walletState = {
     kind: string
     status: string
     steps: Array<{ key: string; label: string; status: string; message?: string }>
+    qrPayload?: string | null
+    deviceJoin?: {
+      joined: number
+      required: number
+    }
   }>,
   operations: [] as Array<{
     name: string
     status: string
     progress?: { message?: string }
+    qrPayload?: string | null
+    deviceJoin?: {
+      joined: number
+      required: number
+    }
   }>,
 }
 
@@ -47,6 +61,13 @@ vi.mock('#/wallet', () => ({
     { key: 'awaiting-code', label: 'Awaiting Code', status: 'pending' },
   ],
   createFastVaultVerifyJourneySteps: () => [],
+  createSecureVaultJourneySteps: () => [
+    { key: 'creating-session', label: 'Creating Session', status: 'pending' },
+    { key: 'scan-qr', label: 'Scan QR', status: 'pending' },
+    { key: 'devices-joined', label: 'Devices Joined', status: 'pending' },
+    { key: 'keygen', label: 'Key Generation', status: 'pending' },
+    { key: 'vault-ready', label: 'Vault Ready', status: 'pending' },
+  ],
   trackTransactionJourney: async (
     _wallet: unknown,
     input: {
@@ -81,6 +102,7 @@ describe('VaultSetupFlow', () => {
     navigate.mockReset()
     wallet.createFastVault.mockClear()
     wallet.createFastVaultFromSeedphrase.mockClear()
+    wallet.createSecureVault.mockClear()
     wallet.verifyFastVault.mockClear()
     walletState = {
       journeys: [],
@@ -95,6 +117,18 @@ describe('VaultSetupFlow', () => {
     expect(screen.getByText('Import Seedphrase')).toBeTruthy()
     expect(screen.getByText('Import Keystore')).toBeTruthy()
     expect(screen.getByText('Secure Vault')).toBeTruthy()
+  })
+
+  it('hides secure vault creation when disabled', () => {
+    render(<VaultSetupFlow allowSecureVaultCreation={false} />)
+
+    expect(screen.getByText('New Fast Vault')).toBeTruthy()
+    expect(screen.queryByText('Secure Vault')).toBeNull()
+    expect(
+      screen.getByText(
+        'Create a Fast Vultisig vault, or import from seedphrase and xchain keystore.',
+      ),
+    ).toBeTruthy()
   })
 
   it('submits a manual seedphrase import through the manager', async () => {
@@ -238,6 +272,83 @@ describe('VaultSetupFlow', () => {
     expect(screen.getByText('Vault Status')).toBeTruthy()
     expect(screen.getByText('Discovering Maya-relevant chains.')).toBeTruthy()
     expect(screen.getByText('2 of 8 chains processed.')).toBeTruthy()
+  })
+
+  it('renders secure vault QR pairing progress', () => {
+    walletState = {
+      operations: [
+        {
+          name: 'vault.create.secure',
+          status: 'pending',
+          progress: { message: 'Waiting for the remaining devices.' },
+          qrPayload: 'vultisig://secure-session',
+          deviceJoin: {
+            joined: 1,
+            required: 3,
+          },
+        },
+      ],
+      journeys: [
+        {
+          kind: 'vault.secure.create',
+          status: 'attention',
+          qrPayload: 'vultisig://secure-session',
+          deviceJoin: {
+            joined: 1,
+            required: 3,
+          },
+          steps: [
+            {
+              key: 'scan-qr',
+              label: 'Scan QR',
+              status: 'attention',
+              message: 'Scan the QR in Vultisig.',
+            },
+          ],
+        },
+      ],
+    }
+
+    render(<VaultSetupFlow />)
+    fireEvent.click(screen.getByText('Secure Vault'))
+
+    expect(screen.getByText('Scan To Continue')).toBeTruthy()
+    expect(screen.getByText('Devices Joined')).toBeTruthy()
+    expect(screen.getByText('Waiting for the remaining devices.')).toBeTruthy()
+    expect(screen.getByText('1 of 3 devices have joined this secure vault session.')).toBeTruthy()
+  })
+
+  it('submits secure vault setup through the manager', async () => {
+    render(<VaultSetupFlow />)
+
+    fireEvent.click(screen.getByText('Secure Vault'))
+    fireEvent.change(screen.getByPlaceholderText('Team Vault'), {
+      target: { value: 'Operations Vault' },
+    })
+    fireEvent.change(screen.getAllByRole('spinbutton')[0], {
+      target: { value: '3' },
+    })
+    fireEvent.change(screen.getAllByRole('spinbutton')[1], {
+      target: { value: '2' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Encrypt this device share'), {
+      target: { value: 'SecureVault123!' },
+    })
+
+    fireEvent.submit(screen.getByText('Create Secure Vault').closest('form')!)
+
+    await waitFor(() => {
+      expect(wallet.createSecureVault).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'Operations Vault',
+          password: 'SecureVault123!',
+          devices: 3,
+          threshold: 2,
+          journeyId: 'journey-1',
+        }),
+      )
+    })
+    expect(screen.getByText('Secure Vault Ready')).toBeTruthy()
   })
 
   it('verifies the imported vault and moves to the success screen', async () => {

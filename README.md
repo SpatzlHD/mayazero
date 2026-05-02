@@ -35,6 +35,15 @@ ALCHEMY_API_KEY=your_alchemy_api_key
 
 This value is read only inside the Vercel function at `/api/maya-masks`. Do not expose it as a `VITE_` variable.
 
+The CacaoTracker integration also requires server-only environment variables:
+
+```bash
+CACAOTRACKER_API_BASE_URL=https://api.cacaotracker.xyz
+CACAOTRACKER_API_KEY=your_cacaotracker_api_key
+```
+
+These values are used only inside the `/api/cacaotracker/*` proxy layer. Do not expose them as `VITE_` variables or store them in browser settings.
+
 ## Styling
 
 This project uses [Tailwind CSS](https://tailwindcss.com/) for styling.

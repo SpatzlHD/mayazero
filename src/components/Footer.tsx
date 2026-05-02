@@ -3,6 +3,8 @@ import { BETA_DISCLAIMER_COPY } from "./BetaDisclaimer";
 
 export default function Footer() {
   const year = new Date().getFullYear();
+  const contentSiteUrl =
+    import.meta.env.VITE_CONTENT_SITE_URL?.trim() || "http://localhost:3001";
 
   return (
     <footer className="site-footer mt-20 px-4 pb-14 pt-10 text-[var(--sea-ink-soft)]">
@@ -29,6 +31,17 @@ export default function Footer() {
         <Link to="/changelog" className="nav-link">
           Changelog
         </Link>
+        <a href={`${contentSiteUrl}/blog`} target="_blank" rel="noreferrer" className="nav-link">
+          Blog
+        </a>
+        <a
+          href={`${contentSiteUrl}/knowledge-base`}
+          target="_blank"
+          rel="noreferrer"
+          className="nav-link"
+        >
+          Knowledge Base
+        </a>
         <a
           href="https://docs.mayaprotocol.com"
           target="_blank"
