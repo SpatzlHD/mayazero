@@ -5,7 +5,6 @@ import {
   createPublicClient,
   encodeFunctionData,
   erc20Abi,
-  getAddress,
   http,
   keccak256,
   serializeTransaction,
@@ -17,6 +16,7 @@ import type {
   LiquidityPool,
   LiquidityWithdrawMode,
 } from '#/lib/liquidity'
+import { normalizeEvmAddress } from '#/lib/evm-address'
 import { shortenMayaAssetDenominator } from '#/lib/maya-asset-shorthand'
 import type { WalletChain, WalletCommandMap, WalletSession } from './types'
 import type { MayaWalletManager } from './manager'
@@ -1086,20 +1086,6 @@ function extractMayaSpecific(blockchainSpecific: unknown): {
   }
 
   return {}
-}
-
-function normalizeEvmAddress(value: string): Address {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    throw new Error('Missing EVM address.')
-  }
-
-  const prefixed =
-    trimmed.startsWith('0x') || trimmed.startsWith('0X')
-      ? `0x${trimmed.slice(2)}`
-      : `0x${trimmed}`
-
-  return getAddress(prefixed.toLowerCase())
 }
 
 async function buildEip1559Transaction(

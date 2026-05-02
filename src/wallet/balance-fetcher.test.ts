@@ -17,17 +17,19 @@ function jsonResponse(payload: unknown): Response {
 describe('CrossChainBalanceService', () => {
   it('fetches native and hinted ERC20 balances for EVM chains', async () => {
     const hintedToken: AddressBalanceAssetHint = {
-      id: '0x00000000000000000000000000000000000000ff',
+      id: '0X00000000000000000000000000000000000000FF',
       symbol: 'USDC',
       name: 'USD Coin',
       decimals: 6,
     }
+    let seenTokenAddress: string | undefined
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body))
       if (body.method === 'eth_getBalance') {
         return jsonResponse({ result: '0xde0b6b3a7640000' })
       }
       if (body.method === 'eth_call') {
+        seenTokenAddress = body.params?.[0]?.to
         return jsonResponse({ result: '0xf4240' })
       }
 
@@ -50,13 +52,66 @@ describe('CrossChainBalanceService', () => {
       source: 'evm-native',
     })
     expect(result.balances[1]).toMatchObject({
-      id: hintedToken.id,
+      id: '0x00000000000000000000000000000000000000ff',
       symbol: 'USDC',
       amount: '1000000',
       formattedAmount: '1',
       isNative: false,
       source: 'erc20',
     })
+    expect(seenTokenAddress).toBe('0x00000000000000000000000000000000000000ff')
+  })
+
+  it('keeps native balances when an ERC20 read fails and returns warnings', async () => {
+    const goodToken: AddressBalanceAssetHint = {
+      id: '0X00000000000000000000000000000000000000AA',
+      symbol: 'GOOD',
+      decimals: 6,
+    }
+    const badToken: AddressBalanceAssetHint = {
+      id: '0X00000000000000000000000000000000000000BB',
+      symbol: 'BAD',
+      decimals: 6,
+    }
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body))
+      if (body.method === 'eth_getBalance') {
+        return jsonResponse({ result: '0xde0b6b3a7640000' })
+      }
+      if (body.method === 'eth_call') {
+        if (String(body.params?.[0]?.to).toLowerCase() === '0x00000000000000000000000000000000000000aa') {
+          return jsonResponse({ result: '0xf4240' })
+        }
+
+        return jsonResponse({
+          error: {
+            code: -32602,
+            message: 'Invalid params',
+          },
+        })
+      }
+
+      throw new Error(`Unexpected RPC method ${body.method as string}`)
+    })
+
+    const service = new CrossChainBalanceService({ fetch: fetchMock as typeof fetch })
+    const result = await service.fetchBalances({
+      chain: Chain.Ethereum,
+      address: '0x000000000000000000000000000000000000abcd',
+      assetHints: [goodToken, badToken],
+    })
+
+    expect(result.balances).toHaveLength(2)
+    expect(result.balances.map((balance) => balance.id.toLowerCase())).toEqual([
+      'native',
+      '0x00000000000000000000000000000000000000aa',
+    ])
+    expect(result.warnings).toEqual([
+      expect.objectContaining({
+        assetId: '0x00000000000000000000000000000000000000bb',
+        message: expect.stringContaining('Unable to refresh BAD balance.'),
+      }),
+    ])
   })
 
   it('fetches Cosmos bank balances and hinted wasm balances', async () => {

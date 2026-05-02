@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { LiquidityPool, LiquidityPosition } from '#/lib/liquidity'
 import {
   filterVisibleLiquidityPools,
+  getLiquidityFeedbackBanner,
   getInitialLiquidityPoolAsset,
   getLiquidityPrimaryAction,
   inferRecoverablePendingSymmetricDeposit,
@@ -306,6 +307,39 @@ describe('liquidity route helpers', () => {
       expect.objectContaining({
         disabled: false,
         label: 'Submit Withdrawal',
+      }),
+    )
+  })
+
+  it('treats balance warnings as non-blocking for valid deposits', () => {
+    expect(
+      getLiquidityFeedbackBanner({
+        balanceWarning: 'Unable to refresh USDT balance.',
+      }),
+    ).toEqual({
+      tone: 'warning',
+      message: 'Unable to refresh USDT balance.',
+    })
+
+    expect(
+      getLiquidityPrimaryAction({
+        activeTab: 'deposit',
+        assetAmountBaseUnits: '1',
+        assetBalanceBaseUnits: null,
+        cacaoAmountBaseUnits: '1',
+        cacaoBalanceBaseUnits: '10',
+        depositMode: 'symmetric',
+        hasPosition: false,
+        hasSession: true,
+        isSubmitting: false,
+        pendingDepositMatches: false,
+        pool: makePool(),
+        withdrawBasisPoints: 0,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        disabled: false,
+        label: 'Start Guided Deposit',
       }),
     )
   })

@@ -90,6 +90,78 @@ describe('liquidity service', () => {
     expect(pools[0]!.depthUsd).toBeGreaterThan(0)
   })
 
+  it('normalizes EVM pool token identifiers and inbound router addresses', () => {
+    const availability = normalizeLiquidityActionAvailability([
+      {
+        address: '0XAB1722696E2320687B80D9DC62030BD6FBC8BBFD',
+        chain: 'ARB',
+        chain_lp_actions_paused: false,
+        dust_threshold: '0',
+        halted: false,
+        router: '0X700E97EF07219440487840DC472E7120A7FF11F4',
+      },
+      {
+        address: '0XAB1722696E2320687B80D9DC62030BD6FBC8BBFD',
+        chain: 'ETH',
+        chain_lp_actions_paused: false,
+        dust_threshold: '0',
+        halted: false,
+      },
+    ])
+
+    const pools = normalizeLiquidityPools(
+      [
+        {
+          asset: 'ETH.USDC-0XA0B86991C6218B36C1D19D4A2E9EB0CE3606EB48',
+          assetDepth: '100000000',
+          assetPrice: '1',
+          assetPriceUSD: '1',
+          liquidityUnits: '9000',
+          nativeDecimal: '6',
+          runeDepth: '1000000000',
+          poolUnits: '10000',
+          poolAPY: '0.12',
+          status: 'available',
+          volume24h: '400000000',
+        },
+        {
+          asset: 'ARB.USDT-0XFD086BC7CD5C481DCC9C85EBE478A1C0B69FCBB9',
+          assetDepth: '100000000',
+          assetPrice: '1',
+          assetPriceUSD: '1',
+          liquidityUnits: '9000',
+          nativeDecimal: '6',
+          runeDepth: '1000000000',
+          poolUnits: '10000',
+          poolAPY: '0.12',
+          status: 'available',
+          volume24h: '400000000',
+        },
+      ],
+      availability,
+    )
+
+    const ethUsdcPool = pools.find((pool) => pool.asset.startsWith('ETH.USDC'))
+    const arbUsdtPool = pools.find((pool) => pool.asset.startsWith('ARB.USDT'))
+
+    expect(ethUsdcPool?.tokenId?.startsWith('0x')).toBe(true)
+    expect(ethUsdcPool?.tokenId?.toLowerCase()).toBe(
+      '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+    )
+    expect(arbUsdtPool?.tokenId?.startsWith('0x')).toBe(true)
+    expect(arbUsdtPool?.tokenId?.toLowerCase()).toBe(
+      '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9',
+    )
+    expect(arbUsdtPool?.actionAvailability?.inboundAddress.startsWith('0x')).toBe(true)
+    expect(arbUsdtPool?.actionAvailability?.router?.startsWith('0x')).toBe(true)
+    expect(arbUsdtPool?.actionAvailability?.inboundAddress.toLowerCase()).toBe(
+      '0xab1722696e2320687b80d9dc62030bd6fbc8bbfd',
+    )
+    expect(arbUsdtPool?.actionAvailability?.router?.toLowerCase()).toBe(
+      '0x700e97ef07219440487840dc472e7120a7ff11f4',
+    )
+  })
+
   it('normalizes member positions from multiple addresses', () => {
     const positions = normalizeLiquidityPositions(
       {

@@ -88,6 +88,11 @@ type LiquidityActionState = {
   note?: string;
 };
 
+type LiquidityFeedbackBanner = {
+  tone: "error" | "warning";
+  message: string;
+};
+
 const PENDING_DEPOSIT_STORAGE_KEY = "maya-liquidity-pending-symmetric";
 const INTERFACE_TRACKING_BPS = "0";
 
@@ -127,6 +132,7 @@ function LiquidityTerminalPage() {
     null,
   );
   const [balanceError, setBalanceError] = useState<string | null>(null);
+  const [balanceWarning, setBalanceWarning] = useState<string | null>(null);
   const [isBalanceLoading, setIsBalanceLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -239,13 +245,18 @@ function LiquidityTerminalPage() {
     ),
     pendingDepositStoredAmount: Boolean(
       pendingDeposit?.cacaoAmountBaseUnits &&
-        pendingDeposit.cacaoAmountBaseUnits !== "0",
+      pendingDeposit.cacaoAmountBaseUnits !== "0",
     ),
     pool: selectedPool,
     withdrawBasisPoints,
     withdrawSupportReason: isViewOnly
       ? VIEW_ONLY_IMPERSONATION_REASON
       : withdrawSupport.reason,
+  });
+  const feedbackBanner = getLiquidityFeedbackBanner({
+    balanceError,
+    balanceWarning,
+    submitError,
   });
 
   async function refreshLiquidityData() {
@@ -302,6 +313,7 @@ function LiquidityTerminalPage() {
       setAssetBalance(null);
       setCacaoBalance(null);
       setBalanceError(null);
+      setBalanceWarning(null);
       return;
     }
 
@@ -313,6 +325,7 @@ function LiquidityTerminalPage() {
 
     setIsBalanceLoading(true);
     setBalanceError(null);
+    setBalanceWarning(null);
     try {
       const [assetResponse, cacaoResponse] = await Promise.all([
         assetChain && assetAddress
@@ -349,7 +362,15 @@ function LiquidityTerminalPage() {
             balance.id === "cacao" || balance.symbol.toUpperCase() === "CACAO",
         ) ?? null,
       );
+      const warningMessages = [
+        ...(assetResponse?.warnings ?? []),
+        ...(cacaoResponse?.warnings ?? []),
+      ].map((warning) => warning.message);
+      setBalanceWarning(
+        warningMessages.length ? warningMessages.join(" ") : null,
+      );
     } catch (error) {
+      setBalanceWarning(null);
       setBalanceError((error as Error).message);
     } finally {
       setIsBalanceLoading(false);
@@ -411,12 +432,7 @@ function LiquidityTerminalPage() {
         setCacaoAmount(estimated);
       }
     }
-  }, [
-    assetAmount,
-    cacaoAmount,
-    pendingDeposit,
-    selectedPool,
-  ]);
+  }, [assetAmount, cacaoAmount, pendingDeposit, selectedPool]);
 
   useEffect(() => {
     const initialPoolAsset = getInitialLiquidityPoolAsset(
@@ -441,7 +457,8 @@ function LiquidityTerminalPage() {
 
       setLiquiditySummaryError(null);
       try {
-        const nextSummary = await fetchCacaotrackerLiquiditySummary(mayaAddress);
+        const nextSummary =
+          await fetchCacaotrackerLiquiditySummary(mayaAddress);
         if (!cancelled) {
           setLiquiditySummary(nextSummary);
         }
@@ -650,8 +667,13 @@ function LiquidityTerminalPage() {
         ) {
           const resumedCacaoAmountBaseUnits =
             pendingDeposit.cacaoAmountBaseUnits || cacaoAmountBaseUnits;
-          if (!resumedCacaoAmountBaseUnits || resumedCacaoAmountBaseUnits === "0") {
-            throw new Error("Enter the CACAO amount needed to complete this symmetric deposit.");
+          if (
+            !resumedCacaoAmountBaseUnits ||
+            resumedCacaoAmountBaseUnits === "0"
+          ) {
+            throw new Error(
+              "Enter the CACAO amount needed to complete this symmetric deposit.",
+            );
           }
           const steps = prepareLiquidityDepositSteps(wallet, {
             affiliate: {
@@ -1011,8 +1033,8 @@ function LiquidityTerminalPage() {
                       <span className="font-mono text-[var(--sea-ink)]">
                         {INTERFACE_AFFILIATE_MAYANAME}
                       </span>{" "}
-                      at 0 bps for tracking only. MayaZero attribution is kept on
-                      the deposit without exposing any user-configurable fee.
+                      at 0 bps for tracking only. MayaZero attribution is kept
+                      on the deposit without exposing any user-configurable fee.
                     </p>
                   </div>
                   <span className="rounded-full border border-[var(--line)] bg-[var(--surface-strong)] px-3 py-1 text-xs font-bold text-[var(--sea-ink)]">
@@ -1106,10 +1128,16 @@ function LiquidityTerminalPage() {
               </div>
             ) : null}
 
-            {submitError || balanceError ? (
-              <div className="flex items-start gap-3 rounded-[1.25rem] border border-rose-500/20 bg-rose-500/10 p-3.5 text-xs text-rose-400 font-medium">
+            {feedbackBanner ? (
+              <div
+                className={
+                  feedbackBanner.tone === "error"
+                    ? "flex items-start gap-3 rounded-[1.25rem] border border-rose-500/20 bg-rose-500/10 p-3.5 text-xs text-rose-400 font-medium"
+                    : "flex items-start gap-3 rounded-[1.25rem] border border-amber-500/20 bg-amber-500/10 p-3.5 text-xs text-amber-500 font-medium"
+                }
+              >
                 <AlertCircle size={14} className="mt-0.5 shrink-0" />
-                <p className="leading-snug">{submitError || balanceError}</p>
+                <p className="leading-snug">{feedbackBanner.message}</p>
               </div>
             ) : null}
           </div>
@@ -1252,7 +1280,9 @@ function LiquidityTerminalPage() {
                           <div>
                             <div className="flex flex-wrap items-center gap-2">
                               <p className="text-lg font-bold text-[var(--sea-ink)] tracking-tight">
-                                {position.pool}
+                                {pool?.symbol
+                                  ? `CACAO / ${pool.symbol}`
+                                  : position.pool}
                               </p>
                               {pool && isStagedLiquidityPool(pool) ? (
                                 <PoolStatusBadge status={pool.status} />
@@ -1422,7 +1452,9 @@ function LiquidityTerminalPage() {
                                 liquidityPoolDetail.analytics.volume24hUSD,
                               )
                             : formatUsdCompact(
-                                Number(formatBaseUnits(selectedPool.volume24h, 8)),
+                                Number(
+                                  formatBaseUnits(selectedPool.volume24h, 8),
+                                ),
                               )
                         }
                         size="sm"
@@ -1462,7 +1494,8 @@ function LiquidityTerminalPage() {
                         <MetricTile
                           label="IL Protection"
                           value={formatUsdCompact(
-                            liquidityPoolDetail.analytics.ilProtectionPaid24hUSD,
+                            liquidityPoolDetail.analytics
+                              .ilProtectionPaid24hUSD,
                           )}
                           size="sm"
                         />
@@ -1472,7 +1505,9 @@ function LiquidityTerminalPage() {
                     {liquidityPoolDetailError ? (
                       <div className="mb-6 flex items-start gap-3 rounded-[1.25rem] border border-amber-500/20 bg-amber-500/10 p-3.5 text-xs text-amber-500 font-medium">
                         <AlertCircle size={14} className="mt-0.5 shrink-0" />
-                        <p className="leading-snug">{liquidityPoolDetailError}</p>
+                        <p className="leading-snug">
+                          {liquidityPoolDetailError}
+                        </p>
                       </div>
                     ) : null}
                   </>
@@ -1527,7 +1562,8 @@ function LiquidityTerminalPage() {
                     <MetricTile
                       label="Pool IL"
                       value={formatUsdCompact(
-                        liquidityPoolDetail.ilAnalysis.impermanentLoss.amountUSD,
+                        liquidityPoolDetail.ilAnalysis.impermanentLoss
+                          .amountUSD,
                       )}
                       size="sm"
                     />
@@ -1939,6 +1975,35 @@ export function getLiquidityPrimaryAction(input: {
     return { disabled: true, kind: "submit", label: "Set Withdrawal Share" };
   }
   return { disabled: false, kind: "submit", label: "Submit Withdrawal" };
+}
+
+export function getLiquidityFeedbackBanner(input: {
+  balanceError?: string | null;
+  balanceWarning?: string | null;
+  submitError?: string | null;
+}): LiquidityFeedbackBanner | null {
+  if (input.submitError) {
+    return {
+      tone: "error",
+      message: input.submitError,
+    };
+  }
+
+  if (input.balanceError) {
+    return {
+      tone: "error",
+      message: input.balanceError,
+    };
+  }
+
+  if (input.balanceWarning) {
+    return {
+      tone: "warning",
+      message: input.balanceWarning,
+    };
+  }
+
+  return null;
 }
 
 function formatPercent(value: string): string {

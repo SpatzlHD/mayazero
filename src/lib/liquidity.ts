@@ -1,6 +1,7 @@
 import { Chain } from '@vultisig/sdk'
 import { getMayaChainIdentity } from './maya-asset-catalog'
 import { formatBaseUnits } from './cacao-pool'
+import { tryNormalizeEvmAddress } from './evm-address'
 
 type FetchLike = typeof fetch
 
@@ -266,9 +267,16 @@ export function normalizeLiquidityActionAvailability(
 ): Record<string, LiquidityActionAvailability> {
   return records.reduce<Record<string, LiquidityActionAvailability>>(
     (result, record) => {
-      result[record.chain.toUpperCase()] = {
-        chain: record.chain.toUpperCase(),
-        inboundAddress: record.address,
+      const chain = record.chain.toUpperCase()
+      const identity = getMayaChainIdentity(
+        CHAIN_TICKER_TO_IDENTITY_KEY[chain] ?? chain.toLowerCase(),
+      )
+      const isEvm = identity.family === 'evm'
+
+      result[chain] = {
+        chain,
+        inboundAddress:
+          isEvm ? tryNormalizeEvmAddress(record.address) ?? record.address : record.address,
         lpActionsPaused: Boolean(record.chain_lp_actions_paused),
         tradingPaused: Boolean(record.chain_trading_paused),
         halted: Boolean(record.halted),
@@ -276,7 +284,10 @@ export function normalizeLiquidityActionAvailability(
         gasRate: record.gas_rate,
         gasRateUnits: record.gas_rate_units,
         outboundFee: record.outbound_fee,
-        router: record.router,
+        router:
+          isEvm && record.router
+            ? tryNormalizeEvmAddress(record.router) ?? record.router
+            : record.router,
       }
       return result
     },
@@ -307,6 +318,10 @@ export function normalizeLiquidityPools(
       const [tickerRaw, tokenIdRaw] = assetPartRaw.split('-', 2)
       const identity =
         getMayaChainIdentity(CHAIN_TICKER_TO_IDENTITY_KEY[chainTicker] ?? chainTicker.toLowerCase())
+      const tokenId =
+        identity.family === 'evm' && tokenIdRaw
+          ? tryNormalizeEvmAddress(tokenIdRaw) ?? tokenIdRaw
+          : tokenIdRaw
       const assetPriceUsd = Number(pool.assetPriceUSD ?? '0')
       const assetPrice = Number(pool.assetPrice ?? '0')
       const assetDepthBase = Number(formatBaseUnits(pool.assetDepth ?? '0', MIDGARD_BASE_DECIMALS))
@@ -345,7 +360,7 @@ export function normalizeLiquidityPools(
         status,
         symbol: tickerRaw.toUpperCase(),
         ticker: tickerRaw.toUpperCase(),
-        tokenId: tokenIdRaw,
+        tokenId,
         volume24h: pool.volume24h ?? '0',
         walletChain: identity.walletChain,
       } satisfies LiquidityPool

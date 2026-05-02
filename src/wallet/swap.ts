@@ -5,7 +5,6 @@ import {
   createPublicClient,
   encodeFunctionData,
   erc20Abi,
-  getAddress,
   http,
   keccak256,
   serializeTransaction,
@@ -14,6 +13,7 @@ import {
 } from 'viem'
 import { arbitrum, base, mainnet } from 'viem/chains'
 import type { ProtocolAsset } from '#/components/ProtocolPrimitives'
+import { normalizeEvmAddress } from '#/lib/evm-address'
 import type { SwapQuoteEngineResult } from '#/lib/swap-quote-engine'
 import type { MayaWalletManager } from './manager'
 import type { WalletChain, WalletSession } from './types'
@@ -133,7 +133,9 @@ export async function submitSwap(
     throw new Error('The latest Maya quote is missing execution details. Refresh and try again.')
   }
 
-    switch (mode) {
+  const requiredInboundAddress = mode === 'deposit' ? undefined : inboundAddress
+
+  switch (mode) {
     case 'deposit':
       input.onStatusChange?.('submitting')
       return submitMayaDepositSwap(manager, session, input.fromAsset, {
@@ -144,7 +146,7 @@ export async function submitSwap(
     case 'erc20-router':
       return submitErc20RouterSwap(manager, session, input.fromAsset, {
         amountBaseUnits,
-        inboundAddress,
+        inboundAddress: requiredInboundAddress!,
         journeyId: input.journeyId,
         memo,
         router: support.router!,
@@ -158,7 +160,7 @@ export async function submitSwap(
       input.onStatusChange?.('submitting')
       return submitStandardMemoSwap(manager, session, input.fromAsset, {
         amountBaseUnits,
-        inboundAddress,
+        inboundAddress: requiredInboundAddress!,
         journeyId: input.journeyId,
         memo,
       })
@@ -781,19 +783,6 @@ async function submitErc20RouterSwap(
     router: normalizedRouterAddress,
     txHash: broadcast.txHash ?? null,
   }
-}
-
-function normalizeEvmAddress(value: string): Address {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    throw new Error('Missing EVM address.')
-  }
-
-  const prefixed = trimmed.startsWith('0x') || trimmed.startsWith('0X')
-    ? `0x${trimmed.slice(2)}`
-    : `0x${trimmed}`
-
-  return getAddress(prefixed.toLowerCase())
 }
 
 async function buildEip1559Transaction(

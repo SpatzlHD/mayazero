@@ -1,5 +1,6 @@
 import { Chain } from '@vultisig/sdk'
 import { getChainDefinition } from './chains'
+import { normalizeEvmAddress } from '#/lib/evm-address'
 import type { WalletChain } from './types'
 
 type FetchLike = typeof fetch
@@ -40,6 +41,12 @@ export type AddressBalanceResponse = {
   address: string
   balances: AddressBalanceAsset[]
   fetchedAt: string
+  warnings?: AddressBalanceWarning[]
+}
+
+export type AddressBalanceWarning = {
+  assetId?: string
+  message: string
 }
 
 export type CrossChainBalanceServiceOptions = {
@@ -197,6 +204,11 @@ type DashRpcResponse = {
   error?: { code: number; message: string } | null
 }
 
+type BalanceFetchResult = {
+  balances: AddressBalanceAsset[]
+  warnings: AddressBalanceWarning[]
+}
+
 function defaultFetchMissing(): never {
   throw new Error(
     'No fetch implementation is available. Pass one to CrossChainBalanceService.',
@@ -340,17 +352,17 @@ export class CrossChainBalanceService {
   ): Promise<AddressBalanceResponse> {
     const definition = getChainDefinition(input.chain)
     const includeZeroBalances = input.includeZeroBalances ?? false
-    let balances: AddressBalanceAsset[]
+    let result: BalanceFetchResult
 
     switch (definition.family) {
       case 'evm':
-        balances = await this.fetchEvmBalances(input)
+        result = await this.fetchEvmBalances(input)
         break
       case 'cosmos':
-        balances = await this.fetchCosmosBalances(input)
+        result = await this.fetchCosmosBalances(input)
         break
       case 'utxo':
-        balances = await this.fetchUtxoBalances(input)
+        result = await this.fetchUtxoBalances(input)
         break
       default:
         throw new Error(`Balance fetching is not implemented for ${input.chain}`)
@@ -360,9 +372,10 @@ export class CrossChainBalanceService {
       chain: input.chain,
       address: input.address,
       balances: includeZeroBalances
-        ? balances
-        : balances.filter((asset) => asset.amount !== '0'),
+        ? result.balances
+        : result.balances.filter((asset) => asset.amount !== '0'),
       fetchedAt: new Date().toISOString(),
+      ...(result.warnings.length ? { warnings: result.warnings } : {}),
     }
   }
 
@@ -374,7 +387,7 @@ export class CrossChainBalanceService {
 
   private async fetchEvmBalances(
     input: AddressBalanceRequest,
-  ): Promise<AddressBalanceAsset[]> {
+  ): Promise<BalanceFetchResult> {
     const rpcUrl = this.evmRpcUrls[input.chain]
     if (!rpcUrl) {
       throw new Error(`No EVM RPC URL configured for ${input.chain}`)
@@ -385,10 +398,12 @@ export class CrossChainBalanceService {
     if (!nativeMetadata) {
       throw new Error(`Missing native asset metadata for ${input.chain}`)
     }
+    const normalizedAccount = normalizeEvmAddress(input.address)
+    const { tokenHints, warnings } = normalizeEvmTokenHints(hints)
 
     const nativeAmountHex = await this.postJsonRpc<string>(rpcUrl, {
       method: 'eth_getBalance',
-      params: [input.address, 'latest'],
+      params: [normalizedAccount, 'latest'],
     })
     const balances: AddressBalanceAsset[] = [
       normalizeAsset(
@@ -400,18 +415,14 @@ export class CrossChainBalanceService {
       ),
     ]
 
-    const tokenHints = hints.filter(
-      (hint) => hint.id.startsWith('0x') || hint.id.startsWith('0X'),
-    )
-
-    const tokenBalances = await Promise.all(
+    const tokenResults = await Promise.allSettled(
       tokenHints.map(async (hint) => {
         const amountHex = await this.postJsonRpc<string>(rpcUrl, {
           method: 'eth_call',
           params: [
             {
               to: hint.id,
-              data: this.makeErc20BalanceOfCall(input.address),
+              data: this.makeErc20BalanceOfCall(normalizedAccount),
             },
             'latest',
           ],
@@ -428,12 +439,33 @@ export class CrossChainBalanceService {
       }),
     )
 
-    return [...balances, ...tokenBalances]
+    const tokenBalances: AddressBalanceAsset[] = []
+    tokenResults.forEach((result, index) => {
+      const hint = tokenHints[index]
+      if (!hint) {
+        return
+      }
+
+      if (result.status === 'fulfilled') {
+        tokenBalances.push(result.value)
+        return
+      }
+
+      warnings.push({
+        assetId: hint.id,
+        message: `Unable to refresh ${hint.symbol ?? hint.id} balance. ${toErrorMessage(result.reason)}`,
+      })
+    })
+
+    return {
+      balances: [...balances, ...tokenBalances],
+      warnings,
+    }
   }
 
   private async fetchCosmosBalances(
     input: AddressBalanceRequest,
-  ): Promise<AddressBalanceAsset[]> {
+  ): Promise<BalanceFetchResult> {
     const restUrl = this.cosmosRestUrls[input.chain]
     if (!restUrl) {
       throw new Error(`No Cosmos REST URL configured for ${input.chain}`)
@@ -484,12 +516,15 @@ export class CrossChainBalanceService {
       }),
     )
 
-    return [...balances, ...wasmBalances]
+    return {
+      balances: [...balances, ...wasmBalances],
+      warnings: [],
+    }
   }
 
   private async fetchUtxoBalances(
     input: AddressBalanceRequest,
-  ): Promise<AddressBalanceAsset[]> {
+  ): Promise<BalanceFetchResult> {
     if (input.chain === Chain.Dash) {
       const response = await this.postJson<DashRpcResponse>(this.dashRpcUrl, {
         jsonrpc: '1.0',
@@ -506,9 +541,12 @@ export class CrossChainBalanceService {
         0n,
       )
 
-      return [
-        normalizeAsset(input.chain, 'native', amount, true, 'utxo'),
-      ]
+      return {
+        balances: [
+          normalizeAsset(input.chain, 'native', amount, true, 'utxo'),
+        ],
+        warnings: [],
+      }
     }
 
     const baseUrl = this.utxoBaseUrls[input.chain]
@@ -525,13 +563,19 @@ export class CrossChainBalanceService {
       0n,
     )
 
-    return [
-      normalizeAsset(input.chain, 'native', amount, true, 'utxo'),
-    ]
+    return {
+      balances: [
+        normalizeAsset(input.chain, 'native', amount, true, 'utxo'),
+      ],
+      warnings: [],
+    }
   }
 
   private makeErc20BalanceOfCall(accountAddress: string): string {
-    const normalizedAddress = accountAddress.replace(/^0x/i, '').padStart(64, '0')
+    const normalizedAddress = normalizeEvmAddress(accountAddress)
+      .slice(2)
+      .toLowerCase()
+      .padStart(64, '0')
     return `0x70a08231${normalizedAddress}`
   }
 
@@ -609,4 +653,50 @@ function isCosmosWasmAddress(value: string): boolean {
   }
 
   return /^[a-z]+1[a-z0-9]{20,80}$/i.test(value)
+}
+
+function normalizeEvmTokenHints(
+  hints: AddressBalanceAssetHint[],
+): {
+  tokenHints: AddressBalanceAssetHint[]
+  warnings: AddressBalanceWarning[]
+} {
+  const seen = new Set<string>()
+  const tokenHints: AddressBalanceAssetHint[] = []
+  const warnings: AddressBalanceWarning[] = []
+
+  for (const hint of hints) {
+    if (!hint.id.startsWith('0x') && !hint.id.startsWith('0X')) {
+      continue
+    }
+
+    try {
+      const normalizedId = normalizeEvmAddress(hint.id)
+      const key = normalizedId.toLowerCase()
+      if (seen.has(key)) {
+        continue
+      }
+
+      seen.add(key)
+      tokenHints.push({
+        ...hint,
+        id: normalizedId,
+      })
+    } catch {
+      warnings.push({
+        assetId: hint.id,
+        message: `Skipping invalid token address for ${hint.symbol ?? hint.id}.`,
+      })
+    }
+  }
+
+  return { tokenHints, warnings }
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+
+  return 'Unknown RPC error.'
 }
