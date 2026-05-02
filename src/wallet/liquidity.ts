@@ -14,6 +14,7 @@ import type {
   LiquidityActionAvailability,
   LiquidityDepositMode,
   LiquidityPool,
+  LiquidityPosition,
   LiquidityWithdrawMode,
 } from '#/lib/liquidity'
 import { normalizeEvmAddress } from '#/lib/evm-address'
@@ -290,14 +291,31 @@ export function getLiquidityWithdrawSupport(
   input: {
     mode: LiquidityWithdrawMode
     pool: LiquidityPool | null
+    position?: LiquidityPosition | null
     sessionId?: string
   },
 ): LiquidityWithdrawSupport {
-  return getLiquidityDepositSupport(manager, {
+  const pendingCancelMode = resolvePendingLiquidityCancelMode(input.position)
+  const support = getLiquidityDepositSupport(manager, {
     pool: input.pool,
-    mode: input.mode,
+    mode: pendingCancelMode ?? input.mode,
     sessionId: input.sessionId,
   })
+
+  if (!support.supported || pendingCancelMode !== 'asset') {
+    return support
+  }
+
+  const session = resolveSession(manager, input.sessionId)
+  if (session?.addresses[Chain.MayaChain]) {
+    return support
+  }
+
+  return {
+    ...support,
+    supported: false,
+    reason: 'Connect a MayaChain address for pending LP cancellation on the selected pool.',
+  }
 }
 
 export async function submitLiquidityWithdraw(
@@ -310,11 +328,18 @@ export async function submitLiquidityWithdraw(
     mode: LiquidityWithdrawMode
     now?: () => number
     pool: LiquidityPool
+    position?: LiquidityPosition | null
     sessionId?: string
     sleep?: (ms: number) => Promise<void>
   },
 ): Promise<LiquidityWithdrawResult> {
-  if (!Number.isInteger(input.basisPoints) || input.basisPoints <= 0 || input.basisPoints > 10_000) {
+  const pendingCancelMode = resolvePendingLiquidityCancelMode(input.position)
+  const basisPoints = pendingCancelMode ? 10_000 : input.basisPoints
+
+  if (
+    !pendingCancelMode &&
+    (!Number.isInteger(input.basisPoints) || input.basisPoints <= 0 || input.basisPoints > 10_000)
+  ) {
     throw new Error('Select a valid withdrawal percentage.')
   }
 
@@ -323,14 +348,20 @@ export async function submitLiquidityWithdraw(
   const assetChain = input.pool.walletChain
   const assetAddress = assetChain ? session.addresses[assetChain] : undefined
   const memoPoolAsset = shortenMayaAssetDenominator(input.pool.asset)
-  const memo =
-    input.mode === 'asset'
-      ? `WD:${memoPoolAsset}:${input.basisPoints}:${memoPoolAsset}`
+  const memo = pendingCancelMode
+    ? buildPendingLiquidityCancelMemo({
+        basisPoints,
+        memoPoolAsset,
+        mode: pendingCancelMode,
+        pairedMayaAddress: mayaAddress,
+      })
+    : input.mode === 'asset'
+      ? `WD:${memoPoolAsset}:${basisPoints}:${memoPoolAsset}`
       : input.mode === 'cacao'
-        ? `WD:${memoPoolAsset}:${input.basisPoints}:${shortenMayaAssetDenominator('MAYA.CACAO')}`
-        : `WD:${memoPoolAsset}:${input.basisPoints}`
+        ? `WD:${memoPoolAsset}:${basisPoints}:${shortenMayaAssetDenominator('MAYA.CACAO')}`
+        : `WD:${memoPoolAsset}:${basisPoints}`
 
-  if (input.mode === 'asset') {
+  if ((pendingCancelMode ?? input.mode) === 'asset') {
     if (!assetChain || !assetAddress) {
       throw new Error(`No ${input.pool.chainName} address is connected for the selected wallet session.`)
     }
@@ -756,6 +787,41 @@ function buildLiquidityAddMemo(input: {
   return input.pairedAddress
     ? `${base}:${input.affiliate.affiliateName}:${input.affiliate.affiliateBps}`
     : `${base}::${input.affiliate.affiliateName}:${input.affiliate.affiliateBps}`
+}
+
+function resolvePendingLiquidityCancelMode(
+  position?: LiquidityPosition | null,
+): 'asset' | 'cacao' | null {
+  if (
+    !position ||
+    position.state !== 'pending' ||
+    position.units !== '0' ||
+    (position.pendingAsset === '0' && position.pendingCacao === '0')
+  ) {
+    return null
+  }
+
+  if (position.pendingAsset !== '0' && position.pendingCacao === '0') {
+    return 'asset'
+  }
+
+  return 'cacao'
+}
+
+function buildPendingLiquidityCancelMemo(input: {
+  basisPoints: number
+  memoPoolAsset: string
+  mode: 'asset' | 'cacao'
+  pairedMayaAddress?: string
+}): string {
+  if (input.mode === 'asset') {
+    if (!input.pairedMayaAddress) {
+      throw new Error('No MayaChain address is connected for the pending LP cancellation.')
+    }
+    return `WD:${input.memoPoolAsset}:${input.basisPoints}:${input.memoPoolAsset}:${input.pairedMayaAddress}`
+  }
+
+  return `WD:${input.memoPoolAsset}:${input.basisPoints}`
 }
 
 async function submitMayaDepositMemo(

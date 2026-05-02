@@ -66,14 +66,12 @@ type CacaoPoolPageProps = {
   }) => Promise<AddressBalanceResponse>;
   submitDeposit?: typeof depositToCacaoPool;
   loadAnalytics?: (address: string) => Promise<CacaoPoolDetailResponse>;
-  loadCurrentBlockHeight?: (input: {
-    mayanodeUrl?: string;
-  }) => Promise<number>;
+  loadCurrentBlockHeight?: (input: { mayanodeUrl?: string }) => Promise<number>;
 };
 
 type CacaoPoolActionTab = "deposit" | "withdraw";
 
-const CACAO_POOL_WITHDRAW_DUST_BASE_UNITS = "1";
+const CACAO_POOL_WITHDRAW_DUST_BASE_UNITS = parseDecimalToBaseUnits("0", 10);
 const CACAO_POOL_MATURITY_BLOCKS = 302_400;
 
 function CacaoPoolRoute() {
@@ -167,7 +165,9 @@ export function CacaoPoolPage({
     () =>
       getCacaoPoolWithdrawMaturityState({
         currentBlockHeight,
-        hasPosition: Boolean(snapshot?.position && snapshot.position.units !== "0"),
+        hasPosition: Boolean(
+          snapshot?.position && snapshot.position.units !== "0",
+        ),
         isLoading: isBlockHeightLoading,
         latestDepositHeight,
         requiredBlocks: CACAO_POOL_MATURITY_BLOCKS,
@@ -735,8 +735,8 @@ export function CacaoPoolPage({
                   {withdrawMaturity.ready ? (
                     <span className="font-semibold text-[var(--maya-teal)]">
                       Position matured. Latest deposit is more than{" "}
-                      {CACAO_POOL_MATURITY_BLOCKS.toLocaleString()} blocks behind
-                      the current chain height.
+                      {CACAO_POOL_MATURITY_BLOCKS.toLocaleString()} blocks
+                      behind the current chain height.
                     </span>
                   ) : (
                     <span className="font-semibold text-amber-500">
@@ -1477,10 +1477,7 @@ export function getCacaoPoolWithdrawMaturityState(input: {
     };
   }
 
-  const remainingBlocks = Math.max(
-    0,
-    input.requiredBlocks - maturedBlocks + 1,
-  );
+  const remainingBlocks = Math.max(0, input.requiredBlocks - maturedBlocks + 1);
   return {
     maturedBlocks,
     note: `Withdrawals unlock after ${input.requiredBlocks.toLocaleString()} blocks. ${remainingBlocks.toLocaleString()} more blocks are required after the latest deposit.`,

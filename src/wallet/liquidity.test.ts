@@ -1,6 +1,6 @@
 import { Chain } from '@vultisig/sdk'
 import { describe, expect, it, vi } from 'vitest'
-import type { LiquidityPool } from '#/lib/liquidity'
+import type { LiquidityPool, LiquidityPosition } from '#/lib/liquidity'
 import { MayaWalletManager } from './manager'
 import {
   getLiquidityDepositSupport,
@@ -80,6 +80,31 @@ function makeArbUsdcPool(): LiquidityPool {
     tokenId: '0XAF88D065E77C8CC2239327C5EDB3A432268E5831',
     volume24h: '400000000',
     walletChain: Chain.Arbitrum,
+  }
+}
+
+function makePosition(overrides: Partial<LiquidityPosition> = {}): LiquidityPosition {
+  return {
+    assetAddress: 'ethereum-address',
+    assetAdded: '0',
+    assetDepositValue: '0',
+    assetRedeemValue: '0',
+    assetWithdrawn: '0',
+    cacaoAddress: 'mayachain-address',
+    cacaoAdded: '0',
+    cacaoDepositValue: '0',
+    cacaoRedeemValue: '0',
+    cacaoWithdrawn: '0',
+    firstAddedAt: null,
+    lastAddedAt: null,
+    matchingAddresses: ['mayachain-address', 'ethereum-address'],
+    pendingAsset: '0',
+    pendingCacao: '0',
+    pool: 'ETH.ETH',
+    state: 'active',
+    units: '100',
+    withdrawCounter: null,
+    ...overrides,
   }
 }
 
@@ -445,6 +470,139 @@ describe('wallet liquidity helper', () => {
         }),
       }),
       expect.any(Object),
+    )
+  })
+
+  it('builds a MayaChain pending-cacao cancel memo with fixed 10000 bps', async () => {
+    const prepareSendTx = vi.fn(async (params) => ({
+      coin: params.coin,
+      toAddress: params.receiver,
+      toAmount: params.amount.toString(),
+      memo: params.memo,
+      blockchainSpecific: {
+        case: 'mayaSpecific',
+        value: {
+          accountNumber: 9n,
+          sequence: 3n,
+          isDeposit: false,
+        },
+      },
+    }))
+    const sign = vi.fn(async () => ({
+      signature: 'sdk-signature',
+      format: 'ECDSA',
+    }))
+    const broadcastTx = vi.fn(async () => 'sdk-pending-cacao-cancel-hash')
+    const vault = createFakeVault({
+      id: 'vault-pending-cacao-cancel',
+      name: 'Pending Cacao Cancel Vault',
+      chains: [Chain.MayaChain, Chain.Ethereum],
+      prepareSendTx,
+      sign,
+      broadcastTx,
+    })
+    const manager = new MayaWalletManager({
+      sdk: createFakeSdkClient({
+        vaults: [vault],
+        activeVaultId: vault.id,
+      }).sdk,
+      prefsStorage: createMemoryStorage(),
+    })
+
+    await manager.initialize()
+    await manager.selectSession(vault.id)
+
+    const result = await submitLiquidityWithdraw(manager, {
+      basisPoints: 2500,
+      mode: 'asset',
+      pool: makePool(),
+      position: makePosition({
+        state: 'pending',
+        units: '0',
+        pendingAsset: '0',
+        pendingCacao: '5000000000',
+      }),
+      sessionId: vault.id,
+    })
+
+    expect(result).toMatchObject({
+      memo: 'WD:e:10000',
+      route: 'sdk',
+      txHash: 'sdk-pending-cacao-cancel-hash',
+    })
+    expect(prepareSendTx).toHaveBeenCalledWith(
+      expect.objectContaining({
+        memo: 'WD:e:10000',
+        receiver: 'mayachain-address',
+      }),
+    )
+  })
+
+  it('builds an external-chain paired-address memo for pending-asset cancels', async () => {
+    const prepareSendTx = vi.fn(async (params) => ({
+      coin: params.coin,
+      toAddress: params.receiver,
+      toAmount: params.amount.toString(),
+      memo: params.memo,
+      blockchainSpecific: {
+        case: 'ethereumSpecific',
+        value: {
+          nonce: 3n,
+          gasLimit: 21_000n,
+          maxFeePerGasWei: 1n,
+          maxPriorityFeePerGasWei: 1n,
+          chainId: 1n,
+        },
+      },
+    }))
+    const sign = vi.fn(async () => ({
+      signature: 'sdk-signature',
+      format: 'ECDSA',
+      recovery: 1,
+    }))
+    const broadcastTx = vi.fn(async () => 'sdk-pending-asset-cancel-hash')
+    const vault = createFakeVault({
+      id: 'vault-pending-asset-cancel',
+      name: 'Pending Asset Cancel Vault',
+      chains: [Chain.MayaChain, Chain.Ethereum],
+      prepareSendTx,
+      sign,
+      broadcastTx,
+    })
+    const manager = new MayaWalletManager({
+      sdk: createFakeSdkClient({
+        vaults: [vault],
+        activeVaultId: vault.id,
+      }).sdk,
+      prefsStorage: createMemoryStorage(),
+    })
+
+    await manager.initialize()
+    await manager.selectSession(vault.id)
+
+    const result = await submitLiquidityWithdraw(manager, {
+      basisPoints: 5000,
+      mode: 'cacao',
+      pool: makePool(),
+      position: makePosition({
+        state: 'pending',
+        units: '0',
+        pendingAsset: '1000000000000000000',
+        pendingCacao: '0',
+      }),
+      sessionId: vault.id,
+    })
+
+    expect(result).toMatchObject({
+      memo: 'WD:e:10000:e:mayachain-address',
+      route: 'sdk',
+      txHash: 'sdk-pending-asset-cancel-hash',
+    })
+    expect(prepareSendTx).toHaveBeenCalledWith(
+      expect.objectContaining({
+        memo: 'WD:e:10000:e:mayachain-address',
+        receiver: '0xinbound',
+      }),
     )
   })
 

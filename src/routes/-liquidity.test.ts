@@ -5,6 +5,7 @@ import {
   filterVisibleLiquidityPools,
   getLiquidityFeedbackBanner,
   getInitialLiquidityPoolAsset,
+  getPendingLiquidityCancelMode,
   getLiquidityPrimaryAction,
   inferRecoverablePendingSymmetricDeposit,
   sortLiquidityPools,
@@ -131,6 +132,32 @@ describe('liquidity route helpers', () => {
       source: 'recovered',
       sessionId: 'vault-1',
     })
+  })
+
+  it('detects pending-only LP cancels for cacao-side recovery', () => {
+    expect(
+      getPendingLiquidityCancelMode(
+        makePosition({
+          state: 'pending',
+          units: '0',
+          pendingAsset: '0',
+          pendingCacao: '88',
+        }),
+      ),
+    ).toBe('cacao')
+  })
+
+  it('detects pending-only LP cancels for asset-side recovery', () => {
+    expect(
+      getPendingLiquidityCancelMode(
+        makePosition({
+          state: 'pending',
+          units: '0',
+          pendingAsset: '55',
+          pendingCacao: '0',
+        }),
+      ),
+    ).toBe('asset')
   })
 
   it('hides staged pools outside power-user mode', () => {
@@ -295,6 +322,7 @@ describe('liquidity route helpers', () => {
         cacaoAmountBaseUnits: null,
         cacaoBalanceBaseUnits: null,
         depositMode: 'symmetric',
+        hasPendingCancelPosition: false,
         hasPosition: true,
         hasSession: true,
         isSubmitting: false,
@@ -307,6 +335,30 @@ describe('liquidity route helpers', () => {
       expect.objectContaining({
         disabled: false,
         label: 'Submit Withdrawal',
+      }),
+    )
+
+    expect(
+      getLiquidityPrimaryAction({
+        activeTab: 'withdraw',
+        assetAmountBaseUnits: null,
+        assetBalanceBaseUnits: null,
+        cacaoAmountBaseUnits: null,
+        cacaoBalanceBaseUnits: null,
+        depositMode: 'symmetric',
+        hasPendingCancelPosition: true,
+        hasPosition: true,
+        hasSession: true,
+        isSubmitting: false,
+        pendingDepositMatches: false,
+        pendingDepositStoredAmount: false,
+        pool: makePool(),
+        withdrawBasisPoints: 0,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        disabled: false,
+        label: 'Cancel Pending Deposit',
       }),
     )
   })

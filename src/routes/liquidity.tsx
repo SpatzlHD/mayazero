@@ -181,6 +181,10 @@ function LiquidityTerminalPage() {
       ) ?? null,
     [visiblePositions, selectedPool?.asset],
   );
+  const pendingCancelMode = useMemo(
+    () => getPendingLiquidityCancelMode(selectedPosition),
+    [selectedPosition],
+  );
   const inferredPendingDeposit = useMemo(
     () =>
       inferRecoverablePendingSymmetricDeposit(
@@ -220,6 +224,7 @@ function LiquidityTerminalPage() {
   const withdrawSupport = getLiquidityWithdrawSupport(wallet, {
     pool: selectedPool,
     mode: withdrawMode,
+    position: selectedPosition,
     sessionId: activeSession?.id,
   });
 
@@ -233,7 +238,11 @@ function LiquidityTerminalPage() {
     depositSupportReason: isViewOnly
       ? VIEW_ONLY_IMPERSONATION_REASON
       : depositSupport.reason,
-    hasPosition: Boolean(selectedPosition && selectedPosition.units !== "0"),
+    hasPendingCancelPosition: Boolean(pendingCancelMode),
+    hasPosition: Boolean(
+      selectedPosition &&
+        (selectedPosition.units !== "0" || pendingCancelMode !== null),
+    ),
     hasSession: Boolean(activeSession),
     isViewOnly,
     isSubmitting,
@@ -771,24 +780,44 @@ function LiquidityTerminalPage() {
           }
         }
       } else {
-        const withdrawChain =
-          withdrawMode === "asset"
+        const isPendingCancel = pendingCancelMode !== null;
+        const withdrawChain = isPendingCancel
+          ? pendingCancelMode === "asset"
+            ? (selectedPool.walletChain ?? Chain.MayaChain)
+            : Chain.MayaChain
+          : withdrawMode === "asset"
             ? (selectedPool.walletChain ?? Chain.MayaChain)
             : Chain.MayaChain;
         await trackLiquidityJourney({
           action: "withdraw",
-          title: `Withdraw Liquidity: ${selectedPool.symbol}`,
+          title: isPendingCancel
+            ? `Cancel Pending Deposit: ${selectedPool.symbol}`
+            : `Withdraw Liquidity: ${selectedPool.symbol}`,
           chain: withdrawChain,
           submit: (journeyId) =>
             submitLiquidityWithdraw(wallet, {
-              basisPoints: withdrawBasisPoints,
+              basisPoints: isPendingCancel ? 10_000 : withdrawBasisPoints,
               journeyId,
-              mode: withdrawMode,
+              mode: pendingCancelMode ?? withdrawMode,
               pool: selectedPool,
+              position: selectedPosition,
               sessionId: activeSession.id,
             }),
-          successMessage: "Liquidity withdrawal confirmed on-chain.",
+          successMessage: isPendingCancel
+            ? "Pending deposit cancellation confirmed on-chain."
+            : "Liquidity withdrawal confirmed on-chain.",
         });
+        if (
+          isPendingCancel &&
+          storedPendingDeposit &&
+          storedPendingDeposit.sessionId === activeSession.id &&
+          storedPendingDeposit.poolAsset === selectedPool.asset
+        ) {
+          clearPendingSymmetricDeposit();
+          setStoredPendingDeposit(null);
+          setAssetAmount("");
+          setCacaoAmount("");
+        }
       }
 
       await Promise.all([refreshLiquidityData(), refreshSelectedBalances()]);
@@ -1048,27 +1077,47 @@ function LiquidityTerminalPage() {
             </div>
           ) : (
             <div className="flex flex-col gap-2 mt-2 px-2">
-              <div className="bg-[var(--chip-bg)]/80 rounded-[2rem] p-5 sm:p-6 border border-[var(--line)]">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-[11px] font-bold uppercase tracking-widest text-[var(--sea-ink-soft)]">
-                    Withdraw Share
-                  </span>
-                  <span className="text-3xl font-bold text-[var(--maya-teal)]">
-                    {withdrawShare}%
-                  </span>
+              {pendingCancelMode ? (
+                <div className="bg-[var(--chip-bg)]/80 rounded-[2rem] p-5 sm:p-6 border border-[var(--line)]">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[11px] font-bold uppercase tracking-widest text-[var(--sea-ink-soft)]">
+                      Pending Deposit Recovery
+                    </span>
+                    <span className="text-3xl font-bold text-[var(--maya-teal)]">
+                      100%
+                    </span>
+                  </div>
+                  <p className="mt-4 text-sm leading-relaxed text-[var(--sea-ink-soft)]">
+                    This action cancels the pending-only LP add and returns the{" "}
+                    {pendingCancelMode === "asset"
+                      ? selectedPool?.symbol ?? "asset"
+                      : "CACAO"}{" "}
+                    side in full.
+                  </p>
                 </div>
-                <input
-                  className="mt-6 w-full cursor-pointer accent-[var(--maya-teal)]"
-                  max="100"
-                  min="0"
-                  step="1"
-                  type="range"
-                  value={withdrawShare}
-                  onChange={(event) => setWithdrawShare(event.target.value)}
-                />
-              </div>
+              ) : (
+                <div className="bg-[var(--chip-bg)]/80 rounded-[2rem] p-5 sm:p-6 border border-[var(--line)]">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[11px] font-bold uppercase tracking-widest text-[var(--sea-ink-soft)]">
+                      Withdraw Share
+                    </span>
+                    <span className="text-3xl font-bold text-[var(--maya-teal)]">
+                      {withdrawShare}%
+                    </span>
+                  </div>
+                  <input
+                    className="mt-6 w-full cursor-pointer accent-[var(--maya-teal)]"
+                    max="100"
+                    min="0"
+                    step="1"
+                    type="range"
+                    value={withdrawShare}
+                    onChange={(event) => setWithdrawShare(event.target.value)}
+                  />
+                </div>
+              )}
 
-              {selectedPosition ? (
+              {selectedPosition && !pendingCancelMode ? (
                 <div className="bg-[var(--bg-base)] rounded-[1.5rem] border border-[var(--line)] p-4 sm:p-5 text-sm">
                   <p className="text-[11px] font-bold uppercase tracking-widest text-[var(--sea-ink-soft)] mb-3">
                     Est. Outcome
@@ -1113,10 +1162,29 @@ function LiquidityTerminalPage() {
                 />
                 <p className="leading-snug">
                   Symmetric deposit pending for {pendingDeposit.poolAsset}.
-                  Resume with the CACAO leg on the deposit tab.
+                  Resume with the CACAO leg on the deposit tab or cancel it on
+                  the withdraw tab to return the pending asset side.
                   {pendingDeposit.source === "recovered"
                     ? " Recovery was inferred from your on-chain LP state because the local pending record is missing."
                     : ` The stored ${INTERFACE_AFFILIATE_MAYANAME} affiliate remains tracking-only at 0%.`}
+                </p>
+              </div>
+            ) : null}
+
+            {!pendingDeposit && pendingCancelMode ? (
+              <div className="flex items-start gap-3 rounded-[1.25rem] border border-[var(--maya-teal)]/30 bg-[var(--maya-teal)]/10 p-3.5 text-xs text-[var(--sea-ink)] font-medium">
+                <AlertCircle
+                  size={14}
+                  className="mt-0.5 shrink-0 text-[var(--maya-teal)]"
+                />
+                <p className="leading-snug">
+                  Pending-only LP deposit detected for{" "}
+                  {selectedPosition?.pool ?? selectedPool?.asset}. Use the
+                  withdraw tab to cancel it and return the pending{" "}
+                  {pendingCancelMode === "asset"
+                    ? selectedPool?.symbol ?? "asset"
+                    : "CACAO"}{" "}
+                  side.
                 </p>
               </div>
             ) : null}
@@ -1800,6 +1868,25 @@ export function inferRecoverablePendingSymmetricDeposit(
   };
 }
 
+export function getPendingLiquidityCancelMode(
+  position: LiquidityPosition | null | undefined,
+): "asset" | "cacao" | null {
+  if (
+    !position ||
+    position.state !== "pending" ||
+    position.units !== "0" ||
+    (position.pendingAsset === "0" && position.pendingCacao === "0")
+  ) {
+    return null;
+  }
+
+  if (position.pendingAsset !== "0" && position.pendingCacao === "0") {
+    return "asset";
+  }
+
+  return "cacao";
+}
+
 export function syncSymmetricDepositAmounts(input: {
   assetPrice: string;
   field: "asset" | "cacao";
@@ -1839,6 +1926,7 @@ export function getLiquidityPrimaryAction(input: {
   cacaoBalanceBaseUnits: string | null;
   depositMode: LiquidityDepositMode;
   depositSupportReason?: string;
+  hasPendingCancelPosition?: boolean;
   hasPosition: boolean;
   hasSession: boolean;
   isViewOnly?: boolean;
@@ -1967,6 +2055,13 @@ export function getLiquidityPrimaryAction(input: {
   }
   if (!input.hasPosition) {
     return { disabled: true, kind: "submit", label: "No Position Selected" };
+  }
+  if (input.hasPendingCancelPosition) {
+    return {
+      disabled: false,
+      kind: "submit",
+      label: "Cancel Pending Deposit",
+    };
   }
   if (
     !Number.isInteger(input.withdrawBasisPoints) ||
