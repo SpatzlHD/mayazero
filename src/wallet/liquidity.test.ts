@@ -1,4 +1,5 @@
 import { Chain } from '@vultisig/sdk'
+import { decodeFunctionData, encodeFunctionData, erc20Abi } from 'viem'
 import { describe, expect, it, vi } from 'vitest'
 import type { LiquidityPool, LiquidityPosition } from '#/lib/liquidity'
 import { MayaWalletManager } from './manager'
@@ -9,6 +10,22 @@ import {
   submitLiquidityWithdraw,
 } from './liquidity'
 import { createFakeSdkClient, createFakeVault, createMemoryStorage } from './test-utils'
+
+const routerAbi = [
+  {
+    inputs: [
+      { name: 'vault', type: 'address' },
+      { name: 'asset', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+      { name: 'memo', type: 'string' },
+      { name: 'expiration', type: 'uint256' },
+    ],
+    name: 'depositWithExpiry',
+    outputs: [],
+    stateMutability: 'payable',
+    type: 'function',
+  },
+] as const
 
 function makePool(): LiquidityPool {
   return {
@@ -109,6 +126,8 @@ function makePosition(overrides: Partial<LiquidityPosition> = {}): LiquidityPosi
 }
 
 describe('wallet liquidity helper', () => {
+  const extensionEvmAddress = '0x00000000000000000000000000000000000000e1'
+
   it('prepares guided symmetric deposit steps', async () => {
     const vault = createFakeVault({
       id: 'vault-liquidity',
@@ -302,10 +321,13 @@ describe('wallet liquidity helper', () => {
             request: async ({ method, params }) => {
               requests.push({ method, params })
               if (method === 'eth_accounts' || method === 'eth_requestAccounts') {
-                return ['0xextension']
+                return [extensionEvmAddress]
               }
               if (method === 'wallet_switchEthereumChain') {
                 return null
+              }
+              if (method === 'eth_call') {
+                return '0x0'
               }
               if (method === 'eth_sendTransaction') {
                 return requests.filter((request) => request.method === 'eth_sendTransaction').length === 1
@@ -377,7 +399,7 @@ describe('wallet liquidity helper', () => {
     expect(approvalRequest).toMatchObject({
       params: [
         {
-          from: '0xextension',
+          from: extensionEvmAddress,
           to: expect.stringMatching(/^0xaf88d065e77c8c/i),
           value: '0x0',
         },
@@ -386,13 +408,294 @@ describe('wallet liquidity helper', () => {
     expect(routerRequest).toMatchObject({
       params: [
         {
-          from: '0xextension',
+          from: extensionEvmAddress,
           to: expect.stringMatching(/^0x700e97/i),
           value: '0x0',
         },
       ],
     })
     expect((routerRequest?.params?.[0] as { data?: string })?.data).toMatch(/^0x/)
+  })
+
+  it('uses a 1-base-unit ERC-20 router amount for pending asset-side cancels', async () => {
+    const requests: Array<{ method: string; params?: unknown[] }> = []
+    let txQueryCount = 0
+    const manager = new MayaWalletManager({
+      sdk: createFakeSdkClient().sdk,
+      extensionWindow: {
+        vultisig: {
+          ethereum: {
+            request: async ({ method, params }) => {
+              requests.push({ method, params })
+              if (method === 'eth_accounts' || method === 'eth_requestAccounts') {
+                return [extensionEvmAddress]
+              }
+              if (method === 'wallet_switchEthereumChain') {
+                return null
+              }
+              if (method === 'eth_call') {
+                return '0x0'
+              }
+              if (method === 'eth_sendTransaction') {
+                return requests.filter((request) => request.method === 'eth_sendTransaction').length === 1
+                  ? '0xapproval-cancel'
+                  : '0xcancel-liquidity'
+              }
+              if (method === 'eth_getTransactionByHash') {
+                txQueryCount += 1
+                return txQueryCount >= 2
+                  ? { hash: params?.[0], blockHash: '0xblock' }
+                  : { hash: params?.[0], blockHash: null }
+              }
+              return null
+            },
+          },
+          mayachain: {
+            request: async ({ method }) => {
+              requests.push({ method })
+              if (method === 'get_accounts' || method === 'request_accounts') {
+                return ['maya1extension']
+              }
+              return null
+            },
+          },
+        },
+      },
+      prefsStorage: createMemoryStorage(),
+    })
+
+    await manager.initialize()
+    await manager.selectSession('extension:vultisig')
+    await manager.selectChain(Chain.Arbitrum)
+
+    const result = await submitLiquidityWithdraw(manager, {
+      basisPoints: 5000,
+      mode: 'cacao',
+      pool: makeArbUsdcPool(),
+      position: makePosition({
+        assetAddress: 'arbitrum-address',
+        matchingAddresses: ['maya1extension', '0xextension'],
+        pendingAsset: '12500000',
+        pendingCacao: '0',
+        pool: makeArbUsdcPool().asset,
+        state: 'pending',
+        units: '0',
+      }),
+      sessionId: 'extension:vultisig',
+      sleep: async () => {},
+    })
+
+    expect(result).toMatchObject({
+      memo: 'WD:ac:10000:ac:maya1extension',
+      route: 'extension',
+      txHash: '0xcancel-liquidity',
+    })
+
+    const [approvalRequest, routerRequest] = requests.filter(
+      (request) => request.method === 'eth_sendTransaction',
+    )
+
+    expect(approvalRequest).toMatchObject({
+      params: [
+        {
+          from: extensionEvmAddress,
+          to: expect.stringMatching(/^0xaf88d065e77c8c/i),
+          value: '0x0',
+          data: encodeFunctionData({
+            abi: erc20Abi,
+            functionName: 'approve',
+            args: ['0x700e97ef07219440487840dc472e7120a7ff11f4', 1n],
+          }),
+        },
+      ],
+    })
+
+    const decodedRouterCall = decodeFunctionData({
+      abi: routerAbi,
+      data: (routerRequest?.params?.[0] as { data?: `0x${string}` })?.data!,
+    })
+
+    expect(decodedRouterCall.functionName).toBe('depositWithExpiry')
+    expect(decodedRouterCall.args?.[2]).toBe(1n)
+    expect(decodedRouterCall.args?.[3]).toBe('WD:ac:10000:ac:maya1extension')
+  })
+
+  it('stops before the router call when an extension approval receipt reverts', async () => {
+    const requests: Array<{ method: string; params?: unknown[] }> = []
+    const manager = new MayaWalletManager({
+      sdk: createFakeSdkClient().sdk,
+      extensionWindow: {
+        vultisig: {
+          ethereum: {
+            request: async ({ method, params }) => {
+              requests.push({ method, params })
+              if (method === 'eth_accounts' || method === 'eth_requestAccounts') {
+                return [extensionEvmAddress]
+              }
+              if (method === 'wallet_switchEthereumChain') {
+                return null
+              }
+              if (method === 'eth_call') {
+                return '0x0'
+              }
+              if (method === 'eth_sendTransaction') {
+                return '0xapproval-failed'
+              }
+              if (method === 'eth_getTransactionByHash') {
+                return { hash: params?.[0], blockHash: '0xblock' }
+              }
+              if (method === 'eth_getTransactionReceipt') {
+                return { transactionHash: params?.[0], blockHash: '0xblock', status: '0x0' }
+              }
+              return null
+            },
+          },
+          mayachain: {
+            request: async ({ method }) => {
+              requests.push({ method })
+              if (method === 'get_accounts' || method === 'request_accounts') {
+                return ['maya1extension']
+              }
+              return null
+            },
+          },
+        },
+      },
+      prefsStorage: createMemoryStorage(),
+    })
+
+    await manager.initialize()
+    await manager.selectSession('extension:vultisig')
+    await manager.selectChain(Chain.Arbitrum)
+
+    const [assetStep] = prepareLiquidityDepositSteps(manager, {
+      affiliate: {
+        affiliateBps: '25',
+        affiliateName: 'm0',
+      },
+      assetAmountBaseUnits: '12500000',
+      cacaoAmountBaseUnits: '10000000000',
+      mode: 'symmetric',
+      pool: makeArbUsdcPool(),
+      sessionId: 'extension:vultisig',
+    }).steps
+
+    await expect(
+      submitLiquidityDepositStep(manager, {
+        sessionId: 'extension:vultisig',
+        sleep: async () => {},
+        step: assetStep!,
+      }),
+    ).rejects.toThrow('failed before liquidity submission could continue')
+
+    expect(requests.filter((request) => request.method === 'eth_sendTransaction')).toHaveLength(1)
+  })
+
+  it('resets a nonzero extension allowance before approving the router amount', async () => {
+    const requests: Array<{ method: string; params?: unknown[] }> = []
+    const manager = new MayaWalletManager({
+      sdk: createFakeSdkClient().sdk,
+      extensionWindow: {
+        vultisig: {
+          ethereum: {
+            request: async ({ method, params }) => {
+              requests.push({ method, params })
+              if (method === 'eth_accounts' || method === 'eth_requestAccounts') {
+                return [extensionEvmAddress]
+              }
+              if (method === 'wallet_switchEthereumChain') {
+                return null
+              }
+              if (method === 'eth_call') {
+                return '0x1'
+              }
+              if (method === 'eth_sendTransaction') {
+                const txCount = requests.filter((request) => request.method === 'eth_sendTransaction').length
+                return txCount === 1
+                  ? '0xapproval-reset'
+                  : txCount === 2
+                    ? '0xapproval-final'
+                    : '0xliquidity'
+              }
+              if (method === 'eth_getTransactionByHash') {
+                return { hash: params?.[0], blockHash: '0xblock' }
+              }
+              if (method === 'eth_getTransactionReceipt') {
+                return { transactionHash: params?.[0], blockHash: '0xblock', status: '0x1' }
+              }
+              return null
+            },
+          },
+          mayachain: {
+            request: async ({ method }) => {
+              requests.push({ method })
+              if (method === 'get_accounts' || method === 'request_accounts') {
+                return ['maya1extension']
+              }
+              return null
+            },
+          },
+        },
+      },
+      prefsStorage: createMemoryStorage(),
+    })
+
+    await manager.initialize()
+    await manager.selectSession('extension:vultisig')
+    await manager.selectChain(Chain.Arbitrum)
+
+    const [assetStep] = prepareLiquidityDepositSteps(manager, {
+      affiliate: {
+        affiliateBps: '25',
+        affiliateName: 'm0',
+      },
+      assetAmountBaseUnits: '12500000',
+      cacaoAmountBaseUnits: '10000000000',
+      mode: 'symmetric',
+      pool: makeArbUsdcPool(),
+      sessionId: 'extension:vultisig',
+    }).steps
+
+    const result = await submitLiquidityDepositStep(manager, {
+      sessionId: 'extension:vultisig',
+      sleep: async () => {},
+      step: assetStep!,
+    })
+
+    expect(result.txHash).toBe('0xliquidity')
+    const [resetApproval, finalApproval, routerRequest] = requests.filter(
+      (request) => request.method === 'eth_sendTransaction',
+    )
+
+    expect(resetApproval).toMatchObject({
+      params: [
+        {
+          data: encodeFunctionData({
+            abi: erc20Abi,
+            functionName: 'approve',
+            args: ['0x700e97ef07219440487840dc472e7120a7ff11f4', 0n],
+          }),
+        },
+      ],
+    })
+    expect(finalApproval).toMatchObject({
+      params: [
+        {
+          data: encodeFunctionData({
+            abi: erc20Abi,
+            functionName: 'approve',
+            args: ['0x700e97ef07219440487840dc472e7120a7ff11f4', 12_500_000n],
+          }),
+        },
+      ],
+    })
+    expect(routerRequest).toMatchObject({
+      params: [
+        {
+          to: expect.stringMatching(/^0x700e97/i),
+        },
+      ],
+    })
   })
 
   it('submits sdk maya-side withdraws as deposit memos', async () => {

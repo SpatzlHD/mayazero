@@ -1222,14 +1222,14 @@ export class ExtensionWalletAdapter implements WalletSessionAdapter {
       case "tx.status": {
         const input = options.input as WalletCommandMap["tx.status"]["input"];
         const provider = this.getProviderForChain(input.chain);
-        const method =
-          getExtensionProviderKey(input.chain) === "ethereum"
-            ? "eth_getTransactionByHash"
-            : "get_transaction_by_hash";
-        const result = await provider.request({
-          method,
-          params: [input.txHash],
-        });
+        const providerKey = getExtensionProviderKey(input.chain);
+        const result =
+          providerKey === "ethereum"
+            ? await getExtensionEvmTransactionStatus(provider, input.txHash)
+            : await provider.request({
+                method: "get_transaction_by_hash",
+                params: [input.txHash],
+              });
         if (command === "tx.query") {
           return { transaction: result } as WalletCommandResult<K>;
         }
@@ -1365,6 +1365,39 @@ export function createDefaultSdkClient(
   options?: ConstructorParameters<typeof Vultisig>[0],
 ): SdkClientLike {
   return new Vultisig(options) as unknown as SdkClientLike;
+}
+
+async function getExtensionEvmTransactionStatus(
+  provider: ExtensionProviderLike,
+  txHash: string,
+): Promise<unknown> {
+  const [transaction, receipt] = await Promise.all([
+    provider.request({
+      method: "eth_getTransactionByHash",
+      params: [txHash],
+    }),
+    provider
+      .request({
+        method: "eth_getTransactionReceipt",
+        params: [txHash],
+      })
+      .catch(() => null),
+  ]);
+
+  if (
+    transaction &&
+    typeof transaction === "object" &&
+    receipt &&
+    typeof receipt === "object"
+  ) {
+    return { ...transaction, receipt };
+  }
+
+  if (receipt && typeof receipt === "object") {
+    return { receipt };
+  }
+
+  return transaction;
 }
 
 function enrichSigningError(

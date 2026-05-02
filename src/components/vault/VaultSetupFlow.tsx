@@ -26,6 +26,13 @@ import {
   decryptXChainKeystoreMnemonic,
   normalizeMnemonic,
 } from "#/wallet/import-utils";
+import { useSettings } from "#/provider/SettingsProvider";
+import {
+  detectMayaSeedphraseImportMismatch,
+  formatMayaSeedphraseImportMismatch,
+  MAYA_COSMOS_HD_PATH,
+  MAYA_VULTISIG_HD_PATH,
+} from "#/wallet/maya-seedphrase-compat";
 
 type SetupMode = "fast" | "seed" | "keystore" | "secure";
 
@@ -241,6 +248,7 @@ export function VaultSetupFlow({
   const navigate = useNavigate();
   const wallet = useMayaWalletActions();
   const state = useMayaWalletState();
+  const settings = useSettings();
 
   const [mode, setMode] = useState<SetupMode | null>(null);
   const [step, setStep] = useState(1);
@@ -349,6 +357,13 @@ export function VaultSetupFlow({
     setError("");
     setIsProcessing(true);
     try {
+      const mayaMismatch = await detectMayaSeedphraseImportMismatch(normalized, {
+        mayanodeUrl: settings.mayanodeUrl,
+      });
+      if (mayaMismatch) {
+        throw new Error(formatMayaSeedphraseImportMismatch(mayaMismatch));
+      }
+
       const result = await trackTransactionJourney(wallet, {
         kind: "vault.fast.import",
         title: `Import Fast Vault: ${name}`,
@@ -424,6 +439,15 @@ export function VaultSetupFlow({
             rawKeystore,
             keystorePassword,
           );
+          const mayaMismatch = await detectMayaSeedphraseImportMismatch(
+            decryptedMnemonic,
+            {
+              mayanodeUrl: settings.mayanodeUrl,
+            },
+          );
+          if (mayaMismatch) {
+            throw new Error(formatMayaSeedphraseImportMismatch(mayaMismatch));
+          }
           journey.completeStep(
             "decrypting-keystore",
             "Keystore decrypted locally.",
@@ -782,6 +806,18 @@ export function VaultSetupFlow({
               disabled={isProcessing}
             />
           </Field>
+          <p className="text-xs text-[var(--sea-ink-soft)] -mt-2">
+            MayaChain seed imports use the MAYANode/Vultisig HD path{" "}
+            <span className="font-mono text-[var(--sea-ink)]">
+              {MAYA_VULTISIG_HD_PATH}
+            </span>
+            . Some wallets derive MayaChain from the generic Cosmos path{" "}
+            <span className="font-mono text-[var(--sea-ink)]">
+              {MAYA_COSMOS_HD_PATH}
+            </span>
+            , which creates a different <span className="font-mono">maya1...</span>{" "}
+            address. MayaZero checks for funded mismatches before importing.
+          </p>
           <StatusPanel
             message={progressMessage}
             steps={visibleSteps}
@@ -845,6 +881,18 @@ export function VaultSetupFlow({
           <p className="text-xs text-[var(--sea-ink-soft)] -mt-2">
             The keystore password decrypts the file. The vault password encrypts
             the new Fast Vault.
+          </p>
+          <p className="text-xs text-[var(--sea-ink-soft)] -mt-2">
+            MayaChain imports use the MAYANode/Vultisig path{" "}
+            <span className="font-mono text-[var(--sea-ink)]">
+              {MAYA_VULTISIG_HD_PATH}
+            </span>
+            . If the keystore seed used the generic Cosmos MAYA path{" "}
+            <span className="font-mono text-[var(--sea-ink)]">
+              {MAYA_COSMOS_HD_PATH}
+            </span>
+            , MayaZero will stop the import instead of creating the wrong{" "}
+            <span className="font-mono">maya1...</span> account.
           </p>
           <StatusPanel
             message={progressMessage}

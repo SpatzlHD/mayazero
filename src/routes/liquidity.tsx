@@ -77,7 +77,7 @@ type PendingSymmetricDeposit = {
   cacaoAmountBaseUnits: string;
   interfaceAffiliateBps: string;
   poolAsset: string;
-  source: "stored" | "recovered";
+  source: "stored";
   sessionId: string;
 };
 
@@ -185,15 +185,7 @@ function LiquidityTerminalPage() {
     () => getPendingLiquidityCancelMode(selectedPosition),
     [selectedPosition],
   );
-  const inferredPendingDeposit = useMemo(
-    () =>
-      inferRecoverablePendingSymmetricDeposit(
-        activeSession?.id,
-        visiblePositions,
-      ),
-    [activeSession?.id, visiblePositions],
-  );
-  const pendingDeposit = storedPendingDeposit ?? inferredPendingDeposit;
+  const pendingDeposit = storedPendingDeposit;
   const selectedActivity = useMemo(
     () =>
       activity.filter((item) => item.pool === selectedPool?.asset).slice(0, 5),
@@ -407,41 +399,6 @@ function LiquidityTerminalPage() {
       setSelectedPoolAsset(pending.poolAsset);
     }
   }, [activeSession?.id, selectedPoolAsset]);
-
-  useEffect(() => {
-    if (
-      !pendingDeposit ||
-      pendingDeposit.source !== "recovered" ||
-      !selectedPool ||
-      selectedPool.asset !== pendingDeposit.poolAsset
-    ) {
-      return;
-    }
-
-    if (!assetAmount.trim()) {
-      setAssetAmount(
-        formatBaseUnits(
-          pendingDeposit.assetAmountBaseUnits,
-          selectedPool.decimals,
-        ) || "",
-      );
-    }
-
-    if (!cacaoAmount.trim()) {
-      const assetValue = formatBaseUnits(
-        pendingDeposit.assetAmountBaseUnits,
-        selectedPool.decimals,
-      );
-      const estimated = syncSymmetricDepositAmounts({
-        assetPrice: selectedPool.assetPrice,
-        field: "asset",
-        nextValue: assetValue || "",
-      }).cacaoAmount;
-      if (estimated) {
-        setCacaoAmount(estimated);
-      }
-    }
-  }, [assetAmount, cacaoAmount, pendingDeposit, selectedPool]);
 
   useEffect(() => {
     const initialPoolAsset = getInitialLiquidityPoolAsset(
@@ -1163,10 +1120,9 @@ function LiquidityTerminalPage() {
                 <p className="leading-snug">
                   Symmetric deposit pending for {pendingDeposit.poolAsset}.
                   Resume with the CACAO leg on the deposit tab or cancel it on
-                  the withdraw tab to return the pending asset side.
-                  {pendingDeposit.source === "recovered"
-                    ? " Recovery was inferred from your on-chain LP state because the local pending record is missing."
-                    : ` The stored ${INTERFACE_AFFILIATE_MAYANAME} affiliate remains tracking-only at 0%.`}
+                  the withdraw tab to return the pending asset side. The
+                  stored {INTERFACE_AFFILIATE_MAYANAME} affiliate remains
+                  tracking-only at 0%.
                 </p>
               </div>
             ) : null}
@@ -1838,34 +1794,6 @@ export function getInitialLiquidityPoolAsset(
     (position) => position.state === "active",
   );
   return activePosition?.pool ?? pools[0]?.asset ?? "";
-}
-
-export function inferRecoverablePendingSymmetricDeposit(
-  sessionId: string | undefined,
-  positions: LiquidityPosition[],
-): PendingSymmetricDeposit | null {
-  if (!sessionId) {
-    return null;
-  }
-
-  const candidate = positions.find(
-    (position) =>
-      position.state === "pending" &&
-      position.pendingAsset !== "0" &&
-      position.pendingCacao === "0",
-  );
-  if (!candidate) {
-    return null;
-  }
-
-  return {
-    assetAmountBaseUnits: candidate.pendingAsset,
-    cacaoAmountBaseUnits: "",
-    interfaceAffiliateBps: INTERFACE_TRACKING_BPS,
-    poolAsset: candidate.pool,
-    source: "recovered",
-    sessionId,
-  };
 }
 
 export function getPendingLiquidityCancelMode(

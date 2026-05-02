@@ -54,6 +54,8 @@ function makeQuote(overrides: Partial<Extract<SwapQuoteEngineResult, { route: 'm
 }
 
 describe('wallet swap helper', () => {
+  const extensionEvmAddress = '0x00000000000000000000000000000000000000e1'
+
   it('chooses deposit mode for MayaChain source swaps', async () => {
     const vault = createFakeVault({
       id: 'vault-maya-swap',
@@ -393,10 +395,13 @@ describe('wallet swap helper', () => {
             request: async ({ method, params }) => {
               requests.push({ method, params })
               if (method === 'eth_accounts' || method === 'eth_requestAccounts') {
-                return ['0xextension']
+                return [extensionEvmAddress]
               }
               if (method === 'wallet_switchEthereumChain') {
                 return null
+              }
+              if (method === 'eth_call') {
+                return '0x0'
               }
               if (method === 'eth_sendTransaction') {
                 return requests.filter((request) => request.method === 'eth_sendTransaction').length === 1
@@ -468,7 +473,7 @@ describe('wallet swap helper', () => {
             request: async ({ method, params }) => {
               requests.push({ method, params })
               if (method === 'eth_accounts' || method === 'eth_requestAccounts') {
-                return ['0xextension']
+                return [extensionEvmAddress]
               }
               if (method === 'wallet_switchEthereumChain') {
                 return null
@@ -533,7 +538,7 @@ describe('wallet swap helper', () => {
     expect(txRequests[0]).toMatchObject({
       params: [
         {
-          from: '0xextension',
+          from: extensionEvmAddress,
           to: '0xAB1722696e2320687B80D9dc62030bd6fBc8Bbfd',
           value: '0x1c6bf52634000',
           data: '0x3d3a4152422e555344432d3058414638384430363545373743384343323233393332374335454442334134333232363845353833313a30787265636569766572',
@@ -612,6 +617,7 @@ describe('wallet swap helper', () => {
         getGasPrice: async () => 10n,
         getTransactionCount: async () => 9,
         estimateGas: async () => 120000n,
+        readContract: async () => 0n,
       }),
       onStatusChange: (status) => {
         statuses.push(status)

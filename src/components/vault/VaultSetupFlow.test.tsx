@@ -5,6 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VaultSetupFlow } from './VaultSetupFlow'
 
 const navigate = vi.fn()
+const {
+  detectMayaSeedphraseImportMismatch,
+} = vi.hoisted(() => ({
+  detectMayaSeedphraseImportMismatch: vi.fn<
+    (...args: unknown[]) => Promise<unknown>
+  >(async () => null),
+}))
 
 const wallet = {
   createFastVault: vi.fn(async () => ({ vaultId: 'pending-fast-vault' })),
@@ -48,6 +55,25 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('#/wallet/import-utils', () => ({
   normalizeMnemonic: (value: string) => value.replace(/\s+/g, ' ').trim(),
   decryptXChainKeystoreMnemonic: vi.fn(async () => 'decrypted seed phrase'),
+}))
+
+vi.mock('#/provider/SettingsProvider', () => ({
+  useSettings: () => ({
+    mayanodeUrl: 'https://mayanode.test',
+  }),
+}))
+
+vi.mock('#/wallet/maya-seedphrase-compat', () => ({
+  MAYA_VULTISIG_HD_PATH: "m/44'/931'/0'/0/0",
+  MAYA_COSMOS_HD_PATH: "m/44'/118'/0'/0/0",
+  detectMayaSeedphraseImportMismatch,
+  formatMayaSeedphraseImportMismatch: (mismatch: {
+    supportedAddress: string
+    alternateAddress: string
+    supportedPath: string
+    alternatePath: string
+  }) =>
+    `Mismatch: ${mismatch.alternatePath} ${mismatch.alternateAddress} -> ${mismatch.supportedPath} ${mismatch.supportedAddress}`,
 }))
 
 vi.mock('#/wallet', () => ({
@@ -104,6 +130,8 @@ describe('VaultSetupFlow', () => {
     wallet.createFastVaultFromSeedphrase.mockClear()
     wallet.createSecureVault.mockClear()
     wallet.verifyFastVault.mockClear()
+    detectMayaSeedphraseImportMismatch.mockClear()
+    detectMayaSeedphraseImportMismatch.mockResolvedValue(null)
     walletState = {
       journeys: [],
       operations: [],
@@ -161,6 +189,42 @@ describe('VaultSetupFlow', () => {
       )
     })
     expect(screen.getByText('Check Your Email')).toBeTruthy()
+  })
+
+  it('blocks seedphrase import when MayaChain funds are found on the alternate Cosmos path', async () => {
+    detectMayaSeedphraseImportMismatch.mockResolvedValueOnce({
+      supportedAddress: 'maya1official',
+      alternateAddress: 'maya1cosmos',
+      supportedPath: "m/44'/931'/0'/0/0",
+      alternatePath: "m/44'/118'/0'/0/0",
+    })
+
+    render(<VaultSetupFlow />)
+
+    fireEvent.click(screen.getByText('Import Seedphrase'))
+    fireEvent.change(screen.getByPlaceholderText('My Wallet'), {
+      target: { value: 'Imported Vault' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('user@example.com'), {
+      target: { value: 'user@example.com' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Strong password'), {
+      target: { value: 'VaultPassword123!' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Enter your 12 or 24 word seedphrase'), {
+      target: { value: 'abandon abandon about' },
+    })
+
+    fireEvent.submit(screen.getByText('Import Vault').closest('form')!)
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Mismatch: m/44'/118'/0'/0/0 maya1cosmos -> m/44'/931'/0'/0/0 maya1official",
+        ),
+      ).toBeTruthy()
+    })
+    expect(wallet.createFastVaultFromSeedphrase).not.toHaveBeenCalled()
   })
 
   it('decrypts an uploaded keystore before creating the imported vault', async () => {

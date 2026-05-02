@@ -7,7 +7,6 @@ import {
   getInitialLiquidityPoolAsset,
   getPendingLiquidityCancelMode,
   getLiquidityPrimaryAction,
-  inferRecoverablePendingSymmetricDeposit,
   sortLiquidityPools,
   syncSymmetricDepositAmounts,
 } from './liquidity'
@@ -111,27 +110,6 @@ describe('liquidity route helpers', () => {
         null,
       ),
     ).toBe('BTC.BTC')
-  })
-
-  it('infers a recoverable symmetric pending deposit from pending asset-side LP state', () => {
-    expect(
-      inferRecoverablePendingSymmetricDeposit('vault-1', [
-        makePosition({
-          pool: 'BTC.BTC',
-          state: 'pending',
-          units: '0',
-          pendingAsset: '123',
-          pendingCacao: '0',
-        }),
-      ]),
-    ).toEqual({
-      assetAmountBaseUnits: '123',
-      cacaoAmountBaseUnits: '',
-      interfaceAffiliateBps: '0',
-      poolAsset: 'BTC.BTC',
-      source: 'recovered',
-      sessionId: 'vault-1',
-    })
   })
 
   it('detects pending-only LP cancels for cacao-side recovery', () => {

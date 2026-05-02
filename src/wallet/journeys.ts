@@ -771,6 +771,43 @@ function normalizeTxState(status: unknown): 'pending' | 'success' | 'error' {
       }
     }
 
+    if (typeof record.receipt === 'object' && record.receipt !== null) {
+      const receipt = record.receipt as Record<string, unknown>
+      if (
+        receipt.status === 0 ||
+        receipt.status === '0' ||
+        receipt.status === '0x0'
+      ) {
+        return 'error'
+      }
+      if (
+        receipt.status === 1 ||
+        receipt.status === '1' ||
+        receipt.status === '0x1' ||
+        receipt.blockHash ||
+        receipt.blockNumber ||
+        receipt.block_height ||
+        receipt.height
+      ) {
+        return 'success'
+      }
+    }
+
+    if (
+      record.status === 0 ||
+      record.status === '0' ||
+      record.status === '0x0'
+    ) {
+      return 'error'
+    }
+    if (
+      record.status === 1 ||
+      record.status === '1' ||
+      record.status === '0x1'
+    ) {
+      return 'success'
+    }
+
     if (
       record.blockHash ||
       record.blockNumber ||
@@ -781,45 +818,6 @@ function normalizeTxState(status: unknown): 'pending' | 'success' | 'error' {
         Number(record.confirmations) > 0)
     ) {
       return 'success'
-    }
-
-    if (typeof record.receipt === 'object' && record.receipt !== null) {
-      const receipt = record.receipt as Record<string, unknown>
-      if (
-        receipt.blockHash ||
-        receipt.blockNumber ||
-        receipt.block_height ||
-        receipt.height ||
-        receipt.status === 1 ||
-        receipt.status === '1' ||
-        receipt.status === '0x1'
-      ) {
-        return 'success'
-      }
-
-      if (
-        receipt.status === 0 ||
-        receipt.status === '0' ||
-        receipt.status === '0x0'
-      ) {
-        return 'error'
-      }
-    }
-
-    if (
-      record.status === 1 ||
-      record.status === '1' ||
-      record.status === '0x1'
-    ) {
-      return 'success'
-    }
-
-    if (
-      record.status === 0 ||
-      record.status === '0' ||
-      record.status === '0x0'
-    ) {
-      return 'error'
     }
   }
 

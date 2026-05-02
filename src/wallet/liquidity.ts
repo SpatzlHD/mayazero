@@ -61,6 +61,12 @@ type EvmPublicClientLike = {
     data?: Hex
     value?: bigint
   }) => Promise<bigint>
+  readContract: (params: {
+    address: Address
+    abi: typeof erc20Abi
+    functionName: 'allowance'
+    args: readonly [Address, Address]
+  }) => Promise<bigint>
 }
 
 export type LiquidityDepositAffiliate = {
@@ -377,7 +383,11 @@ export async function submitLiquidityWithdraw(
       now: input.now,
       sleep: input.sleep,
       step: {
-        amountBaseUnits: resolveMinimumMemoAmount(input.pool.actionAvailability, input.pool.chainTicker),
+        amountBaseUnits: resolveMinimumMemoAmount(
+          input.pool.actionAvailability,
+          input.pool.chainTicker,
+          input.pool.tokenId,
+        ),
         chain: assetChain,
         decimals: input.pool.decimals,
         destinationAddress: input.pool.actionAvailability.inboundAddress,
@@ -601,11 +611,6 @@ async function submitErc20RouterMemoSend(
   const normalizedTokenAddress = normalizeEvmAddress(step.tokenId)
   const normalizedRouterAddress = normalizeEvmAddress(step.router)
   const normalizedInboundAddress = normalizeEvmAddress(step.destinationAddress)
-  const approvalData = encodeFunctionData({
-    abi: erc20Abi,
-    functionName: 'approve',
-    args: [normalizedRouterAddress, amount],
-  })
   const routerData = encodeFunctionData({
     abi: mayaRouterAbi,
     functionName: 'depositWithExpiry',
@@ -620,34 +625,47 @@ async function submitErc20RouterMemoSend(
 
   if (session.source === 'extension') {
     await ensureExtensionChain(manager, session, step.chain)
-    const approval = await manager.execute('tx.send', {
+    const approvalAmounts = await resolveExtensionApprovalAmounts(manager, {
+      owner: step.sourceAddress,
+      router: normalizedRouterAddress,
       sessionId: session.id,
-      ...(input.journeyId
-        ? { journey: { id: input.journeyId, stepKey: 'approval' } }
-        : {}),
-      input: {
-        chain: step.chain,
-        transaction: {
-          data: approvalData,
-          from: step.sourceAddress,
-          to: normalizedTokenAddress,
-          value: '0x0',
-        },
-      },
-    })
-    const approvalTxHash = extractTxHash(approval.result)
-    if (!approvalTxHash) {
-      throw new Error('Approval transaction did not return a hash.')
-    }
-
-    await waitForTransactionConfirmation(manager, {
+      token: normalizedTokenAddress,
       chain: step.chain,
-      sessionId: session.id,
-      sleep: input.sleep,
-      txHash: approvalTxHash,
-      intervalMs: APPROVAL_POLL_INTERVAL_MS,
-      maxWaitMs: input.maxWaitMs ?? APPROVAL_TIMEOUT_MS,
+      targetAmount: amount,
     })
+    const approvalResults: unknown[] = []
+
+    for (const approvalAmount of approvalAmounts) {
+      const approval = await manager.execute('tx.send', {
+        sessionId: session.id,
+        ...(input.journeyId
+          ? { journey: { id: input.journeyId, stepKey: 'approval' } }
+          : {}),
+        input: {
+          chain: step.chain,
+          transaction: {
+            data: buildErc20ApprovalData(normalizedRouterAddress, approvalAmount),
+            from: step.sourceAddress,
+            to: normalizedTokenAddress,
+            value: '0x0',
+          },
+        },
+      })
+      const approvalTxHash = extractTxHash(approval.result)
+      if (!approvalTxHash) {
+        throw new Error('Approval transaction did not return a hash.')
+      }
+
+      approvalResults.push(approval.result)
+      await waitForTransactionConfirmation(manager, {
+        chain: step.chain,
+        sessionId: session.id,
+        sleep: input.sleep,
+        txHash: approvalTxHash,
+        intervalMs: APPROVAL_POLL_INTERVAL_MS,
+        maxWaitMs: input.maxWaitMs ?? APPROVAL_TIMEOUT_MS,
+      })
+    }
 
     const swap = await manager.execute('tx.send', {
       sessionId: session.id,
@@ -668,7 +686,7 @@ async function submitErc20RouterMemoSend(
     return {
       memo: step.memo,
       rawResult: {
-        approval: approval.result,
+        approval: approvalResults.length === 1 ? approvalResults[0] : approvalResults,
         swap: swap.result,
       },
       route: 'extension',
@@ -678,46 +696,61 @@ async function submitErc20RouterMemoSend(
   }
 
   const client = (input.evmClientFactory ?? createDefaultEvmClient)(step.chain)
-  const approvalTx = await buildEip1559Transaction(client, {
-    account: step.sourceAddress as Address,
-    chain: step.chain,
-    data: approvalData,
-    to: normalizedTokenAddress,
-    value: 0n,
+  const approvalAmounts = await resolveSdkApprovalAmounts(client, {
+    owner: step.sourceAddress as Address,
+    router: normalizedRouterAddress,
+    token: normalizedTokenAddress,
+    targetAmount: amount,
   })
-  const approvalSignature = await manager.execute('tx.sign.bytes', {
-    sessionId: session.id,
-    ...(input.journeyId
-      ? { journey: { id: input.journeyId, stepKey: 'signing' } }
-      : {}),
-    input: {
-      chain: step.chain,
-      data: approvalTx.hash,
-    },
-  })
-  const approvalRawTx = serializeTransaction(
-    approvalTx.request,
-    toViemSignature(approvalSignature.signature),
-  )
-  const approvalBroadcast = await manager.execute('tx.broadcast.raw', {
-    sessionId: session.id,
-    ...(input.journeyId
-      ? { journey: { id: input.journeyId, stepKey: 'approval' } }
-      : {}),
-    input: {
-      chain: step.chain,
-      rawTx: approvalRawTx,
-    },
-  })
+  const approvalBroadcasts: Array<{ hash: Hex; rawTx: Hex; txHash: string }> = []
 
-  await waitForTransactionConfirmation(manager, {
-    chain: step.chain,
-    sessionId: session.id,
-    sleep: input.sleep,
-    txHash: approvalBroadcast.txHash,
-    intervalMs: APPROVAL_POLL_INTERVAL_MS,
-    maxWaitMs: input.maxWaitMs ?? APPROVAL_TIMEOUT_MS,
-  })
+  for (const approvalAmount of approvalAmounts) {
+    const approvalTx = await buildEip1559Transaction(client, {
+      account: step.sourceAddress as Address,
+      chain: step.chain,
+      data: buildErc20ApprovalData(normalizedRouterAddress, approvalAmount),
+      to: normalizedTokenAddress,
+      value: 0n,
+    })
+    const approvalSignature = await manager.execute('tx.sign.bytes', {
+      sessionId: session.id,
+      ...(input.journeyId
+        ? { journey: { id: input.journeyId, stepKey: 'signing' } }
+        : {}),
+      input: {
+        chain: step.chain,
+        data: approvalTx.hash,
+      },
+    })
+    const approvalRawTx = serializeTransaction(
+      approvalTx.request,
+      toViemSignature(approvalSignature.signature),
+    )
+    const approvalBroadcast = await manager.execute('tx.broadcast.raw', {
+      sessionId: session.id,
+      ...(input.journeyId
+        ? { journey: { id: input.journeyId, stepKey: 'approval' } }
+        : {}),
+      input: {
+        chain: step.chain,
+        rawTx: approvalRawTx,
+      },
+    })
+
+    approvalBroadcasts.push({
+      hash: approvalTx.hash,
+      rawTx: approvalRawTx,
+      txHash: approvalBroadcast.txHash,
+    })
+    await waitForTransactionConfirmation(manager, {
+      chain: step.chain,
+      sessionId: session.id,
+      sleep: input.sleep,
+      txHash: approvalBroadcast.txHash,
+      intervalMs: APPROVAL_POLL_INTERVAL_MS,
+      maxWaitMs: input.maxWaitMs ?? APPROVAL_TIMEOUT_MS,
+    })
+  }
 
   const swapTx = await buildEip1559Transaction(client, {
     account: step.sourceAddress as Address,
@@ -754,11 +787,8 @@ async function submitErc20RouterMemoSend(
   return {
     memo: step.memo,
     rawResult: {
-      approval: {
-        hash: approvalTx.hash,
-        rawTx: approvalRawTx,
-        txHash: approvalBroadcast.txHash,
-      },
+      approval:
+        approvalBroadcasts.length === 1 ? approvalBroadcasts[0] : approvalBroadcasts,
       swap: {
         hash: swapTx.hash,
         rawTx,
@@ -985,6 +1015,9 @@ async function waitForTransactionConfirmation(
     if (isConfirmedStatus(statusResult.status)) {
       return
     }
+    if (isFailedStatus(statusResult.status)) {
+      throw new Error(`Transaction ${input.txHash} failed before liquidity submission could continue.`)
+    }
 
     await sleep(input.intervalMs)
   }
@@ -993,6 +1026,10 @@ async function waitForTransactionConfirmation(
 }
 
 function isConfirmedStatus(status: unknown): boolean {
+  if (isFailedStatus(status)) {
+    return false
+  }
+
   if (!status) {
     return false
   }
@@ -1003,12 +1040,146 @@ function isConfirmedStatus(status: unknown): boolean {
     if (normalized === 'success' || normalized === 'confirmed') {
       return true
     }
-    if (record.blockHash) {
+    const receipt = typeof record.receipt === 'object' && record.receipt !== null
+      ? (record.receipt as Record<string, unknown>)
+      : null
+    if (receipt?.status === 1 || receipt?.status === '1' || receipt?.status === '0x1') {
+      return true
+    }
+    if (
+      record.status === 1 ||
+      record.status === '1' ||
+      record.status === '0x1' ||
+      record.blockHash
+    ) {
       return true
     }
   }
 
   return false
+}
+
+function isFailedStatus(status: unknown): boolean {
+  if (!status || typeof status !== 'object') {
+    return false
+  }
+
+  const record = status as Record<string, unknown>
+  const normalized = typeof record.status === 'string' ? record.status.toLowerCase() : null
+  if (normalized === 'error' || normalized === 'failed' || normalized === 'reverted') {
+    return true
+  }
+
+  const receipt = typeof record.receipt === 'object' && record.receipt !== null
+    ? (record.receipt as Record<string, unknown>)
+    : null
+
+  return (
+    record.status === 0 ||
+    record.status === '0' ||
+    record.status === '0x0' ||
+    receipt?.status === 0 ||
+    receipt?.status === '0' ||
+    receipt?.status === '0x0'
+  )
+}
+
+function buildErc20ApprovalData(router: Address, amount: bigint): Hex {
+  return encodeFunctionData({
+    abi: erc20Abi,
+    functionName: 'approve',
+    args: [router, amount],
+  })
+}
+
+async function resolveExtensionApprovalAmounts(
+  manager: MayaWalletManager,
+  input: {
+    chain: WalletChain
+    owner: string
+    router: Address
+    sessionId: string
+    targetAmount: bigint
+    token: Address
+  },
+): Promise<bigint[]> {
+  const result = await manager.execute('provider.request', {
+    sessionId: input.sessionId,
+    track: false,
+    input: {
+      chain: input.chain,
+      method: 'eth_call',
+      params: [
+        {
+          data: encodeFunctionData({
+            abi: erc20Abi,
+            functionName: 'allowance',
+            args: [input.owner as Address, input.router],
+          }),
+          to: input.token,
+        },
+        'latest',
+      ],
+    },
+  })
+
+  return resolveApprovalAmounts(
+    parseAllowanceResult((result as { result: unknown }).result),
+    input.targetAmount,
+  )
+}
+
+async function resolveSdkApprovalAmounts(
+  client: EvmPublicClientLike,
+  input: {
+    owner: Address
+    router: Address
+    targetAmount: bigint
+    token: Address
+  },
+): Promise<bigint[]> {
+  const currentAllowance = await client.readContract({
+    abi: erc20Abi,
+    address: input.token,
+    functionName: 'allowance',
+    args: [input.owner, input.router],
+  })
+
+  return resolveApprovalAmounts(currentAllowance, input.targetAmount)
+}
+
+function resolveApprovalAmounts(
+  currentAllowance: bigint,
+  targetAmount: bigint,
+): bigint[] {
+  if (currentAllowance >= targetAmount) {
+    return []
+  }
+
+  if (currentAllowance > 0n) {
+    return [0n, targetAmount]
+  }
+
+  return [targetAmount]
+}
+
+function parseAllowanceResult(value: unknown): bigint {
+  if (typeof value === 'bigint') {
+    return value
+  }
+
+  if (typeof value === 'number') {
+    return BigInt(value)
+  }
+
+  if (typeof value === 'string') {
+    if (value === '0x' || value.trim() === '') {
+      return 0n
+    }
+    return BigInt(value)
+  }
+
+  throw new Error('Unable to read ERC-20 allowance from the connected provider.')
 }
 
 function canSubmitLiquidityForChain(
@@ -1042,10 +1213,17 @@ function canSubmitLiquidityForChain(
 function resolveMinimumMemoAmount(
   availability: LiquidityActionAvailability | null,
   chainTicker: string,
+  tokenId?: string,
 ): string {
   const normalized = chainTicker.toUpperCase()
 
   if (normalized === 'MAYA') {
+    return '1'
+  }
+
+  // Router-based ERC-20 memo sends transport the token amount directly, so
+  // chain-native dust defaults like 10 gwei must not be reused as token units.
+  if (tokenId) {
     return '1'
   }
 
