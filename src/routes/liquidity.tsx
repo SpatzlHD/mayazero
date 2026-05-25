@@ -3,11 +3,9 @@ import { Chain } from "@vultisig/sdk";
 import {
   AlertCircle,
   ArrowDownUp,
-  CheckCircle2,
   Droplet,
   Loader2,
   RefreshCw,
-  Wallet,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -15,6 +13,7 @@ import {
   SelectionModal,
   shortenAddress,
 } from "#/components/ProtocolPrimitives";
+import { LiquidityPortfolioPanel } from "#/components/liquidity/LiquidityPortfolioPanel";
 import {
   fetchCacaotrackerLiquidityPoolDetail,
   fetchCacaotrackerLiquiditySummary,
@@ -33,9 +32,11 @@ import {
   fetchLiquidityPools,
   fetchLiquidityPositions,
   fetchLiquidityProviderFallback,
+  enrichLiquidityPositionsWithPoolData,
   getSessionLiquidityAddresses,
   mergeLiquidityPositionsWithFallback,
 } from "#/lib/liquidity";
+import { resolveDefaultAnalyticsPoolAsset } from "#/lib/liquidity-insights";
 import { VIEW_ONLY_IMPERSONATION_REASON } from "#/lib/impersonation";
 import { parseDecimalToBaseUnits, formatBaseUnits } from "#/lib/cacao-pool";
 import { INTERFACE_AFFILIATE_MAYANAME } from "#/lib/swap-affiliates";
@@ -121,6 +122,7 @@ function LiquidityTerminalPage() {
   const [cacaoAmount, setCacaoAmount] = useState("");
   const [withdrawShare, setWithdrawShare] = useState("25");
   const [selectedPoolAsset, setSelectedPoolAsset] = useState("");
+  const [analyticsPoolAsset, setAnalyticsPoolAsset] = useState("");
   const [pools, setPools] = useState<LiquidityPool[]>([]);
   const [positions, setPositions] = useState<LiquidityPosition[]>([]);
   const [activity, setActivity] = useState<LiquidityActivityItem[]>([]);
@@ -187,11 +189,6 @@ function LiquidityTerminalPage() {
     [selectedPosition],
   );
   const pendingDeposit = storedPendingDeposit;
-  const selectedActivity = useMemo(
-    () =>
-      activity.filter((item) => item.pool === selectedPool?.asset).slice(0, 5),
-    [activity, selectedPool?.asset],
-  );
 
   const assetAmountBaseUnits = useMemo(
     () =>
@@ -280,7 +277,10 @@ function LiquidityTerminalPage() {
         }),
       ]);
 
-      let resolvedPositions = nextPositions;
+      let resolvedPositions = enrichLiquidityPositionsWithPoolData(
+        nextPositions,
+        nextPools,
+      );
       const targetPoolAsset = selectedPoolAsset || pendingDeposit?.poolAsset;
       if (
         targetPoolAsset &&
@@ -303,6 +303,20 @@ function LiquidityTerminalPage() {
       setPools(nextPools);
       setPositions(resolvedPositions);
       setActivity(nextActivity);
+      setAnalyticsPoolAsset((current) => {
+        if (
+          current &&
+          resolvedPositions.some((position) => position.pool === current)
+        ) {
+          return current;
+        }
+
+        return resolveDefaultAnalyticsPoolAsset(
+          resolvedPositions,
+          nextPools,
+          pendingDeposit?.poolAsset,
+        );
+      });
     } catch (error) {
       setLoadError((error as Error).message);
     } finally {
@@ -447,7 +461,7 @@ function LiquidityTerminalPage() {
     let cancelled = false;
 
     async function refreshSelectedPoolAnalytics() {
-      if (!mayaAddress || !selectedPool?.asset) {
+      if (!mayaAddress || !analyticsPoolAsset) {
         setLiquidityPoolDetail(null);
         setLiquidityPoolDetailError(null);
         return;
@@ -457,7 +471,7 @@ function LiquidityTerminalPage() {
       try {
         const nextDetail = await fetchCacaotrackerLiquidityPoolDetail(
           mayaAddress,
-          selectedPool.asset,
+          analyticsPoolAsset,
         );
         if (!cancelled) {
           setLiquidityPoolDetail(nextDetail);
@@ -474,7 +488,12 @@ function LiquidityTerminalPage() {
     return () => {
       cancelled = true;
     };
-  }, [balanceRefreshTick, mayaAddress, selectedPool?.asset]);
+  }, [balanceRefreshTick, mayaAddress, analyticsPoolAsset]);
+
+  function focusAnalyticsPool(poolAsset: string) {
+    setAnalyticsPoolAsset(poolAsset);
+    setSelectedPoolAsset(poolAsset);
+  }
 
   async function connectPoolChain() {
     if (isViewOnly) {
@@ -1221,405 +1240,24 @@ function LiquidityTerminalPage() {
           </div>
         </article>
 
-        <div className="grid gap-6">
-          <section
-            className="glass-panel-strong p-6 sm:p-8 relative overflow-hidden rise-in"
-            style={{ animationDelay: "200ms" }}
-          >
-            <div className="flex items-center justify-between gap-4 mb-6">
-              <div>
-                <p className="island-kicker mb-1">Account Portfolio</p>
-                <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--sea-ink)]">
-                  Pool Positions
-                </h2>
-              </div>
-              <div className="p-3 rounded-2xl bg-[var(--chip-bg)] border border-[var(--line)] shadow-sm">
-                <Wallet size={20} className="text-[var(--sea-ink-soft)]" />
-              </div>
-            </div>
-
-            {loadError ? (
-              <div className="p-5 rounded-3xl border border-rose-500/20 bg-rose-500/10 mb-5">
-                <p className="font-semibold text-rose-500 text-lg">
-                  Failed to load positions
-                </p>
-                <p className="mt-2 text-sm text-rose-400 font-medium">
-                  {loadError}
-                </p>
-                <button
-                  className="secondary-btn mt-5 px-5 py-2.5 text-sm font-semibold shadow-sm"
-                  type="button"
-                  onClick={() => void refreshLiquidityData()}
-                >
-                  Retry Connect
-                </button>
-              </div>
-            ) : null}
-
-            {!isPowerUser && hiddenStagedPoolCount > 0 ? (
-              <div className="flex items-start gap-3 rounded-[1.25rem] border border-amber-500/20 bg-amber-500/10 p-3.5 text-[13px] text-amber-500 font-medium mb-5">
-                <AlertCircle size={15} className="mt-0.5 shrink-0" />
-                <p className="leading-snug">
-                  {hiddenStagedPoolCount} staged pool
-                  {hiddenStagedPoolCount === 1 ? "" : "s"} hidden in normie
-                  mode. Enable Pro Mode to inspect them.
-                </p>
-              </div>
-            ) : null}
-
-            <div className="grid gap-3">
-              {isLoading ? (
-                <div className="empty-state bg-[var(--bg-base)] border border-[var(--line)] rounded-3xl py-12 mb-2">
-                  <Loader2
-                    size={32}
-                    className="animate-spin text-[var(--maya-teal)] mb-4"
-                  />
-                  <p className="font-semibold text-lg text-[var(--sea-ink)]">
-                    Loading positions...
-                  </p>
-                </div>
-              ) : visiblePositions.length ? (
-                visiblePositions.map((position) => {
-                  const pool = visiblePools.find(
-                    (candidate) => candidate.asset === position.pool,
-                  );
-                  const isSelected = selectedPool?.asset === position.pool;
-                  return (
-                    <button
-                      key={`${position.pool}-${position.matchingAddresses.join("-")}`}
-                      className={`rounded-[1.75rem] border p-4 sm:p-5 text-left transition-all ${isSelected ? "border-[var(--maya-teal)] bg-[var(--surface-strong)] shadow-[0_0_20px_rgba(79,209,197,0.15)] ring-1 ring-[var(--maya-teal)]" : "border-[var(--line)] bg-[var(--bg-base)] hover:border-[var(--line-strong)] hover:bg-[var(--chip-bg)]/50"}`}
-                      type="button"
-                      onClick={() => setSelectedPoolAsset(position.pool)}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <div className="flex -space-x-3">
-                            <AssetIcon
-                              assetId="cacao"
-                              className="w-10 h-10 border border-[var(--line)] bg-[var(--surface)]"
-                            />
-                            <AssetIcon
-                              assetId={pool?.iconId ?? "maya"}
-                              className="w-10 h-10 border-2 border-[var(--bg-base)] bg-[var(--surface)]"
-                            />
-                          </div>
-                          <div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="text-lg font-bold text-[var(--sea-ink)] tracking-tight">
-                                {pool?.symbol
-                                  ? `CACAO / ${pool.symbol}`
-                                  : position.pool}
-                              </p>
-                              {pool && isStagedLiquidityPool(pool) ? (
-                                <PoolStatusBadge status={pool.status} />
-                              ) : null}
-                            </div>
-                            <p className="text-xs font-bold uppercase tracking-widest text-[var(--sea-ink-soft)]">
-                              {position.state}
-                            </p>
-                          </div>
-                        </div>
-                        <span
-                          className={`text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full ${position.state === "active" ? "bg-[var(--maya-teal)]/10 text-[var(--maya-teal)]" : "bg-amber-500/10 text-amber-500"}`}
-                        >
-                          {position.units !== "0" ? "LP active" : "Pending"}
-                        </span>
-                      </div>
-
-                      <div className="mt-5 grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                        <MetricTile
-                          label="LP units"
-                          value={formatCompactNumber(position.units)}
-                          size="sm"
-                        />
-                        <MetricTile
-                          label="Redeem CACAO"
-                          value={
-                            formatBaseUnits(position.cacaoRedeemValue, 10) ||
-                            "0"
-                          }
-                          size="sm"
-                        />
-                        <MetricTile
-                          label="Redeem Asset"
-                          value={
-                            pool
-                              ? formatBaseUnits(
-                                  position.assetRedeemValue,
-                                  pool.decimals,
-                                ) || "0"
-                              : position.assetRedeemValue
-                          }
-                          size="sm"
-                        />
-                        <MetricTile
-                          label="Wallet Address"
-                          value={shortenAddress(
-                            position.cacaoAddress ??
-                              position.assetAddress ??
-                              "n/a",
-                          )}
-                          size="sm"
-                        />
-                      </div>
-                    </button>
-                  );
-                })
-              ) : (
-                <div className="empty-state bg-[var(--bg-base)] border border-[var(--line)] rounded-3xl py-12 px-6 shadow-inner mx-1">
-                  <div className="w-16 h-16 rounded-full bg-[var(--surface-strong)] flex items-center justify-center border border-[var(--line)] shadow-sm mb-5">
-                    <Wallet size={28} className="text-[var(--maya-teal)]" />
-                  </div>
-                  <p className="font-bold text-[var(--sea-ink)] text-xl tracking-tight">
-                    No LP positions found
-                  </p>
-                  <p className="text-sm font-medium text-[var(--sea-ink-soft)] max-w-sm mt-3 text-center leading-relaxed">
-                    {hiddenStagedPoolCount > 0 && !isPowerUser
-                      ? "Connected wallet addresses do not match any non-staged liquidity positions."
-                      : "Connected wallet addresses do not currently match any liquidity positions."}
-                  </p>
-                </div>
-              )}
-            </div>
-          </section>
-
-          <section
-            className="glass-panel-strong p-6 sm:p-8 rise-in"
-            style={{ animationDelay: "300ms" }}
-          >
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-              <div className="w-full flex items-center justify-between">
-                <div>
-                  <p className="island-kicker mb-1">Global Analytics</p>
-                  <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--sea-ink)]">
-                    Health & Activity
-                  </h2>
-                </div>
-                <div className="p-3 rounded-2xl bg-[var(--chip-bg)] border border-[var(--line)] shadow-sm">
-                  <CheckCircle2
-                    size={20}
-                    className="text-[var(--sea-ink-soft)]"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {liquiditySummary ? (
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 mb-6">
-                <MetricTile
-                  label="Tracked Positions"
-                  value={String(liquiditySummary.ilSummary.position_count)}
-                  size="sm"
-                />
-                <MetricTile
-                  label="Total IL"
-                  value={formatUsdCompact(
-                    liquiditySummary.ilSummary.total_il_amount_usd,
-                  )}
-                  size="sm"
-                />
-                <MetricTile
-                  label="ILP Eligible"
-                  value={formatUsdCompact(
-                    liquiditySummary.ilSummary.total_ilp_eligible_usd,
-                  )}
-                  size="sm"
-                />
-                <MetricTile
-                  label="30D Rewards"
-                  value={formatUsdCompact(
-                    liquiditySummary.rewardsByPool.reduce(
-                      (sum, item) => sum + item.total_usd,
-                      0,
-                    ),
-                  )}
-                  size="sm"
-                  highlight
-                />
-              </div>
-            ) : null}
-
-            {liquiditySummaryError ? (
-              <div className="mb-6 flex items-start gap-3 rounded-[1.25rem] border border-amber-500/20 bg-amber-500/10 p-3.5 text-xs text-amber-500 font-medium">
-                <AlertCircle size={14} className="mt-0.5 shrink-0" />
-                <p className="leading-snug">{liquiditySummaryError}</p>
-              </div>
-            ) : null}
-
-            <div className="grid lg:grid-cols-2 gap-6">
-              <div>
-                <h3 className="text-xs uppercase font-bold text-[var(--sea-ink-soft)] tracking-wider mb-4">
-                  Selected Pool Metrics
-                </h3>
-                {selectedPool ? (
-                  <>
-                    <div className="grid grid-cols-2 gap-3 mb-4">
-                      <MetricTile
-                        label="APR"
-                        value={
-                          liquidityPoolDetail
-                            ? formatAnalyticsPercent(
-                                liquidityPoolDetail.analytics.apr,
-                              )
-                            : formatPercent(selectedPool.apr)
-                        }
-                        highlight
-                      />
-                      <MetricTile
-                        label="Depth Usd"
-                        value={formatUsdCompact(selectedPool.depthUsd)}
-                        size="sm"
-                      />
-                      <MetricTile
-                        label="24h volume"
-                        value={
-                          liquidityPoolDetail
-                            ? formatUsdCompact(
-                                liquidityPoolDetail.analytics.volume24hUSD,
-                              )
-                            : formatUsdCompact(
-                                Number(
-                                  formatBaseUnits(selectedPool.volume24h, 8),
-                                ),
-                              )
-                        }
-                        size="sm"
-                      />
-                      <MetricTile
-                        label="Status"
-                        value={
-                          selectedPool.actionAvailability?.lpActionsPaused
-                            ? "Paused"
-                            : selectedPool.status
-                        }
-                        size="sm"
-                      />
-                    </div>
-
-                    {liquidityPoolDetail ? (
-                      <div className="grid grid-cols-2 gap-3 mb-6">
-                        <MetricTile
-                          label="LUVI"
-                          value={liquidityPoolDetail.analytics.luvi.toFixed(2)}
-                          size="sm"
-                        />
-                        <MetricTile
-                          label="24h Fees"
-                          value={formatUsdCompact(
-                            liquidityPoolDetail.analytics.feesEarned24hUSD,
-                          )}
-                          size="sm"
-                        />
-                        <MetricTile
-                          label="Net Earnings"
-                          value={formatUsdCompact(
-                            liquidityPoolDetail.analytics.netEarnings24hUSD,
-                          )}
-                          size="sm"
-                        />
-                        <MetricTile
-                          label="IL Protection"
-                          value={formatUsdCompact(
-                            liquidityPoolDetail.analytics
-                              .ilProtectionPaid24hUSD,
-                          )}
-                          size="sm"
-                        />
-                      </div>
-                    ) : null}
-
-                    {liquidityPoolDetailError ? (
-                      <div className="mb-6 flex items-start gap-3 rounded-[1.25rem] border border-amber-500/20 bg-amber-500/10 p-3.5 text-xs text-amber-500 font-medium">
-                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
-                        <p className="leading-snug">
-                          {liquidityPoolDetailError}
-                        </p>
-                      </div>
-                    ) : null}
-                  </>
-                ) : (
-                  <div className="h-32 flex items-center justify-center text-sm font-medium text-[var(--sea-ink-soft)] bg-[var(--bg-base)] border border-[var(--line)] rounded-2xl mb-6">
-                    Select a pool to view health.
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <h3 className="text-xs uppercase font-bold text-[var(--sea-ink-soft)] tracking-wider mb-4">
-                  Recent LP Activity
-                </h3>
-                <div className="bg-[var(--chip-bg)]/80 rounded-[1.75rem] border border-[var(--line)] p-4">
-                  <div className="flex flex-col gap-2">
-                    {selectedActivity.length ? (
-                      selectedActivity.map((item) => (
-                        <div
-                          key={`${item.txHash ?? item.timestamp}-${item.type}`}
-                          className="flex justify-between items-center bg-[var(--bg-base)] border border-[var(--line)] rounded-xl px-4 py-3 group hover:border-[var(--sea-ink-soft)]/30 transition-colors"
-                        >
-                          <div>
-                            <p className="font-bold text-[var(--sea-ink)] capitalize text-sm">
-                              {item.type}
-                            </p>
-                            <p className="text-[10px] text-[var(--sea-ink-soft)] font-mono break-all font-bold tracking-wide mt-0.5 max-w-[120px] sm:max-w-[150px] truncate">
-                              {item.memo ?? "No memo"}
-                            </p>
-                          </div>
-                          <div className="text-right flex items-center gap-3">
-                            <div>
-                              <p
-                                className={`text-sm font-bold uppercase ${item.type === "deposit" ? "text-[var(--maya-teal)]" : "text-amber-500"}`}
-                              >
-                                {item.status}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="py-6 text-center text-sm font-medium text-[var(--sea-ink-soft)]">
-                        No tracked LP activity yet.
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {liquidityPoolDetail?.ilAnalysis ? (
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    <MetricTile
-                      label="Pool IL"
-                      value={formatUsdCompact(
-                        liquidityPoolDetail.ilAnalysis.impermanentLoss
-                          .amountUSD,
-                      )}
-                      size="sm"
-                    />
-                    <MetricTile
-                      label="Coverage"
-                      value={`${liquidityPoolDetail.ilAnalysis.protection.coveragePercent.toFixed(0)}%`}
-                      size="sm"
-                    />
-                    <MetricTile
-                      label="Days In Pool"
-                      value={String(
-                        liquidityPoolDetail.ilAnalysis.protection.daysInPool,
-                      )}
-                      size="sm"
-                    />
-                    <MetricTile
-                      label="Rank"
-                      value={
-                        liquidityPoolDetail.comparison
-                          ? `#${liquidityPoolDetail.comparison.rank}`
-                          : "n/a"
-                      }
-                      size="sm"
-                    />
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </section>
-        </div>
+        <LiquidityPortfolioPanel
+          activity={activity}
+          analyticsPoolAsset={analyticsPoolAsset}
+          depositPoolAsset={selectedPoolAsset}
+          hiddenStagedPoolCount={hiddenStagedPoolCount}
+          isLoading={isLoading}
+          isPowerUser={isPowerUser}
+          loadError={loadError}
+          onFocusAnalyticsPool={focusAnalyticsPool}
+          onRetryLoad={() => void refreshLiquidityData()}
+          onSyncDepositToAnalytics={() => setSelectedPoolAsset(analyticsPoolAsset)}
+          poolDetail={liquidityPoolDetail}
+          poolDetailError={liquidityPoolDetailError}
+          pools={visiblePools}
+          positions={visiblePositions}
+          summary={liquiditySummary}
+          summaryError={liquiditySummaryError}
+        />
       </section>
 
       <SelectionModal
@@ -2036,15 +1674,6 @@ function formatPercent(value: string): string {
   return Number.isFinite(numeric) ? `${(numeric * 100).toFixed(2)}%` : "n/a";
 }
 
-function formatAnalyticsPercent(value: number): string {
-  if (!Number.isFinite(value)) {
-    return "n/a";
-  }
-
-  const normalized = Math.abs(value) <= 1 ? value * 100 : value;
-  return `${normalized.toFixed(2)}%`;
-}
-
 function formatUsdCompact(value: number): string {
   if (!Number.isFinite(value) || value <= 0) {
     return "$0";
@@ -2055,17 +1684,6 @@ function formatUsdCompact(value: number): string {
     notation: value >= 1000000 ? "compact" : "standard",
     style: "currency",
   }).format(value);
-}
-
-function formatCompactNumber(value: string): string {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric) || numeric <= 0) {
-    return "0";
-  }
-  return new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: 2,
-    notation: numeric >= 1000000 ? "compact" : "standard",
-  }).format(numeric);
 }
 
 function PoolStatusBadge(props: { status: string }) {
@@ -2082,38 +1700,4 @@ function trimNumericString(value: string): string {
 
 function isStagedLiquidityPool(pool: LiquidityPool): boolean {
   return pool.status.trim().toLowerCase() === "staged";
-}
-
-function MetricTile({
-  label,
-  value,
-  highlight,
-  size,
-  subValue,
-}: {
-  label: string;
-  value: string;
-  highlight?: boolean;
-  size?: "sm" | "md";
-  subValue?: string;
-}) {
-  return (
-    <div
-      className={`rounded-2xl border bg-[var(--bg-base)] p-3 sm:p-4 flex flex-col justify-center ${highlight ? "border-[var(--maya-teal)]/30 shadow-[0_0_15px_rgba(79,209,197,0.1)]" : "border-[var(--line)]"}`}
-    >
-      <span className="text-[10px] sm:text-xs uppercase font-bold text-[var(--sea-ink-soft)] tracking-wider truncate mb-1.5">
-        {label}
-      </span>
-      <span
-        className={`font-bold text-[var(--sea-ink)] truncate ${size === "sm" ? "text-lg sm:text-xl" : "text-xl sm:text-2xl"} ${highlight ? "text-[var(--maya-teal)]" : ""}`}
-      >
-        {value}
-      </span>
-      {subValue && (
-        <span className="text-xs font-semibold text-[var(--sea-ink-soft)] mt-0.5">
-          {subValue}
-        </span>
-      )}
-    </div>
-  );
 }

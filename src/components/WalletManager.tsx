@@ -32,7 +32,7 @@ const chainIconMap: Record<string, string> = {
   THORChain: "rune",
   MayaChain: "cacao",
   Bitcoin: "btc",
-  Kujira: "kuji",
+  Cardano: "ada",
   Ethereum: "eth",
   Dash: "dash",
   Arbitrum: "arb",

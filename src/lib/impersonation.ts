@@ -58,10 +58,10 @@ export function validateImpersonationAddress(
       return /^(thor|tthor)1[0-9a-z]{10,}$/i.test(trimmed)
         ? null
         : "Enter a valid THORChain address.";
-    case Chain.Kujira:
-      return /^kujira1[0-9a-z]{10,}$/i.test(trimmed)
+    case Chain.Cardano:
+      return /^(addr1|addr_test1)[0-9a-z]{10,}$/i.test(trimmed)
         ? null
-        : "Enter a valid Kujira address.";
+        : "Enter a valid Cardano address.";
     case Chain.Bitcoin:
       return /^(bc1|tb1|[13]|[mn2])[0-9a-zA-Z]{20,90}$/i.test(trimmed)
         ? null

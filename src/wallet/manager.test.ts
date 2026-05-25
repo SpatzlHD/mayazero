@@ -64,7 +64,7 @@ describe('MayaWalletManager', () => {
       expect.arrayContaining([
         Chain.MayaChain,
         Chain.THORChain,
-        Chain.Kujira,
+        Chain.Cardano,
         Chain.Arbitrum,
         Chain.Dash,
         Chain.Zcash,

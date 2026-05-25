@@ -203,6 +203,34 @@ describe('CrossChainBalanceService', () => {
     ])
   })
 
+  it('fetches Cardano native balances through the local API proxy', async () => {
+    const address = 'addr1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh'
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      expect(url).toContain(`/api/cardano/address/${encodeURIComponent(address)}`)
+      return jsonResponse({
+        address,
+        balance: '2500000',
+      })
+    })
+
+    const service = new CrossChainBalanceService({ fetch: fetchMock as typeof fetch })
+    const result = await service.fetchBalances({
+      chain: Chain.Cardano,
+      address,
+    })
+
+    expect(result.balances).toEqual([
+      expect.objectContaining({
+        symbol: 'ADA',
+        amount: '2500000',
+        formattedAmount: '2.5',
+        isNative: true,
+        source: 'cardano',
+      }),
+    ])
+  })
+
   it('can fetch multiple chain balances and rejects unsupported chains', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body))

@@ -1231,11 +1231,15 @@ function resolveMinimumMemoAmount(
     return '10001'
   }
 
+  if (normalized === 'ADA') {
+    return '100000001'
+  }
+
   if (normalized === 'ETH' || normalized === 'ARB') {
     return '10000000000'
   }
 
-  if (normalized === 'KUJI' || normalized === 'THOR') {
+  if (normalized === 'THOR') {
     return '1'
   }
 

@@ -27,28 +27,58 @@ type MidgardPoolRecord = {
 type MidgardMemberPoolRecord = {
   pool: string;
   liquidityUnits?: string;
+  liquidity_units?: string;
   units?: string;
   assetAdded?: string;
+  asset_added?: string;
   assetPending?: string;
+  asset_pending?: string;
   assetWithdrawn?: string;
+  asset_withdrawn?: string;
   assetAddress?: string;
+  asset_address?: string;
   runeAdded?: string;
-  runePending?: string;
-  runeWithdrawn?: string;
-  runeAddress?: string;
-  runeDepositValue?: string;
-  runeRedeemValue?: string;
+  rune_added?: string;
   cacaoAdded?: string;
+  cacao_added?: string;
+  runePending?: string;
+  rune_pending?: string;
   cacaoPending?: string;
+  cacao_pending?: string;
+  runeWithdrawn?: string;
+  rune_withdrawn?: string;
   cacaoWithdrawn?: string;
+  cacao_withdrawn?: string;
+  runeAddress?: string;
+  rune_address?: string;
   cacaoAddress?: string;
+  cacao_address?: string;
+  runeDepositValue?: string;
+  rune_deposit_value?: string;
   cacaoDepositValue?: string;
+  cacao_deposit_value?: string;
+  cacaoDeposit?: string;
+  cacao_deposit?: string;
+  assetDeposit?: string;
+  asset_deposit?: string;
+  runeRedeemValue?: string;
+  rune_redeem_value?: string;
   cacaoRedeemValue?: string;
+  cacao_redeem_value?: string;
   assetDepositValue?: string;
+  asset_deposit_value?: string;
   assetRedeemValue?: string;
+  asset_redeem_value?: string;
+  assetRedeem?: string;
+  asset_redeem?: string;
+  cacaoRedeem?: string;
+  cacao_redeem?: string;
   withdrawCounter?: string;
+  withdraw_counter?: string;
   dateFirstAdded?: string;
+  date_first_added?: string;
   dateLastAdded?: string;
+  date_last_added?: string;
 };
 
 type MidgardMemberResponse =
@@ -156,6 +186,8 @@ export type LiquidityPool = {
   ticker: string;
   tokenId?: string;
   volume24h: string;
+  volume24hCacao: number;
+  volume24hUsd: number;
   walletChain?: Chain;
   cacaoDepth: string;
 };
@@ -201,6 +233,7 @@ export type LiquidityServiceOptions = {
 const DEFAULT_MIDGARD_URL = "https://midgard.mayachain.info";
 const DEFAULT_MAYANODE_URL = "https://mayanode.mayachain.info";
 const MIDGARD_BASE_DECIMALS = 8;
+const CACAO_AMOUNT_DECIMALS = 10;
 const CHAIN_TICKER_TO_IDENTITY_KEY: Record<string, string> = {
   ARB: "arbitrum",
   BTC: "bitcoin",
@@ -334,13 +367,17 @@ export function normalizeLiquidityPools(
       const cacaoDepthBase = Number(
         formatBaseUnits(
           pool.cacaoDepth ?? pool.runeDepth ?? "0",
-          MIDGARD_BASE_DECIMALS,
+          CACAO_AMOUNT_DECIMALS,
         ),
       );
       const cacaoUsdPrice =
         assetPriceUsd > 0 && assetPrice > 0 ? assetPriceUsd / assetPrice : 0;
       const depthUsd =
         assetDepthBase * assetPriceUsd + cacaoDepthBase * cacaoUsdPrice;
+      const volume24hCacao = Number(
+        formatBaseUnits(pool.volume24h ?? "0", CACAO_AMOUNT_DECIMALS),
+      );
+      const volume24hUsd = volume24hCacao * cacaoUsdPrice;
       const chainAvailability = availability[chainTicker] ?? null;
       const status = pool.status ?? "unknown";
 
@@ -372,6 +409,8 @@ export function normalizeLiquidityPools(
         ticker: tickerRaw.toUpperCase(),
         tokenId,
         volume24h: pool.volume24h ?? "0",
+        volume24hCacao,
+        volume24hUsd,
         walletChain: identity.walletChain,
       } satisfies LiquidityPool;
     })
@@ -422,15 +461,99 @@ export function normalizeLiquidityPositions(
     });
 }
 
+function readMemberField(
+  pool: MidgardMemberPoolRecord,
+  keys: string[],
+): string | undefined {
+  const record = pool as Record<string, unknown>;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.length > 0) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+export function computeLiquidityRedeemValues(
+  memberUnits: string,
+  pool:
+    | Pick<LiquidityPool, "poolUnits" | "lpUnits" | "cacaoDepth" | "assetDepth">
+    | undefined,
+): { assetRedeemValue: string; cacaoRedeemValue: string } {
+  if (!pool) {
+    return { assetRedeemValue: "0", cacaoRedeemValue: "0" };
+  }
+
+  try {
+    const units = BigInt(memberUnits || "0");
+    const poolUnits = BigInt(pool.poolUnits || pool.lpUnits || "0");
+    if (units <= 0n || poolUnits <= 0n) {
+      return { assetRedeemValue: "0", cacaoRedeemValue: "0" };
+    }
+
+    const cacaoDepth = BigInt(pool.cacaoDepth || "0");
+    const assetDepth = BigInt(pool.assetDepth || "0");
+
+    return {
+      cacaoRedeemValue: ((cacaoDepth * units) / poolUnits).toString(),
+      assetRedeemValue: ((assetDepth * units) / poolUnits).toString(),
+    };
+  } catch {
+    return { assetRedeemValue: "0", cacaoRedeemValue: "0" };
+  }
+}
+
+export function enrichLiquidityPositionsWithPoolData(
+  positions: LiquidityPosition[],
+  pools: LiquidityPool[],
+): LiquidityPosition[] {
+  const poolMap = new Map(pools.map((pool) => [pool.asset, pool]));
+
+  return positions.map((position) => {
+    const pool = poolMap.get(position.pool);
+    const redeem = computeLiquidityRedeemValues(position.units, pool);
+    const hasRedeemData =
+      position.cacaoRedeemValue !== "0" || position.assetRedeemValue !== "0";
+
+    if (hasRedeemData || !pool) {
+      return position;
+    }
+
+    return {
+      ...position,
+      cacaoRedeemValue: redeem.cacaoRedeemValue,
+      assetRedeemValue: redeem.assetRedeemValue,
+    };
+  });
+}
+
 function normalizeMemberPoolPosition(
   pool: MidgardMemberPoolRecord,
   matchingAddresses: string[],
 ): LiquidityPosition | null {
-  const assetAddress = pool.assetAddress ?? null;
-  const cacaoAddress = pool.cacaoAddress ?? pool.runeAddress ?? null;
-  const units = pool.liquidityUnits ?? pool.units ?? "0";
-  const pendingAsset = pool.assetPending ?? "0";
-  const pendingCacao = pool.cacaoPending ?? pool.runePending ?? "0";
+  const assetAddress =
+    readMemberField(pool, ["assetAddress", "asset_address"]) ?? null;
+  const cacaoAddress =
+    readMemberField(pool, [
+      "cacaoAddress",
+      "cacao_address",
+      "runeAddress",
+      "rune_address",
+    ]) ?? null;
+  const units =
+    readMemberField(pool, ["liquidityUnits", "liquidity_units", "units"]) ??
+    "0";
+  const pendingAsset =
+    readMemberField(pool, ["assetPending", "asset_pending"]) ?? "0";
+  const pendingCacao =
+    readMemberField(pool, [
+      "cacaoPending",
+      "cacao_pending",
+      "runePending",
+      "rune_pending",
+    ]) ?? "0";
   const matched: string[] = [];
 
   for (const address of [assetAddress, cacaoAddress]) {
@@ -448,24 +571,72 @@ function normalizeMemberPoolPosition(
 
   return {
     assetAddress,
-    assetAdded: pool.assetAdded ?? "0",
-    assetDepositValue: pool.assetDepositValue ?? "0",
-    assetRedeemValue: pool.assetRedeemValue ?? "0",
-    assetWithdrawn: pool.assetWithdrawn ?? "0",
+    assetAdded: readMemberField(pool, ["assetAdded", "asset_added"]) ?? "0",
+    assetDepositValue:
+      readMemberField(pool, [
+        "assetDepositValue",
+        "asset_deposit_value",
+        "assetDeposit",
+        "asset_deposit",
+      ]) ?? "0",
+    assetRedeemValue:
+      readMemberField(pool, [
+        "assetRedeemValue",
+        "asset_redeem_value",
+        "assetRedeem",
+        "asset_redeem",
+      ]) ?? "0",
+    assetWithdrawn:
+      readMemberField(pool, ["assetWithdrawn", "asset_withdrawn"]) ?? "0",
     cacaoAddress,
-    cacaoAdded: pool.cacaoAdded ?? pool.runeAdded ?? "0",
-    cacaoDepositValue: pool.cacaoDepositValue ?? pool.runeDepositValue ?? "0",
-    cacaoRedeemValue: pool.cacaoRedeemValue ?? pool.runeRedeemValue ?? "0",
-    cacaoWithdrawn: pool.cacaoWithdrawn ?? pool.runeWithdrawn ?? "0",
-    firstAddedAt: toUnixTimestamp(pool.dateFirstAdded),
-    lastAddedAt: toUnixTimestamp(pool.dateLastAdded),
+    cacaoAdded:
+      readMemberField(pool, [
+        "cacaoAdded",
+        "cacao_added",
+        "runeAdded",
+        "rune_added",
+      ]) ?? "0",
+    cacaoDepositValue:
+      readMemberField(pool, [
+        "cacaoDepositValue",
+        "cacao_deposit_value",
+        "cacaoDeposit",
+        "cacao_deposit",
+        "runeDeposit",
+        "rune_deposit",
+        "runeDepositValue",
+        "rune_deposit_value",
+      ]) ?? "0",
+    cacaoRedeemValue:
+      readMemberField(pool, [
+        "cacaoRedeemValue",
+        "cacao_redeem_value",
+        "runeRedeemValue",
+        "rune_redeem_value",
+        "cacaoRedeem",
+        "cacao_redeem",
+      ]) ?? "0",
+    cacaoWithdrawn:
+      readMemberField(pool, [
+        "cacaoWithdrawn",
+        "cacao_withdrawn",
+        "runeWithdrawn",
+        "rune_withdrawn",
+      ]) ?? "0",
+    firstAddedAt: toUnixTimestamp(
+      readMemberField(pool, ["dateFirstAdded", "date_first_added"]),
+    ),
+    lastAddedAt: toUnixTimestamp(
+      readMemberField(pool, ["dateLastAdded", "date_last_added"]),
+    ),
     matchingAddresses: matched,
     pendingAsset,
     pendingCacao,
     pool: pool.pool,
     state: isActive ? "active" : isPending ? "pending" : "empty",
     units,
-    withdrawCounter: pool.withdrawCounter ?? null,
+    withdrawCounter:
+      readMemberField(pool, ["withdrawCounter", "withdraw_counter"]) ?? null,
   };
 }
 

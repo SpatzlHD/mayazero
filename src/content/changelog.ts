@@ -13,6 +13,17 @@ export type ChangelogEntry = {
 
 export const changelogEntries: ChangelogEntry[] = [
   {
+    id: '2026-05-25-bond-management-live',
+    date: 'May 25, 2026',
+    title: 'Bond management is live',
+    items: [
+      'Pooled-node bond management is now available for operators and bond providers.',
+      'Bond and unbond LP pool units or CACAO pool units directly from your wallet, with quick-fill Max, 75%, 50%, and 25% shortcuts.',
+      'The workspace includes provider registry, bond activity, portfolio summary, and operator controls for add/update/remove provider flows.',
+    ],
+    links: [{ href: '/pooled-nodes', label: 'Open Bond Management' }],
+  },
+  {
     id: '2026-04-12-fast-vault-import',
     date: 'April 12, 2026',
     title: 'Fast Vault import expanded',

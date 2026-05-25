@@ -69,7 +69,7 @@ const chainPrefixMap: Record<string, Chain> = {
   DASH: Chain.Dash,
   DOGE: Chain.Dogecoin,
   ETH: Chain.Ethereum,
-  KUJI: Chain.Kujira,
+  ADA: Chain.Cardano,
   LTC: Chain.Litecoin,
   MAYA: Chain.MayaChain,
   THOR: Chain.THORChain,
@@ -88,7 +88,7 @@ const fallbackDecimals: Record<string, number> = {
   ZEC: 8,
   THOR: 8,
   MAYA: 10,
-  KUJI: 6,
+  ADA: 6,
 };
 
 const MAX_TOTAL_AFFILIATES = 5;

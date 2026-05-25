@@ -1,10 +1,9 @@
 import {
-  createNodeHandler,
   errorResponse,
   fetchWalletActivity,
   jsonResponse,
   readPathSegment,
-} from '../../_shared'
+} from '../../_shared.js'
 
 export async function GET(request: Request): Promise<Response> {
   try {
@@ -14,5 +13,3 @@ export async function GET(request: Request): Promise<Response> {
     return errorResponse(error)
   }
 }
-
-export default createNodeHandler(GET)

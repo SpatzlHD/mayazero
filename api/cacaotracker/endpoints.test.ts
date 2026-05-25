@@ -193,13 +193,27 @@ describe('cacaotracker proxy endpoints', () => {
             },
           ])
         }
-        return jsonResponse({
-          total_hodl_value_usd: 100,
-          total_current_value_usd: 95,
-          total_il_amount_usd: 5,
-          total_ilp_eligible_usd: 2,
-          position_count: 1,
-        })
+        if (url.includes('/il/track')) {
+          return jsonResponse({ success: true, message: 'Wallet is now being tracked' })
+        }
+        if (url.includes('/il/maya1abc/summary')) {
+          throw new Error('Unexpected IL summary endpoint')
+        }
+        if (url.includes('/il/maya1abc')) {
+          return jsonResponse({
+            positions: [{ pool: 'BTC.BTC' }],
+            totals: {
+              totalHodlValueUSD: 100,
+              totalCurrentValueUSD: 95,
+              totalILAmountUSD: 5,
+              totalILPEligibleUSD: 2,
+              averageILPercent: 5,
+              positionsInLoss: 1,
+              positionsInProfit: 0,
+            },
+          })
+        }
+        throw new Error(`Unexpected request: ${url}`)
       }),
     )
 
@@ -321,6 +335,83 @@ describe('cacaotracker proxy endpoints', () => {
       analytics: { pool: 'BTC.BTC', luvi: 1.1 },
       metricsHistory: [expect.objectContaining({ pool: 'BTC.BTC' })],
       comparison: { rank: 1 },
+      ilAnalysis: { pool: 'BTC.BTC' },
+    })
+  })
+
+  it('returns partial pool analytics when upstream pool analytics are missing', async () => {
+    vi.stubEnv('CACAOTRACKER_API_KEY', 'secret')
+    vi.stubEnv('CACAOTRACKER_API_BASE_URL', 'https://api.test')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url.endsWith('/pool-analytics/BTC.BTC')) {
+          return jsonResponse({ error: 'Pool not found' }, { status: 404 })
+        }
+        if (url.includes('/il/maya1abc/BTC.BTC/history')) {
+          return jsonResponse({ history: [] })
+        }
+        if (url.includes('/il/maya1abc/BTC.BTC')) {
+          return jsonResponse({ error: 'Position not found' }, { status: 404 })
+        }
+        if (url.includes('/il/maya1abc')) {
+          return jsonResponse({
+            positions: [
+              {
+                pool: 'BTC.BTC',
+                impermanentLoss: {
+                  percentage: 2,
+                  amountUSD: 5,
+                  isLoss: true,
+                },
+                protection: {
+                  coveragePercent: 10,
+                  eligibleAmountUSD: 0.5,
+                  daysInPool: 3,
+                  daysToFullProtection: 47,
+                  assetOutperformsCacao: false,
+                  gracePeriodComplete: false,
+                },
+                breakdown: {
+                  hodlValueUSD: 100,
+                  currentValueUSD: 95,
+                  cacaoPrice: 1,
+                  assetPrice: 2,
+                  depositCacao: 10,
+                  depositAsset: 1,
+                  currentCacao: 9,
+                  currentAsset: 1.1,
+                },
+                position: {
+                  liquidityUnits: '100',
+                  poolShare: 0.01,
+                  dateFirstAdded: 1,
+                },
+              },
+            ],
+            totals: {
+              totalHodlValueUSD: 100,
+              totalCurrentValueUSD: 95,
+              totalILAmountUSD: 5,
+              totalILPEligibleUSD: 0.5,
+              averageILPercent: 5,
+              positionsInLoss: 1,
+              positionsInProfit: 0,
+            },
+          })
+        }
+        return jsonResponse([])
+      }),
+    )
+
+    const response = await getLiquidityPool(
+      new Request('https://mayazero.app/api/cacaotracker/liquidity/maya1abc/pool/BTC.BTC'),
+    )
+
+    await expect(response.json()).resolves.toMatchObject({
+      analytics: null,
+      metricsHistory: [],
       ilAnalysis: { pool: 'BTC.BTC' },
     })
   })

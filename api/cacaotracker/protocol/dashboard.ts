@@ -1,9 +1,8 @@
 import {
-  createNodeHandler,
   errorResponse,
   fetchProtocolDashboard,
   jsonResponse,
-} from '../_shared'
+} from '../_shared.js'
 
 export async function GET(_request: Request): Promise<Response> {
   try {
@@ -13,5 +12,3 @@ export async function GET(_request: Request): Promise<Response> {
     return errorResponse(error)
   }
 }
-
-export default createNodeHandler(GET)

@@ -106,20 +106,7 @@ const mayaChainDefinitions: Record<string, MayaChainDefinition> = {
       priceId: "thorchain",
     },
   },
-  KUJI: {
-    key: "kujira",
-    ticker: "KUJI",
-    name: "Kujira",
-    iconId: "kuji",
-    family: "cosmos",
-    walletChain: Chain.Kujira,
-    nativeAsset: {
-      symbol: "KUJI",
-      name: "Kujira",
-      decimals: 6,
-      priceId: "kujira",
-    },
-  },
+
   ETH: {
     key: "ethereum",
     ticker: "ETH",
@@ -190,17 +177,18 @@ const mayaChainDefinitions: Record<string, MayaChainDefinition> = {
       priceId: "zcash",
     },
   },
-  XRD: {
-    key: "radix",
-    ticker: "XRD",
-    name: "Radix",
-    iconId: "xrd",
-    family: "unknown",
+  ADA: {
+    key: "cardano",
+    ticker: "ADA",
+    name: "Cardano",
+    iconId: "ada",
+    family: "utxo",
+    walletChain: Chain.Cardano,
     nativeAsset: {
-      symbol: "XRD",
-      name: "Radix",
-      decimals: 18,
-      priceId: "radix",
+      symbol: "ADA",
+      name: "Cardano",
+      decimals: 6,
+      priceId: "cardano",
     },
   },
 };
@@ -210,11 +198,11 @@ const chainSortOrder = [
   "bitcoin",
   "ethereum",
   "arbitrum",
-  "kujira",
+
   "thorchain",
   "dash",
   "zcash",
-  "radix",
+  "cardano",
 ] as const;
 
 const catalogCache = new Map<
@@ -473,10 +461,12 @@ function createPoolAsset(pool: MayaPoolRecord): MayaSupportedAsset | null {
   const nativeSymbol = definition.nativeAsset?.symbol.toUpperCase();
   const isNative = !tokenId && nativeSymbol === symbol;
   const assetKey = pool.asset.toLowerCase();
-  const decimals = hardcodedAssetDecimals[assetKey] ?? normalizeDecimals(
-    pool.nativeDecimal,
-    isNative ? definition.nativeAsset?.decimals : undefined,
-  );
+  const decimals =
+    hardcodedAssetDecimals[assetKey] ??
+    normalizeDecimals(
+      pool.nativeDecimal,
+      isNative ? definition.nativeAsset?.decimals : undefined,
+    );
 
   return {
     id: assetKey,

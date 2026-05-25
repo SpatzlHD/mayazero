@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
+  computeLiquidityRedeemValues,
+  enrichLiquidityPositionsWithPoolData,
   mergeLiquidityPositionsWithFallback,
   normalizeLiquidityActionAvailability,
   normalizeLiquidityPools,
   normalizeLiquidityPositions,
   type LiquidityActionAvailability,
+  type LiquidityPool,
+  type LiquidityPosition,
 } from './liquidity'
 
 describe('liquidity service', () => {
@@ -88,6 +92,86 @@ describe('liquidity service', () => {
       }),
     )
     expect(pools[0]!.depthUsd).toBeGreaterThan(0)
+  })
+
+  it('converts 24h volume from CACAO base units to USD', () => {
+    const availability = normalizeLiquidityActionAvailability([
+      {
+        address: 'bc1qexample',
+        chain: 'BTC',
+        chain_lp_actions_paused: false,
+        dust_threshold: '0',
+        halted: false,
+      },
+    ])
+
+    const pools = normalizeLiquidityPools(
+      [
+        {
+          asset: 'BTC.BTC',
+          assetDepth: '10000000000',
+          assetPrice: '534549.4854816278',
+          assetPriceUSD: '77592.05806160417',
+          liquidityUnits: '9000',
+          nativeDecimal: '8',
+          runeDepth: '50000000000',
+          poolUnits: '10000',
+          poolAPY: '0.01',
+          status: 'available',
+          volume24h: '99266175709741625',
+        },
+      ],
+      availability,
+    )
+
+    const pool = pools[0]!
+    const expectedCacaoUsd =
+      77_592.05806160417 / 534_549.4854816278
+
+    expect(pool.volume24hCacao).toBeCloseTo(9_926_617.57, 0)
+    expect(pool.volume24hUsd).toBeCloseTo(
+      pool.volume24hCacao * expectedCacaoUsd,
+      2,
+    )
+  })
+
+  it('converts pool depth from Midgard base units to USD', () => {
+    const availability = normalizeLiquidityActionAvailability([
+      {
+        address: 'bc1qexample',
+        chain: 'BTC',
+        chain_lp_actions_paused: false,
+        dust_threshold: '0',
+        halted: false,
+      },
+    ])
+
+    const pools = normalizeLiquidityPools(
+      [
+        {
+          asset: 'BTC.BTC',
+          assetDepth: '3088803441',
+          assetPrice: '534422.4169712635',
+          assetPriceUSD: '77609.0485316727',
+          liquidityUnits: '9000',
+          nativeDecimal: '8',
+          runeDepth: '165072580048837539',
+          poolUnits: '10000',
+          poolAPY: '0.3',
+          status: 'available',
+          volume24h: '0',
+        },
+      ],
+      availability,
+    )
+
+    const pool = pools[0]!
+    const cacaoUsd = 77_609.0485316727 / 534_422.4169712635
+
+    expect(pool.depthUsd).toBeCloseTo(
+      30.88803441 * 77_609.0485316727 + 16_507_258.004883753 * cacaoUsd,
+      -3,
+    )
   })
 
   it('normalizes EVM pool token identifiers and inbound router addresses', () => {
@@ -263,5 +347,74 @@ describe('liquidity service', () => {
         matchingAddresses: ['maya1vault'],
       }),
     )
+  })
+
+  it('normalizes midgard member fields and computes redeem values from pool depth', () => {
+    const positions = normalizeLiquidityPositions(
+      {
+        pools: [
+          {
+            pool: 'BTC.BTC',
+            liquidity_units: '2280000000000000',
+            asset_address: 'bc1asset',
+            rune_address: 'maya1vault',
+            cacao_deposit: '1000000000',
+            asset_deposit: '200000000',
+          },
+        ],
+      },
+      ['maya1vault'],
+    )
+
+    expect(positions).toHaveLength(1)
+    expect(positions[0]).toEqual(
+      expect.objectContaining({
+        pool: 'BTC.BTC',
+        units: '2280000000000000',
+        cacaoDepositValue: '1000000000',
+        assetDepositValue: '200000000',
+        cacaoRedeemValue: '0',
+        assetRedeemValue: '0',
+      }),
+    )
+
+    const pool: LiquidityPool = {
+      actionAvailability: null,
+      apr: '0.01',
+      asset: 'BTC.BTC',
+      assetDepth: '10000000000',
+      assetPrice: '1',
+      assetPriceUsd: '90000',
+      cacaoDepth: '50000000000',
+      chainKey: 'bitcoin',
+      chainName: 'Bitcoin',
+      chainTicker: 'BTC',
+      decimals: 8,
+      depthUsd: 1,
+      family: 'utxo',
+      iconId: 'btc',
+      isActionable: true,
+      lpUnits: '10000000000000000',
+      poolUnits: '10000000000000000',
+      saversDepth: '0',
+      status: 'available',
+      symbol: 'BTC',
+      ticker: 'BTC',
+      volume24h: '0',
+      volume24hCacao: 0,
+      volume24hUsd: 0,
+    }
+
+    const redeem = computeLiquidityRedeemValues('2280000000000000', pool)
+    expect(redeem.cacaoRedeemValue).toBe('11400000000')
+    expect(redeem.assetRedeemValue).toBe('2280000000')
+
+    const enriched = enrichLiquidityPositionsWithPoolData(
+      positions as LiquidityPosition[],
+      [pool],
+    )
+
+    expect(enriched[0]?.cacaoRedeemValue).toBe('11400000000')
+    expect(enriched[0]?.assetRedeemValue).toBe('2280000000')
   })
 })

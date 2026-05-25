@@ -1,4 +1,3 @@
-import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isAddress, getAddress } from 'viem'
 
 export const MAYA_MASKS_CONTRACT_ADDRESS =
@@ -108,35 +107,6 @@ export async function GET(
   }
 }
 
-export default async function handler(
-  req: IncomingMessage & { url?: string; method?: string; headers: Record<string, string | string[] | undefined> },
-  res: ServerResponse,
-) {
-  const method = req.method ?? 'GET'
-
-  if (method !== 'GET') {
-    const response = jsonResponse(
-      { error: `Method ${method} not allowed.` },
-      {
-        status: 405,
-        headers: {
-          Allow: 'GET',
-        },
-      },
-    )
-    await writeNodeResponse(res, response)
-    return
-  }
-
-  const originHeader = req.headers.host ? `https://${req.headers.host}` : 'http://localhost'
-  const request = new Request(new URL(req.url ?? '/', originHeader), {
-    method,
-  })
-
-  const response = await GET(request)
-  await writeNodeResponse(res, response)
-}
-
 async function fetchAllMayaMasksForOwner(input: {
   owner: string
   alchemyApiKey: string
@@ -242,18 +212,4 @@ function jsonResponse(
     ...init,
     headers,
   })
-}
-
-async function writeNodeResponse(
-  res: ServerResponse,
-  response: Response,
-) {
-  res.statusCode = response.status
-
-  response.headers.forEach((value, key) => {
-    res.setHeader(key, value)
-  })
-
-  const buffer = Buffer.from(await response.arrayBuffer())
-  res.end(buffer)
 }

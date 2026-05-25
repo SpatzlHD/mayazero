@@ -263,6 +263,25 @@ export type ILSummaryAggregated = {
   position_count: number;
 };
 
+export type ILSummary = {
+  positions: ILAnalysis[];
+  totals: {
+    totalHodlValueUSD: number;
+    totalCurrentValueUSD: number;
+    totalILAmountUSD: number;
+    totalILPEligibleUSD: number;
+    averageILPercent: number;
+    positionsInLoss: number;
+    positionsInProfit: number;
+  };
+  reserve?: {
+    totalReserveCacao: number;
+    totalReserveUSD: number;
+    canPayoutILP: boolean;
+    reserveCoveragePercent: number;
+  };
+};
+
 export type ILAnalysis = {
   pool: string;
   impermanentLoss: {
@@ -478,7 +497,7 @@ export type LiquiditySummaryResponse = {
 };
 
 export type LiquidityPoolDetailResponse = {
-  analytics: PoolAnalytics;
+  analytics: PoolAnalytics | null;
   metricsHistory: PoolMetrics[];
   tvlHistory: PoolTVLHistory[];
   volumeHistory: PoolVolumeHourly[];

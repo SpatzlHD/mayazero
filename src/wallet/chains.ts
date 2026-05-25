@@ -27,6 +27,7 @@ export type ExtensionProviderKey =
   | 'dogecoin'
   | 'litecoin'
   | 'zcash'
+  | 'cardano'
 
 export type WalletChainDefinition = {
   chain: WalletChain
@@ -48,11 +49,11 @@ export const chainRegistry: Partial<Record<WalletChain, WalletChainDefinition>> 
     extensionProviderKey: 'maya',
     extensionChainId: 'MayaChain-1',
   },
-  [Chain.Kujira]: {
-    chain: Chain.Kujira,
-    family: 'cosmos',
-    extensionProviderKey: 'cosmos',
-    extensionChainId: 'kaiyo-1',
+  [Chain.Cardano]: {
+    chain: Chain.Cardano,
+    family: 'cardano',
+    extensionProviderKey: 'cardano',
+    extensionChainId: 'Cardano_cardano',
   },
   [Chain.Bitcoin]: {
     chain: Chain.Bitcoin,
@@ -118,6 +119,7 @@ export const extensionProviderChainMap = Object.values(chainRegistry).reduce<
     dogecoin: [],
     litecoin: [],
     zcash: [],
+    cardano: [],
   },
 )
 

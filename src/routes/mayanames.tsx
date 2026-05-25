@@ -26,7 +26,7 @@ const PREFERRED_CHAINS = [
   "THOR",
   "MAYA",
   "DASH",
-  "KUJI",
+  "ADA",
   "ARB",
   "ZEC",
   "XRD",

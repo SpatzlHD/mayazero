@@ -110,20 +110,20 @@ export const protocolAssets: ProtocolAsset[] = [
     blurb: "Bitcoin settlement destination",
   },
   {
-    id: "kuji",
-    label: "KUJI",
-    chain: Chain.Kujira,
-    ticker: "KUJI",
+    id: "ada",
+    label: "ADA",
+    chain: Chain.Cardano,
+    ticker: "ADA",
     decimals: 6,
-    mayaAsset: "KUJI.KUJI",
-    blurb: "Cosmos-side liquidity pair asset",
+    mayaAsset: "ADA.ADA",
+    blurb: "Cardano settlement destination",
   },
 ];
 
 export const lpPositions = [
   { pool: "CACAO / ETH", apr: "14.2%", depth: "$12.4m", status: "balanced" },
   { pool: "CACAO / BTC", apr: "9.8%", depth: "$18.1m", status: "deep" },
-  { pool: "CACAO / KUJI", apr: "21.5%", depth: "$3.9m", status: "volatile" },
+  { pool: "CACAO / ADA", apr: "21.5%", depth: "$3.9m", status: "volatile" },
 ];
 
 export function BoardHeading({

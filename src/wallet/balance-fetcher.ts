@@ -27,6 +27,7 @@ export type AddressBalanceAsset = {
     | 'cosmos-bank'
     | 'cosmos-wasm'
     | 'utxo'
+    | 'cardano'
 }
 
 export type AddressBalanceRequest = {
@@ -55,6 +56,7 @@ export type CrossChainBalanceServiceOptions = {
   cosmosRestUrls?: Partial<Record<WalletChain, string>>
   utxoBaseUrls?: Partial<Record<WalletChain, string>>
   dashRpcUrl?: string
+  cardanoBalanceBaseUrl?: string
 }
 
 const VULTISIG_ROOT_API_URL = 'https://api.vultisig.com'
@@ -67,7 +69,6 @@ const defaultEvmRpcUrls: Partial<Record<WalletChain, string>> = {
 const defaultCosmosRestUrls: Partial<Record<WalletChain, string>> = {
   [Chain.THORChain]: 'https://thornode.thorchain.network',
   [Chain.MayaChain]: 'https://mayanode.mayachain.info',
-  [Chain.Kujira]: 'https://kujira-rest.publicnode.com',
 }
 
 const defaultUtxoBaseUrls: Partial<Record<WalletChain, string>> = {
@@ -76,6 +77,7 @@ const defaultUtxoBaseUrls: Partial<Record<WalletChain, string>> = {
 }
 
 const defaultDashRpcUrl = `${VULTISIG_ROOT_API_URL}/dash/`
+const defaultCardanoBalanceBaseUrl = '/api/cardano/address'
 
 const nativeAssetMetadata: Partial<
   Record<WalletChain, { id: string; symbol: string; name: string; decimals: number }>
@@ -122,10 +124,10 @@ const nativeAssetMetadata: Partial<
     name: 'Cacao',
     decimals: 10,
   },
-  [Chain.Kujira]: {
-    id: 'ukuji',
-    symbol: 'KUJI',
-    name: 'Kujira',
+  [Chain.Cardano]: {
+    id: 'native',
+    symbol: 'ADA',
+    name: 'Cardano',
     decimals: 6,
   },
 }
@@ -143,34 +145,6 @@ const cosmosKnownAssetMetadata: Partial<
     cacao: { symbol: 'CACAO', name: 'Cacao', decimals: 10 },
     maya: { symbol: 'MAYA', name: 'Maya', decimals: 4 },
     aztec: { symbol: 'AZTEC', name: 'Aztec', decimals: 4 },
-  },
-  [Chain.Kujira]: {
-    ukuji: { symbol: 'KUJI', name: 'Kujira', decimals: 6 },
-    'ibc/FE98AAD68F02F03565E9FA39A5E627946699B2B07115889ED812D8BA639576A9': {
-      symbol: 'USDC',
-      name: 'USD Coin',
-      decimals: 6,
-    },
-    'factory/kujira1qk00h5atutpsv900x202pxx42npjr9thg58dnqpa72f2p7m2luase444a7/uusk': {
-      symbol: 'USK',
-      name: 'USK',
-      decimals: 6,
-    },
-    'factory/kujira13x2l25mpkhwnwcwdzzd34cr8fyht9jlj7xu9g4uffe36g3fmln8qkvm3qn/unami': {
-      symbol: 'NAMI',
-      name: 'Nami',
-      decimals: 6,
-    },
-    'factory/kujira1643jxg8wasy5cfcn7xm8rd742yeazcksqlg4d7/umnta': {
-      symbol: 'MNTA',
-      name: 'Manta DAO',
-      decimals: 6,
-    },
-    'factory/kujira13x2l25mpkhwnwcwdzzd34cr8fyht9jlj7xu9g4uffe36g3fmln8qkvm3qn/uauto': {
-      symbol: 'AUTO',
-      name: 'AUTO',
-      decimals: 6,
-    },
   },
 }
 
@@ -202,6 +176,11 @@ type BlockchairAddressResponse = {
 type DashRpcResponse = {
   result?: Array<{ satoshis: number }> | null
   error?: { code: number; message: string } | null
+}
+
+type CardanoAddressBalanceResponse = {
+  address: string
+  balance: string
 }
 
 type BalanceFetchResult = {
@@ -327,6 +306,7 @@ export class CrossChainBalanceService {
   private readonly cosmosRestUrls: Partial<Record<WalletChain, string>>
   private readonly utxoBaseUrls: Partial<Record<WalletChain, string>>
   private readonly dashRpcUrl: string
+  private readonly cardanoBalanceBaseUrl: string
 
   constructor(options: CrossChainBalanceServiceOptions = {}) {
     this.fetchImpl =
@@ -345,6 +325,8 @@ export class CrossChainBalanceService {
       ...options.utxoBaseUrls,
     }
     this.dashRpcUrl = options.dashRpcUrl ?? defaultDashRpcUrl
+    this.cardanoBalanceBaseUrl =
+      options.cardanoBalanceBaseUrl ?? defaultCardanoBalanceBaseUrl
   }
 
   async fetchBalances(
@@ -363,6 +345,9 @@ export class CrossChainBalanceService {
         break
       case 'utxo':
         result = await this.fetchUtxoBalances(input)
+        break
+      case 'cardano':
+        result = await this.fetchCardanoBalances(input)
         break
       default:
         throw new Error(`Balance fetching is not implemented for ${input.chain}`)
@@ -566,6 +551,22 @@ export class CrossChainBalanceService {
     return {
       balances: [
         normalizeAsset(input.chain, 'native', amount, true, 'utxo'),
+      ],
+      warnings: [],
+    }
+  }
+
+  private async fetchCardanoBalances(
+    input: AddressBalanceRequest,
+  ): Promise<BalanceFetchResult> {
+    const response = await this.getJson<CardanoAddressBalanceResponse>(
+      `${this.cardanoBalanceBaseUrl}/${encodeURIComponent(input.address)}`,
+    )
+    const amount = BigInt(response.balance ?? '0')
+
+    return {
+      balances: [
+        normalizeAsset(input.chain, 'native', amount, true, 'cardano'),
       ],
       warnings: [],
     }

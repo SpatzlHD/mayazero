@@ -42,7 +42,7 @@ const chainLabels: Partial<Record<Chain, string>> = {
   [Chain.Zcash]: 'Zcash',
   [Chain.Ethereum]: 'Ethereum',
   [Chain.Arbitrum]: 'Arbitrum',
-  [Chain.Kujira]: 'Kujira',
+  [Chain.Cardano]: 'Cardano',
 }
 
 const chainPlaceholders: Partial<Record<Chain, string>> = {
@@ -53,7 +53,7 @@ const chainPlaceholders: Partial<Record<Chain, string>> = {
   [Chain.Zcash]: 'zs...',
   [Chain.Ethereum]: '0x...',
   [Chain.Arbitrum]: '0x...',
-  [Chain.Kujira]: 'kujira1...',
+  [Chain.Cardano]: 'addr1...',
 }
 
 function SettingsPage() {

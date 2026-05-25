@@ -48,6 +48,7 @@ export type ExtensionWindowLike = {
   dogecoin?: ExtensionProviderLike;
   litecoin?: ExtensionProviderLike;
   zcash?: ExtensionProviderLike;
+  cardano?: ExtensionProviderLike;
   cosmos?: ExtensionProviderLike;
   maya?: ExtensionProviderLike;
   mayachain?: ExtensionProviderLike;
@@ -854,6 +855,7 @@ function resolveExtensionProviders(
     dogecoin: getExtensionProvider(extensionWindow, "dogecoin"),
     litecoin: getExtensionProvider(extensionWindow, "litecoin"),
     zcash: getExtensionProvider(extensionWindow, "zcash"),
+    cardano: getExtensionProvider(extensionWindow, "cardano"),
   };
 }
 

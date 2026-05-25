@@ -42,6 +42,8 @@ function makePool(overrides: Partial<LiquidityPool> = {}): LiquidityPool {
     symbol: 'ETH',
     ticker: 'ETH',
     volume24h: '100000000',
+    volume24hCacao: 0.01,
+    volume24hUsd: 2.5,
     walletChain: Chain.Ethereum,
     ...overrides,
   }

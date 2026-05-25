@@ -59,6 +59,8 @@ function makePool(): LiquidityPool {
     symbol: 'ETH',
     ticker: 'ETH',
     volume24h: '400000000',
+    volume24hCacao: 0.04,
+    volume24hUsd: 10,
     walletChain: Chain.Ethereum,
   }
 }
@@ -96,6 +98,8 @@ function makeArbUsdcPool(): LiquidityPool {
     ticker: 'USDC',
     tokenId: '0XAF88D065E77C8CC2239327C5EDB3A432268E5831',
     volume24h: '400000000',
+    volume24hCacao: 0.04,
+    volume24hUsd: 10,
     walletChain: Chain.Arbitrum,
   }
 }
