@@ -449,7 +449,21 @@ export type MayaTokenRewardsResponse = {
   rewards: MayaTokenRewardEntry[];
 };
 
-export type BondProviderResponse = UnknownRecord | null;
+export type BondProviderNodeEntry = {
+  nodeAddress: string;
+  bondedCacao: number;
+  rewardCacao?: number;
+};
+
+export type BondProviderSummary = {
+  totalBondedCacao?: number;
+  totalRewardCacao?: number;
+  providerCount?: number;
+  nodeCount?: number;
+  nodes?: BondProviderNodeEntry[];
+};
+
+export type BondProviderResponse = BondProviderSummary | null;
 
 export type WalletSummaryResponse = {
   rewards: AddressRewardsResponse;

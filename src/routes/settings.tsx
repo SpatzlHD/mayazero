@@ -315,7 +315,7 @@ function SettingsPage() {
                 <div className="flex flex-col">
                   <span className="font-bold text-[var(--sea-ink)]">Allow minimal analytics</span>
                   <span className="text-xs text-[var(--sea-ink-soft)]">
-                    Turn this off to opt out of Vercel Analytics pageviews and custom journey events on this browser.
+                    Turn this off to opt out of Vercel Analytics and OpenPanel pageviews and custom journey events on this browser.
                   </span>
                 </div>
               </label>
@@ -326,7 +326,7 @@ function SettingsPage() {
                 MayaZero only emits minimal analytics on approved production hosts. Query strings and URL hashes are stripped before pageviews are sent.
               </p>
               <p className="text-sm text-[var(--sea-ink)] leading-relaxed">
-                Wallet addresses, transaction hashes, vault identifiers, MAYANames, memos, and other sensitive payloads are never sent to Vercel Analytics.
+                Wallet addresses, transaction hashes, vault identifiers, MAYANames, memos, and other sensitive payloads are never sent to Vercel Analytics or OpenPanel.
               </p>
               <p className="text-sm text-[var(--sea-ink)] leading-relaxed">
                 Browser privacy signals like Do Not Track and Global Privacy Control disable analytics automatically, and MayaZero does not create its own analytics identifier in local storage or cookies.

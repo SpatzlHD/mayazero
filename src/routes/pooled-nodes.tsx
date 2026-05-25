@@ -1,27 +1,46 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Chain } from "@vultisig/sdk";
-import { AlertCircle, Loader2, RefreshCw, Shield } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { VIEW_ONLY_IMPERSONATION_REASON } from "#/lib/impersonation";
-import { buildPageSeoHead } from "#/lib/seo";
-import { formatBaseUnits } from "#/lib/cacao-pool";
-import { fetchCacaotrackerPooledNodesDetail } from "#/lib/cacaotracker";
-import type {
-  BondProviderResponse,
-  PooledNodesDetailResponse,
-} from "#/lib/cacaotracker-types";
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { Chain } from '@vultisig/sdk'
+import { AlertCircle, RefreshCw, Shield, Wallet } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { BondPortfolioSummary } from '#/components/pooled-nodes/BondPortfolioSummary'
+import { PooledNodeWorkspace } from '#/components/pooled-nodes/PooledNodeWorkspace'
 import {
+  AddressChip,
+  AlertStack,
+  CompactToolbar,
+  MessageState,
+  PageContent,
+  PageShell,
+  PrimaryPanel,
+  SessionBadge,
+  SkeletonPanel,
+  Warning,
+  type AlertItem,
+} from '#/components/pooled-nodes/shared'
+import { fetchCacaotrackerPooledNodesDetail, fetchCacaotrackerWalletActivity } from '#/lib/cacaotracker'
+import type {
+  BondProviderSummary,
+  PooledNodesDetailResponse,
+  WalletActivityResponse,
+} from '#/lib/cacaotracker-types'
+import { formatCacaoBaseUnits, fetchCacaoPoolPosition, type CacaoPoolPosition } from '#/lib/cacao-pool'
+import { fetchLiquidityPositions, type LiquidityPosition } from '#/lib/liquidity'
+import { VIEW_ONLY_IMPERSONATION_REASON } from '#/lib/impersonation'
+import { filterBondActivity } from '#/lib/pooled-nodes-activity'
+import {
+  buildBondPortfolioSummary,
   fetchPooledNodes,
-  getPooledNodeWarnings,
   type PooledNode,
-} from "#/lib/pooled-nodes";
+} from '#/lib/pooled-nodes'
 import {
   useEffectiveWalletSession,
   useIsViewOnlyImpersonation,
-} from "#/provider/ImpersonationProvider";
-import { useSettings } from "#/provider/SettingsProvider";
+} from '#/provider/ImpersonationProvider'
+import { useSettings } from '#/provider/SettingsProvider'
+import { buildPageSeoHead } from '#/lib/seo'
 import {
   createExecutionJourneySteps,
+  fetchAddressBalances,
   getPooledNodeActionSupport,
   submitPooledNodeAction,
   trackTransactionJourney,
@@ -29,46 +48,93 @@ import {
   useWalletBalanceRefreshTick,
   waitForJourneyTransactionSettlement,
   WalletSessionNotFoundError,
+  type AddressBalanceResponse,
   type PooledNodeActionKind,
-} from "#/wallet";
-import { useHypertune } from "#/generated/hypertune.react";
-import FeatureGate from "#/components/FeatureGate";
+} from '#/wallet'
 
-export const Route = createFileRoute("/pooled-nodes")({
+type PooledNodesSearch = {
+  node?: string
+}
+
+export const Route = createFileRoute('/pooled-nodes')({
+  validateSearch: (search: Record<string, unknown>): PooledNodesSearch => ({
+    node: typeof search.node === 'string' && search.node.trim() ? search.node : undefined,
+  }),
   head: () =>
     buildPageSeoHead({
-      title: "Pooled Nodes",
+      title: 'Pooled Nodes',
       description:
-        "Manage pooled MAYANodes related to your connected MayaChain address.",
+        'Manage pooled MAYANodes related to your connected MayaChain address.',
     }),
   component: PooledNodesRoute,
-});
+})
 
 type LoadNodes = (input: {
-  connectedAddress: string;
-  mayanodeUrl: string;
-}) => Promise<PooledNode[]>;
+  connectedAddress: string
+  mayanodeUrl: string
+}) => Promise<PooledNode[]>
 
 type Props = {
-  loadNodes?: LoadNodes;
-  onMissingSession?: () => void;
-  submitAction?: typeof submitPooledNodeAction;
-  loadAnalytics?: (address: string) => Promise<PooledNodesDetailResponse>;
-};
+  loadNodes?: LoadNodes
+  onMissingSession?: () => void
+  submitAction?: typeof submitPooledNodeAction
+  loadAnalytics?: (address: string) => Promise<PooledNodesDetailResponse>
+  loadBalances?: (input: {
+    chain: Chain
+    address: string
+    includeZeroBalances?: boolean
+  }) => Promise<AddressBalanceResponse>
+  loadActivity?: (address: string) => Promise<WalletActivityResponse>
+  loadLiquidityPositions?: (address: string) => Promise<LiquidityPosition[]>
+  loadCacaoPoolPosition?: (address: string) => Promise<CacaoPoolPosition | null>
+  preferredNodeAddress?: string
+  onNodeChange?: (nodeAddress: string) => void
+}
 
 const defaultLoadNodes: LoadNodes = (input) =>
   fetchPooledNodes({
     connectedAddress: input.connectedAddress,
     mayanodeUrl: input.mayanodeUrl,
-  });
+  })
+
+const defaultLoadLiquidityPositions = (address: string) =>
+  fetchLiquidityPositions([address])
+
+function resolveSelectedNodeAddress(
+  nodes: PooledNode[],
+  current: string,
+  preferred?: string,
+): string {
+  if (preferred && nodes.some((node) => node.nodeAddress === preferred)) {
+    return preferred
+  }
+  if (current && nodes.some((node) => node.nodeAddress === current)) {
+    return current
+  }
+  return nodes[0]?.nodeAddress ?? ''
+}
 
 function PooledNodesRoute() {
-  const navigate = useNavigate();
+  const navigate = useNavigate()
+  const search = Route.useSearch()
+  const handleNodeChange = useCallback(
+    (nodeAddress: string) => {
+      navigate({
+        to: '/pooled-nodes',
+        search: nodeAddress ? { node: nodeAddress } : {},
+        replace: true,
+      })
+    },
+    [navigate],
+  )
+
   return (
     <PooledNodesPage
-      onMissingSession={() => navigate({ to: "/vault-setup" })}
+      preferredNodeAddress={search.node}
+      onMissingSession={() => navigate({ to: '/vault-setup' })}
+      onNodeChange={handleNodeChange}
     />
-  );
+  )
 }
 
 export function PooledNodesPage({
@@ -76,46 +142,77 @@ export function PooledNodesPage({
   onMissingSession,
   submitAction = submitPooledNodeAction,
   loadAnalytics = fetchCacaotrackerPooledNodesDetail,
+  loadBalances = fetchAddressBalances,
+  loadActivity = fetchCacaotrackerWalletActivity,
+  loadLiquidityPositions = defaultLoadLiquidityPositions,
+  loadCacaoPoolPosition = fetchCacaoPoolPosition,
+  preferredNodeAddress,
+  onNodeChange,
 }: Props) {
-  const wallet = useMayaWalletActions();
-  const settings = useSettings();
-  const activeSession = useEffectiveWalletSession();
-  const isViewOnly = useIsViewOnlyImpersonation();
-  const balanceRefreshTick = useWalletBalanceRefreshTick();
-  const mayaAddress = activeSession?.addresses[Chain.MayaChain] ?? "";
+  const wallet = useMayaWalletActions()
+  const settings = useSettings()
+  const activeSession = useEffectiveWalletSession()
+  const isViewOnly = useIsViewOnlyImpersonation()
+  const balanceRefreshTick = useWalletBalanceRefreshTick()
+  const mayaAddress = activeSession?.addresses[Chain.MayaChain] ?? ''
   const support = isViewOnly
     ? { supported: false, reason: VIEW_ONLY_IMPERSONATION_REASON }
-    : getPooledNodeActionSupport(wallet, activeSession?.id);
-  const hypertune = useHypertune();
-  const [nodes, setNodes] = useState<PooledNode[]>([]);
-  const [selectedNodeAddress, setSelectedNodeAddress] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [providerBondAmount, setProviderBondAmount] = useState("");
-  const [providerUnbondAmount, setProviderUnbondAmount] = useState("");
-  const [operatorAddProviderAddress, setOperatorAddProviderAddress] =
-    useState("");
-  const [operatorAddProviderFee, setOperatorAddProviderFee] = useState("0");
-  const [operatorAddProviderAmount, setOperatorAddProviderAmount] =
-    useState("");
-  const [operatorFeeUpdateBps, setOperatorFeeUpdateBps] = useState("0");
-  const [operatorFeeUpdateAmount, setOperatorFeeUpdateAmount] = useState("1");
-  const [operatorRemoveProviderAddress, setOperatorRemoveProviderAddress] =
-    useState("");
-  const [operatorRemoveProviderAmount, setOperatorRemoveProviderAmount] =
-    useState("");
-  const [providerBondData, setProviderBondData] =
-    useState<BondProviderResponse>(null);
-  const [providerBondError, setProviderBondError] = useState<string | null>(
-    null,
-  );
-  const loadNodesRef = useRef(loadNodes);
+    : getPooledNodeActionSupport(wallet, activeSession?.id)
+
+  const [nodes, setNodes] = useState<PooledNode[]>([])
+  const [selectedNodeAddress, setSelectedNodeAddress] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [providerBondData, setProviderBondData] = useState<BondProviderSummary | null>(null)
+  const [providerBondError, setProviderBondError] = useState<string | null>(null)
+  const [liquidityPositions, setLiquidityPositions] = useState<LiquidityPosition[]>([])
+  const [cacaoPoolPosition, setCacaoPoolPosition] = useState<CacaoPoolPosition | null>(null)
+  const [positionsError, setPositionsError] = useState<string | null>(null)
+  const [cacaoBalanceBaseUnits, setCacaoBalanceBaseUnits] = useState<string | null>(null)
+  const [balanceError, setBalanceError] = useState<string | null>(null)
+  const [bondActivity, setBondActivity] = useState<ReturnType<typeof filterBondActivity>>([])
+  const [activityError, setActivityError] = useState<string | null>(null)
+  const [isActivityLoading, setIsActivityLoading] = useState(false)
+  const loadNodesRef = useRef(loadNodes)
+  const loadAnalyticsRef = useRef(loadAnalytics)
+  const loadBalancesRef = useRef(loadBalances)
+  const loadActivityRef = useRef(loadActivity)
+  const loadLiquidityPositionsRef = useRef(loadLiquidityPositions)
+  const loadCacaoPoolPositionRef = useRef(loadCacaoPoolPosition)
+  const preferredNodeRef = useRef(preferredNodeAddress)
+  const onNodeChangeRef = useRef(onNodeChange)
+  const mayanodeUrlRef = useRef(settings.mayanodeUrl)
 
   useEffect(() => {
-    loadNodesRef.current = loadNodes;
-  }, [loadNodes]);
+    loadNodesRef.current = loadNodes
+    loadAnalyticsRef.current = loadAnalytics
+    loadBalancesRef.current = loadBalances
+    loadActivityRef.current = loadActivity
+    loadLiquidityPositionsRef.current = loadLiquidityPositions
+    loadCacaoPoolPositionRef.current = loadCacaoPoolPosition
+  }, [
+    loadActivity,
+    loadAnalytics,
+    loadBalances,
+    loadCacaoPoolPosition,
+    loadLiquidityPositions,
+    loadNodes,
+  ])
+
+  useEffect(() => {
+    preferredNodeRef.current = preferredNodeAddress
+  }, [preferredNodeAddress])
+
+  useEffect(() => {
+    onNodeChangeRef.current = onNodeChange
+  }, [onNodeChange])
+
+  useEffect(() => {
+    mayanodeUrlRef.current = settings.mayanodeUrl
+  }, [settings.mayanodeUrl])
 
   const selectedNode = useMemo(
     () =>
@@ -123,294 +220,416 @@ export function PooledNodesPage({
       nodes[0] ??
       null,
     [nodes, selectedNodeAddress],
-  );
-  const warnings = useMemo(
-    () => getPooledNodeWarnings(selectedNode),
-    [selectedNode],
-  );
-  const removableProviders =
-    selectedNode?.providers.filter(
-      (provider) => provider.bondAddress !== selectedNode.bondAddress,
-    ) ?? [];
+  )
 
-  useEffect(() => {
-    if (!selectedNode) {
-      setOperatorRemoveProviderAddress("");
-      return;
+  const portfolioSummary = useMemo(
+    () => buildBondPortfolioSummary(nodes, providerBondData),
+    [nodes, providerBondData],
+  )
+
+  const formattedBalance = formatCacaoBaseUnits(cacaoBalanceBaseUnits ?? '0') || '0'
+
+  const alerts = useMemo((): AlertItem[] => {
+    const next: AlertItem[] = []
+    if (support.reason) {
+      next.push({ id: 'support', message: support.reason, tone: 'warning' })
     }
-    setOperatorRemoveProviderAddress((current) =>
-      removableProviders.some((provider) => provider.bondAddress === current)
-        ? current
-        : (removableProviders[0]?.bondAddress ?? ""),
-    );
-  }, [removableProviders, selectedNode]);
+    if (submitError) {
+      next.push({ id: 'submit', message: submitError, tone: 'error' })
+    }
+    if (balanceError) {
+      next.push({ id: 'balance', message: balanceError, tone: 'warning' })
+    }
+    if (positionsError) {
+      next.push({ id: 'positions', message: positionsError, tone: 'warning' })
+    }
+    if (providerBondError) {
+      next.push({ id: 'provider-bond', message: providerBondError, tone: 'warning' })
+    }
+    if (loadError && nodes.length > 0) {
+      next.push({ id: 'load', message: loadError, tone: 'warning' })
+    }
+    return next
+  }, [
+    balanceError,
+    loadError,
+    nodes.length,
+    positionsError,
+    providerBondError,
+    submitError,
+    support.reason,
+  ])
+
+  const selectNode = useCallback((nodeAddress: string) => {
+    setSelectedNodeAddress(nodeAddress)
+    onNodeChangeRef.current?.(nodeAddress)
+  }, [])
+
+  const syncSelectedNodeUrl = useCallback((resolved: string) => {
+    if (!resolved || resolved === preferredNodeRef.current) {
+      return
+    }
+    onNodeChangeRef.current?.(resolved)
+  }, [])
+
+  const loadAllData = useCallback(async () => {
+    if (!mayaAddress) {
+      return
+    }
+
+    const next = await loadNodesRef.current({
+      connectedAddress: mayaAddress,
+      mayanodeUrl: mayanodeUrlRef.current,
+    })
+    setNodes(next)
+    setSelectedNodeAddress((current) => {
+      const resolved = resolveSelectedNodeAddress(
+        next,
+        current,
+        preferredNodeRef.current,
+      )
+      syncSelectedNodeUrl(resolved)
+      return resolved
+    })
+    setLoadError(null)
+
+    setProviderBondError(null)
+    try {
+      const analytics = await loadAnalyticsRef.current(mayaAddress)
+      setProviderBondData(analytics.providerBond)
+    } catch (error) {
+      setProviderBondData(null)
+      setProviderBondError((error as Error).message)
+    }
+
+    setBalanceError(null)
+    try {
+      const response = await loadBalancesRef.current({
+        chain: Chain.MayaChain,
+        address: mayaAddress,
+        includeZeroBalances: true,
+      })
+      const cacao =
+        response.balances.find(
+          (asset) =>
+            asset.id === 'cacao' ||
+            asset.isNative ||
+            asset.symbol.toUpperCase() === 'CACAO',
+        ) ?? null
+      setCacaoBalanceBaseUnits(cacao?.amount ?? '0')
+    } catch (error) {
+      setCacaoBalanceBaseUnits(null)
+      setBalanceError((error as Error).message)
+    }
+
+    setIsActivityLoading(true)
+    setActivityError(null)
+    try {
+      const response = await loadActivityRef.current(mayaAddress)
+      setBondActivity(filterBondActivity(response.actions))
+    } catch (error) {
+      setBondActivity([])
+      setActivityError((error as Error).message)
+    } finally {
+      setIsActivityLoading(false)
+    }
+
+    setPositionsError(null)
+    try {
+      const [liquidity, cacaoPool] = await Promise.all([
+        loadLiquidityPositionsRef.current(mayaAddress),
+        loadCacaoPoolPositionRef.current(mayaAddress).catch(() => null),
+      ])
+      setLiquidityPositions(liquidity)
+      setCacaoPoolPosition(cacaoPool)
+    } catch (error) {
+      setLiquidityPositions([])
+      setCacaoPoolPosition(null)
+      setPositionsError((error as Error).message)
+    }
+  }, [mayaAddress, syncSelectedNodeUrl])
+
+  const refreshAll = useCallback(
+    async (options?: { initial?: boolean }) => {
+      if (!mayaAddress) return
+
+      if (options?.initial) {
+        setIsLoading(true)
+      } else {
+        setIsRefreshing(true)
+      }
+
+      try {
+        await loadAllData()
+      } catch (error) {
+        setNodes([])
+        setSelectedNodeAddress('')
+        setLoadError((error as Error).message)
+      } finally {
+        if (options?.initial) {
+          setIsLoading(false)
+        } else {
+          setIsRefreshing(false)
+        }
+      }
+    },
+    [loadAllData, mayaAddress],
+  )
 
   useEffect(() => {
     if (!mayaAddress) {
-      setNodes([]);
-      setSelectedNodeAddress("");
-      setLoadError(null);
-      setIsLoading(false);
-      setProviderBondData(null);
-      setProviderBondError(null);
-      return;
+      setNodes([])
+      setSelectedNodeAddress('')
+      setLoadError(null)
+      setIsLoading(false)
+      setIsRefreshing(false)
+      setProviderBondData(null)
+      setProviderBondError(null)
+      setCacaoBalanceBaseUnits(null)
+      setBalanceError(null)
+      setBondActivity([])
+      setActivityError(null)
+      setLiquidityPositions([])
+      setCacaoPoolPosition(null)
+      setPositionsError(null)
+      return
     }
-    let cancelled = false;
-    async function refresh() {
-      setIsLoading(true);
-      setLoadError(null);
+
+    let cancelled = false
+
+    async function loadInitial() {
+      setIsLoading(true)
       try {
-        const next = await loadNodesRef.current({
-          connectedAddress: mayaAddress,
-          mayanodeUrl: settings.mayanodeUrl,
-        });
-        if (cancelled) return;
-        setNodes(next);
-        setSelectedNodeAddress((current) =>
-          next.some((node) => node.nodeAddress === current)
-            ? current
-            : (next[0]?.nodeAddress ?? ""),
-        );
+        await loadAllData()
       } catch (error) {
         if (!cancelled) {
-          setNodes([]);
-          setSelectedNodeAddress("");
-          setLoadError((error as Error).message);
+          setNodes([])
+          setSelectedNodeAddress('')
+          setLoadError((error as Error).message)
         }
       } finally {
-        if (!cancelled) setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false)
+        }
       }
     }
-    void refresh();
+
+    void loadInitial()
     return () => {
-      cancelled = true;
-    };
-  }, [balanceRefreshTick, mayaAddress, settings.mayanodeUrl]);
+      cancelled = true
+    }
+  }, [balanceRefreshTick, loadAllData, mayaAddress, settings.mayanodeUrl])
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function refreshProviderBondAnalytics() {
-      if (!mayaAddress) {
-        setProviderBondData(null);
-        setProviderBondError(null);
-        return;
-      }
-
-      setProviderBondError(null);
-      try {
-        const next = await loadAnalytics(mayaAddress);
-        if (!cancelled) {
-          setProviderBondData(next.providerBond);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setProviderBondData(null);
-          setProviderBondError((error as Error).message);
-        }
-      }
+    if (!preferredNodeAddress || !nodes.length) {
+      return
     }
 
-    void refreshProviderBondAnalytics()
-    return () => {
-      cancelled = true;
-    };
-  }, [balanceRefreshTick, loadAnalytics, mayaAddress]);
+    if (nodes.some((node) => node.nodeAddress === preferredNodeAddress)) {
+      setSelectedNodeAddress((current) =>
+        current === preferredNodeAddress ? current : preferredNodeAddress,
+      )
+    }
+  }, [nodes, preferredNodeAddress])
 
   async function connectMayaChain() {
     if (isViewOnly) {
-      return;
+      return
     }
 
     await wallet
-      .execute("accounts.connect", {
+      .execute('accounts.connect', {
         sessionId: activeSession?.id,
         input: { chain: Chain.MayaChain },
       })
       .catch((error) => {
         if (error instanceof WalletSessionNotFoundError) {
-          onMissingSession?.();
-          return;
+          onMissingSession?.()
+          return
         }
-        throw error;
-      });
-  }
-
-  async function refreshNodes() {
-    if (!mayaAddress) return;
-    setIsLoading(true);
-    try {
-      const next = await loadNodesRef.current({
-        connectedAddress: mayaAddress,
-        mayanodeUrl: settings.mayanodeUrl,
-      });
-      setNodes(next);
-      setSelectedNodeAddress((current) =>
-        next.some((node) => node.nodeAddress === current)
-          ? current
-          : (next[0]?.nodeAddress ?? ""),
-      );
-      setLoadError(null);
-    } catch (error) {
-      setLoadError((error as Error).message);
-    } finally {
-      setIsLoading(false);
-    }
+        throw error
+      })
   }
 
   async function executeAction(input: {
-    action: PooledNodeActionKind;
-    amountBaseUnits: string;
-    nodeAddress: string;
-    operatorFeeBps?: string;
-    providerAddress?: string;
-    title: string;
-    successMessage: string;
-    reset: () => void;
+    action: PooledNodeActionKind
+    amountBaseUnits: string
+    bondAsset?: string
+    bondUnits?: string
+    nodeAddress: string
+    operatorFeeBps?: string
+    providerAddress?: string
+    title: string
+    successMessage: string
+    reset: () => void
   }) {
     if (isViewOnly) {
-      setSubmitError(VIEW_ONLY_IMPERSONATION_REASON);
-      return;
+      setSubmitError(VIEW_ONLY_IMPERSONATION_REASON)
+      return
     }
-    if (!activeSession) return;
-    setIsSubmitting(true);
-    setSubmitError(null);
+    if (!activeSession) return
+    setIsSubmitting(true)
+    setSubmitError(null)
     try {
       await trackTransactionJourney(wallet, {
-        kind: "pooled-node",
+        kind: 'pooled-node',
         title: input.title,
         sessionId: activeSession.id,
         source: activeSession.source,
         chain: Chain.MayaChain,
-        routePath: "/pooled-nodes",
+        routePath: '/pooled-nodes',
         steps: createExecutionJourneySteps({
           source: activeSession.source,
-          finalLabel: "Pooled Node Update Complete",
+          finalLabel: 'Pooled Node Update Complete',
         }),
         run: async (journey) => {
-          journey.activateStep("preparing", "Preparing pooled-node memo.");
+          journey.activateStep('preparing', 'Preparing pooled-node memo.')
           const result = await submitAction(wallet, {
             action: input.action,
             amountBaseUnits: input.amountBaseUnits,
+            bondAsset: input.bondAsset,
+            bondUnits: input.bondUnits,
             journeyId: journey.journeyId,
             nodeAddress: input.nodeAddress,
             operatorFeeBps: input.operatorFeeBps,
             providerAddress: input.providerAddress,
             sessionId: activeSession.id,
-          });
-          journey.completeStep("preparing", "Pooled-node deposit prepared.");
-          if (activeSession.source === "extension")
-            journey.completeStep("provider", "Extension accepted the request.");
-          else journey.completeStep("signing", "Vault signing complete.");
-          journey.setPrimaryTxHash(result.txHash);
+          })
+          journey.completeStep('preparing', 'Pooled-node deposit prepared.')
+          if (activeSession.source === 'extension')
+            journey.completeStep('provider', 'Extension accepted the request.')
+          else journey.completeStep('signing', 'Vault signing complete.')
+          journey.setPrimaryTxHash(result.txHash)
           journey.completeStep(
-            "broadcasting",
+            'broadcasting',
             result.txHash
-              ? "Pooled-node transaction broadcast submitted."
-              : "Pooled-node transaction submitted without a returned hash.",
-          );
+              ? 'Pooled-node transaction broadcast submitted.'
+              : 'Pooled-node transaction submitted without a returned hash.',
+          )
           journey.activateStep(
-            "confirming",
-            "Waiting for MayaChain confirmation.",
-          );
+            'confirming',
+            'Waiting for MayaChain confirmation.',
+          )
           const settlement = await waitForJourneyTransactionSettlement(wallet, {
             chain: Chain.MayaChain,
             journeyId: journey.journeyId,
             primary: true,
             sessionId: activeSession.id,
-            stepKey: "confirming",
+            stepKey: 'confirming',
             txHash: result.txHash,
-          });
-          journey.updateStep("complete", {
+          })
+          journey.updateStep('complete', {
             status:
-              settlement === "success"
-                ? "success"
-                : settlement === "error"
-                  ? "error"
-                  : settlement === "unconfirmed"
-                    ? "unconfirmed"
-                    : "attention",
+              settlement === 'success'
+                ? 'success'
+                : settlement === 'error'
+                  ? 'error'
+                  : settlement === 'unconfirmed'
+                    ? 'unconfirmed'
+                    : 'attention',
             message:
-              settlement === "success"
+              settlement === 'success'
                 ? input.successMessage
-                : settlement === "error"
-                  ? "Pooled-node transaction failed on-chain."
-                  : settlement === "unconfirmed"
-                    ? "Pooled-node transaction submitted, but confirmation timed out."
-                    : "Pooled-node transaction submitted, but automatic tracking is unavailable.",
-          });
-          journey.complete(result, settlement);
-          return result;
+                : settlement === 'error'
+                  ? 'Pooled-node transaction failed on-chain.'
+                  : settlement === 'unconfirmed'
+                    ? 'Pooled-node transaction submitted, but confirmation timed out.'
+                    : 'Pooled-node transaction submitted, but automatic tracking is unavailable.',
+          })
+          journey.complete(result, settlement)
+          return result
         },
-      });
-      input.reset();
+      })
+      input.reset()
+      void refreshAll()
     } catch (error) {
-      setSubmitError((error as Error).message);
+      setSubmitError((error as Error).message)
     } finally {
-      setIsSubmitting(false);
+      setIsSubmitting(false)
     }
   }
-  if (!hypertune.beta({ fallback: false })) return <FeatureGate />;
-  const disconnected = !activeSession || !mayaAddress;
+
+  const disconnected = !activeSession || !mayaAddress
   if (disconnected) {
     return (
       <PageShell
         title="Pooled Nodes"
         subtitle={
           activeSession
-            ? "Connect a MayaChain address for the active session to load related pooled nodes."
-            : "Connect a vault session to review related pooled MAYANodes."
+            ? 'Connect a MayaChain address for the active session to load related pooled nodes.'
+            : 'Connect a vault session to review related pooled MAYANodes.'
         }
       >
         <PrimaryPanel>
-          <button
-            className="primary-btn"
-            type="button"
-            disabled={isViewOnly}
-            onClick={() => void connectMayaChain()}
-          >
-            {isViewOnly
-              ? "View Only"
-              : activeSession
-                ? "Connect MayaChain"
-                : "Connect Vault"}
-          </button>
-          {isViewOnly ? (
-            <Warning>{VIEW_ONLY_IMPERSONATION_REASON}</Warning>
-          ) : null}
+          <div className="flex flex-col items-center gap-4 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--maya-teal)]/10 text-[var(--maya-teal)]">
+              <Wallet size={24} />
+            </div>
+            <p className="max-w-md text-sm text-[var(--sea-ink-soft)]">
+              {activeSession
+                ? 'Your vault session is active, but MayaChain is not connected yet.'
+                : 'Connect a vault to inspect operator and provider bond positions.'}
+            </p>
+            <button
+              className="primary-btn"
+              type="button"
+              disabled={isViewOnly}
+              onClick={() => void connectMayaChain()}
+            >
+              {isViewOnly
+                ? 'View Only'
+                : activeSession
+                  ? 'Connect MayaChain'
+                  : 'Connect Vault'}
+            </button>
+            {isViewOnly ? (
+              <Warning className="mt-0">{VIEW_ONLY_IMPERSONATION_REASON}</Warning>
+            ) : null}
+          </div>
         </PrimaryPanel>
       </PageShell>
-    );
+    )
   }
 
-  if (isLoading && !nodes.length) {
-    return (
-      <MessageState
-        title="Loading Pooled Nodes"
-        body="Syncing related pooled MAYANodes from the configured Mayanode endpoint."
-        icon={
-          <Loader2 size={28} className="animate-spin text-[var(--maya-teal)]" />
-        }
-      />
-    );
-  }
-  if (loadError && !nodes.length) {
+  const showInitialSkeleton = isLoading && !nodes.length
+
+  if (loadError && !nodes.length && !showInitialSkeleton) {
     return (
       <MessageState
         title="Failed to Load Nodes"
         body={loadError}
         icon={<AlertCircle size={28} className="text-rose-400" />}
+        action={
+          <button
+            className="primary-btn"
+            type="button"
+            onClick={() => void refreshAll({ initial: true })}
+          >
+            Retry
+          </button>
+        }
       />
-    );
+    )
   }
-  if (!nodes.length) {
+
+  if (!nodes.length && !showInitialSkeleton && !loadError) {
     return (
       <MessageState
         title="No Related Pooled Nodes Found"
-        body="The connected MayaChain address is not currently matched as a node operator or bond provider on the live node set."
+        body="The connected MayaChain address is not currently matched as a node operator or bond provider on the live node set. You must bond as an operator or be added as a provider before this page shows related nodes."
         icon={<Shield size={28} className="text-[var(--maya-teal)]" />}
+        action={
+          <a
+            className="secondary-btn inline-flex"
+            href="https://docs.mayachain.info"
+            rel="noreferrer"
+            target="_blank"
+          >
+            Read Maya Protocol docs
+          </a>
+        }
       />
-    );
+    )
   }
 
   return (
@@ -418,564 +637,118 @@ export function PooledNodesPage({
       title="Pooled Nodes"
       subtitle="Review pooled MAYANodes related to your MayaChain address and submit operator or provider bond actions."
     >
-      <PrimaryPanel>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="rounded-full border border-[var(--line)] px-4 py-2 text-sm font-semibold">
-            {mayaAddress}
-          </span>
-          <button
-            className="secondary-btn"
-            type="button"
-            onClick={() => void refreshNodes()}
-          >
-            <span className="flex items-center gap-2">
+      <PageContent>
+        <CompactToolbar
+          delay={0}
+          actions={
+            <button
+              aria-label="Refresh pooled nodes"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--line)] bg-[var(--surface)] text-[var(--sea-ink-soft)] transition-colors hover:border-[var(--maya-teal)]/30 hover:text-[var(--maya-teal)] disabled:opacity-60"
+              disabled={isRefreshing}
+              type="button"
+              onClick={() => void refreshAll()}
+            >
               <RefreshCw
-                size={14}
-                className={isLoading ? "animate-spin" : undefined}
+                size={18}
+                className={isRefreshing ? 'animate-spin' : undefined}
               />
-              Refresh Nodes
-            </span>
-          </button>
-        </div>
-        {support.reason ? <Warning>{support.reason}</Warning> : null}
-        {submitError ? <ErrorBanner>{submitError}</ErrorBanner> : null}
-      </PrimaryPanel>
-      <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
-        <PrimaryPanel>
-          <h2 className="text-xl font-bold">Your MAYANodes</h2>
-          <div className="mt-4 grid gap-3">
-            {nodes.map((node) => (
-              <button
-                key={node.nodeAddress}
-                type="button"
-                className="rounded-2xl border border-[var(--line)] p-4 text-left"
-                onClick={() => setSelectedNodeAddress(node.nodeAddress)}
-              >
-                <div className="flex flex-wrap gap-2 text-xs font-bold uppercase tracking-wider">
-                  {node.isOperator ? <span>Operator</span> : null}
-                  {!node.isOperator && node.isProvider ? (
-                    <span>Provider</span>
-                  ) : null}
-                  <span>{node.status}</span>
-                </div>
-                <p className="mt-2 font-mono text-sm break-all">
-                  {node.nodeAddress}
-                </p>
-                <p className="mt-2 text-xs">
-                  Fee {node.operatorFeeBps} bps • Providers {node.providerCount}
-                </p>
-              </button>
-            ))}
-          </div>
-        </PrimaryPanel>
-        <div className="grid gap-6">
-          <PrimaryPanel>
-            <h2 className="text-xl font-bold">Node Detail</h2>
-            <p className="mt-2 font-mono text-sm break-all">
-              {selectedNode?.nodeAddress}
-            </p>
-            <div className="mt-4 grid sm:grid-cols-2 xl:grid-cols-4 gap-3 text-sm">
-              <Metric
-                label="Operator Fee"
-                value={`${selectedNode?.operatorFeeBps ?? "0"} bps`}
-              />
-              <Metric
-                label="Node Bond"
-                value={formatBaseUnits(selectedNode?.bond ?? "0", 10) || "0"}
-              />
-              <Metric
-                label="Reward"
-                value={formatBaseUnits(selectedNode?.reward ?? "0", 10) || "0"}
-              />
-              <Metric
-                label="Preflight"
-                value={selectedNode?.preflightStatus ?? "Unknown"}
-              />
+            </button>
+          }
+        >
+          <AddressChip address={mayaAddress} />
+          {activeSession?.label ? <SessionBadge label={activeSession.label} /> : null}
+        </CompactToolbar>
+        <AlertStack alerts={alerts} className="mt-0" />
+
+        {showInitialSkeleton ? (
+          <>
+            <SkeletonPanel rows={4} delay={100} />
+            <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+              <SkeletonPanel rows={3} delay={200} />
+              <SkeletonPanel rows={4} delay={200} />
             </div>
-            {warnings.map((warning) => (
-              <Warning key={warning}>{warning}</Warning>
-            ))}
-          </PrimaryPanel>
-          <PrimaryPanel>
-            <h2 className="text-xl font-bold">Provider Registry</h2>
-            <div className="mt-4 grid gap-3">
-              {selectedNode?.providers.map((provider) => (
-                <div
-                  key={provider.bondAddress}
-                  className="rounded-2xl border border-[var(--line)] p-4"
-                >
-                  <p className="font-mono text-sm break-all">
-                    {provider.bondAddress}
-                  </p>
-                  <p className="mt-2 text-xs">
-                    Reward {formatBaseUnits(provider.reward, 10) || "0"} CACAO
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                    {Object.entries(provider.pools).length ? (
-                      Object.entries(provider.pools).map(([asset, amount]) => (
-                        <span key={`${provider.bondAddress}-${asset}`}>
-                          {asset}: {amount}
-                        </span>
-                      ))
-                    ) : (
-                      <span>No pool allocation map reported.</span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </PrimaryPanel>
-          <PrimaryPanel>
-            <h2 className="text-xl font-bold">CacaoTracker Bond Summary</h2>
-            {providerBondError ? (
-              <Warning>{providerBondError}</Warning>
-            ) : providerBondData ? (
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                {summarizeProviderBond(providerBondData).length ? (
-                  summarizeProviderBond(providerBondData).map((item) => (
-                    <Metric
-                      key={item.label}
-                      label={item.label}
-                      value={item.value}
-                    />
-                  ))
-                ) : (
-                  <div className="rounded-2xl border border-[var(--line)] p-4 text-sm text-[var(--sea-ink-soft)] sm:col-span-2">
-                    Provider bond enrichment is connected, but the upstream
-                    payload did not include summary fields MayaZero can render
-                    safely.
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="mt-4 rounded-2xl border border-[var(--line)] p-4 text-sm text-[var(--sea-ink-soft)]">
-                No provider bond enrichment is available for this Maya address.
-              </div>
-            )}
-          </PrimaryPanel>
-          {selectedNode?.isProvider || selectedNode?.isOperator ? (
-            <PrimaryPanel>
-              <h2 className="text-xl font-bold">Provider Actions</h2>
-              <ActionBlock
-                title="Provider Bond"
-                label="Bond amount"
-                value={providerBondAmount}
-                setValue={setProviderBondAmount}
-                helper={formatAmountPreview(providerBondAmount)}
-                buttonLabel={isSubmitting ? "Submitting Bond" : "Submit Bond"}
-                disabled={
-                  !support.supported ||
-                  isSubmitting ||
-                  !providerBondAmount.trim()
-                }
-                onSubmit={() =>
-                  void executeAction({
-                    action: "provider.bond",
-                    amountBaseUnits: providerBondAmount,
-                    nodeAddress: selectedNode!.nodeAddress,
-                    title: "Provider Bond",
-                    successMessage: "Provider bond confirmed on-chain.",
-                    reset: () => setProviderBondAmount(""),
-                  })
-                }
-              />
-              <ActionBlock
-                title="Provider Unbond"
-                label="Unbond amount"
-                value={providerUnbondAmount}
-                setValue={setProviderUnbondAmount}
-                helper={formatAmountPreview(providerUnbondAmount)}
-                buttonLabel={
-                  isSubmitting ? "Submitting Unbond" : "Submit Unbond"
-                }
-                disabled={
-                  !support.supported ||
-                  isSubmitting ||
-                  !providerUnbondAmount.trim()
-                }
-                onSubmit={() =>
-                  void executeAction({
-                    action: "provider.unbond",
-                    amountBaseUnits: providerUnbondAmount,
-                    nodeAddress: selectedNode!.nodeAddress,
-                    title: "Provider Unbond",
-                    successMessage:
-                      "Provider unbond request confirmed on-chain.",
-                    reset: () => setProviderUnbondAmount(""),
-                  })
-                }
-              />
-            </PrimaryPanel>
-          ) : null}
-          {selectedNode?.isOperator ? (
-            <PrimaryPanel>
-              <h2 className="text-xl font-bold">Operator Controls</h2>
-              <label className="mt-4 block text-sm font-semibold">
-                Provider address
-              </label>
-              <input
-                aria-label="Provider address"
-                className="super-input mt-2"
-                value={operatorAddProviderAddress}
-                onChange={(event) =>
-                  setOperatorAddProviderAddress(event.target.value)
-                }
-              />
-              <label className="mt-4 block text-sm font-semibold">
-                Operator fee basis points
-              </label>
-              <input
-                aria-label="Operator fee basis points"
-                className="super-input mt-2"
-                value={operatorAddProviderFee}
-                onChange={(event) =>
-                  setOperatorAddProviderFee(event.target.value)
-                }
-              />
-              <label className="mt-4 block text-sm font-semibold">
-                Operator bond amount
-              </label>
-              <input
-                aria-label="Operator bond amount"
-                className="super-input mt-2"
-                value={operatorAddProviderAmount}
-                onChange={(event) =>
-                  setOperatorAddProviderAmount(event.target.value)
-                }
-              />
-              <button
-                className="primary-btn mt-4"
-                type="button"
-                disabled={
-                  !support.supported ||
-                  isSubmitting ||
-                  !operatorAddProviderAddress.trim() ||
-                  !operatorAddProviderAmount.trim()
-                }
-                onClick={() =>
-                  void executeAction({
-                    action: "operator.add-provider",
-                    amountBaseUnits: operatorAddProviderAmount,
-                    nodeAddress: selectedNode.nodeAddress,
-                    operatorFeeBps: operatorAddProviderFee,
-                    providerAddress: operatorAddProviderAddress,
-                    title: "Operator Add Provider",
-                    successMessage:
-                      "Bond provider add request confirmed on-chain.",
-                    reset: () => {
-                      setOperatorAddProviderAddress("");
-                      setOperatorAddProviderAmount("");
-                    },
-                  })
-                }
-              >
-                Add Provider
-              </button>
-              <label className="mt-6 block text-sm font-semibold">
-                Fee update basis points
-              </label>
-              <input
-                aria-label="Fee update basis points"
-                className="super-input mt-2"
-                value={operatorFeeUpdateBps}
-                onChange={(event) =>
-                  setOperatorFeeUpdateBps(event.target.value)
-                }
-              />
-              <label className="mt-4 block text-sm font-semibold">
-                Fee update transaction amount
-              </label>
-              <input
-                aria-label="Fee update transaction amount"
-                className="super-input mt-2"
-                value={operatorFeeUpdateAmount}
-                onChange={(event) =>
-                  setOperatorFeeUpdateAmount(event.target.value)
-                }
-              />
-              <button
-                className="primary-btn mt-4"
-                type="button"
-                disabled={
-                  !support.supported ||
-                  isSubmitting ||
-                  !operatorFeeUpdateBps.trim() ||
-                  !operatorFeeUpdateAmount.trim()
-                }
-                onClick={() =>
-                  void executeAction({
-                    action: "operator.update-fee",
-                    amountBaseUnits: operatorFeeUpdateAmount,
-                    nodeAddress: selectedNode.nodeAddress,
-                    operatorFeeBps: operatorFeeUpdateBps,
-                    title: "Operator Update Fee",
-                    successMessage: "Operator fee update confirmed on-chain.",
-                    reset: () => {},
-                  })
-                }
-              >
-                Update Fee
-              </button>
-              <label className="mt-6 block text-sm font-semibold">
-                Provider to remove
-              </label>
-              <select
-                aria-label="Provider to remove"
-                className="super-input mt-2"
-                value={operatorRemoveProviderAddress}
-                onChange={(event) =>
-                  setOperatorRemoveProviderAddress(event.target.value)
-                }
-              >
-                <option value="">Select provider</option>
-                {removableProviders.map((provider) => (
-                  <option
-                    key={provider.bondAddress}
-                    value={provider.bondAddress}
-                  >
-                    {provider.bondAddress}
-                  </option>
-                ))}
-              </select>
-              <label className="mt-4 block text-sm font-semibold">
-                Remove provider amount
-              </label>
-              <input
-                aria-label="Remove provider amount"
-                className="super-input mt-2"
-                value={operatorRemoveProviderAmount}
-                onChange={(event) =>
-                  setOperatorRemoveProviderAmount(event.target.value)
-                }
-              />
-              <button
-                className="primary-btn mt-4"
-                type="button"
-                disabled={
-                  !support.supported ||
-                  isSubmitting ||
-                  !operatorRemoveProviderAddress ||
-                  !operatorRemoveProviderAmount.trim()
-                }
-                onClick={() =>
-                  void executeAction({
-                    action: "operator.remove-provider",
-                    amountBaseUnits: operatorRemoveProviderAmount,
-                    nodeAddress: selectedNode.nodeAddress,
-                    providerAddress: operatorRemoveProviderAddress,
-                    title: "Operator Remove Provider",
-                    successMessage:
-                      "Provider removal request confirmed on-chain.",
-                    reset: () => setOperatorRemoveProviderAmount(""),
-                  })
-                }
-              >
-                Remove Provider
-              </button>
-            </PrimaryPanel>
-          ) : null}
-        </div>
-      </div>
+          </>
+        ) : (
+          <>
+            <BondPortfolioSummary summary={portfolioSummary} delay={100} />
+            <PooledNodeWorkspace
+            nodes={nodes}
+            selectedNode={selectedNode}
+            selectedNodeAddress={selectedNode?.nodeAddress ?? ''}
+            onSelectNode={selectNode}
+            connectedAddress={mayaAddress}
+            balanceBaseUnits={cacaoBalanceBaseUnits}
+            formattedBalance={formattedBalance}
+            supportReason={support.supported ? undefined : support.reason}
+            isViewOnly={isViewOnly}
+            isSubmitting={isSubmitting}
+            liquidityPositions={liquidityPositions}
+            cacaoPoolPosition={cacaoPoolPosition}
+            bondActivity={bondActivity}
+            activityError={activityError}
+            isActivityLoading={isActivityLoading}
+            onSubmitBond={(input) =>
+              void executeAction({
+                action: 'provider.bond',
+                amountBaseUnits: input.amountBaseUnits,
+                bondAsset: input.bondAsset,
+                bondUnits: input.bondUnits,
+                nodeAddress: selectedNode!.nodeAddress,
+                title: 'Provider Bond',
+                successMessage: 'Provider bond confirmed on-chain.',
+                reset: () => {},
+              })
+            }
+            onSubmitUnbond={(input) =>
+              void executeAction({
+                action: 'provider.unbond',
+                amountBaseUnits: input.amountBaseUnits,
+                bondAsset: input.bondAsset,
+                bondUnits: input.bondUnits,
+                nodeAddress: selectedNode!.nodeAddress,
+                title: 'Provider Unbond',
+                successMessage: 'Provider unbond request confirmed on-chain.',
+                reset: () => {},
+              })
+            }
+            onSubmitAddProvider={(input) =>
+              void executeAction({
+                action: 'operator.add-provider',
+                amountBaseUnits: input.amountBaseUnits,
+                nodeAddress: selectedNode!.nodeAddress,
+                operatorFeeBps: input.operatorFeeBps,
+                providerAddress: input.providerAddress,
+                title: 'Operator Add Provider',
+                successMessage: 'Bond provider add request confirmed on-chain.',
+                reset: () => {},
+              })
+            }
+            onSubmitUpdateFee={(input) =>
+              void executeAction({
+                action: 'operator.update-fee',
+                amountBaseUnits: input.amountBaseUnits,
+                nodeAddress: selectedNode!.nodeAddress,
+                operatorFeeBps: input.operatorFeeBps,
+                title: 'Operator Update Fee',
+                successMessage: 'Operator fee update confirmed on-chain.',
+                reset: () => {},
+              })
+            }
+            onSubmitRemoveProvider={(input) =>
+              void executeAction({
+                action: 'operator.remove-provider',
+                amountBaseUnits: input.amountBaseUnits,
+                nodeAddress: selectedNode!.nodeAddress,
+                providerAddress: input.providerAddress,
+                title: 'Operator Remove Provider',
+                successMessage: 'Provider removal request confirmed on-chain.',
+                reset: () => {},
+              })
+            }
+            />
+          </>
+        )}
+      </PageContent>
     </PageShell>
-  );
-}
-
-function PageShell(props: {
-  children: ReactNode;
-  subtitle: string;
-  title: string;
-}) {
-  return (
-    <main className="page-wrap flex flex-col gap-6 min-h-[85vh] px-4 pb-16 pt-8">
-      <div className="text-center">
-        <p className="island-kicker mb-2 flex justify-center items-center gap-2">
-          <Shield size={14} /> MayaChain Validator Rail
-        </p>
-        <h1 className="terminal-title mb-3 text-4xl sm:text-5xl font-black tracking-tight">
-          {props.title}
-        </h1>
-        <p className="text-[var(--sea-ink-soft)]/90 max-w-3xl mx-auto text-sm sm:text-base font-medium">
-          {props.subtitle}
-        </p>
-      </div>
-      {props.children}
-    </main>
-  );
-}
-
-function PrimaryPanel(props: { children: ReactNode }) {
-  return (
-    <section className="glass-panel-strong p-6 sm:p-8">
-      {props.children}
-    </section>
-  );
-}
-
-function MessageState(props: { body: string; icon: ReactNode; title: string }) {
-  return (
-    <PageShell title="Pooled Nodes" subtitle={props.body}>
-      <PrimaryPanel>
-        <div className="flex flex-col items-center text-center gap-4">
-          {props.icon}
-          <h2 className="text-2xl font-bold">{props.title}</h2>
-          <p>{props.body}</p>
-        </div>
-      </PrimaryPanel>
-    </PageShell>
-  );
-}
-
-function Metric(props: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-[var(--line)] p-3">
-      <div className="text-xs uppercase font-bold text-[var(--sea-ink-soft)]">
-        {props.label}
-      </div>
-      <div className="mt-1 font-bold break-all">{props.value}</div>
-    </div>
-  );
-}
-
-function Warning(props: { children: ReactNode }) {
-  return (
-    <div className="mt-4 flex items-start gap-3 rounded-[1.25rem] border border-amber-500/20 bg-amber-500/10 p-3.5 text-sm font-medium text-amber-500">
-      <AlertCircle size={16} className="mt-0.5 shrink-0" />
-      <p>{props.children}</p>
-    </div>
-  );
-}
-
-function ErrorBanner(props: { children: ReactNode }) {
-  return (
-    <div className="mt-4 flex items-start gap-3 rounded-[1.25rem] border border-rose-500/20 bg-rose-500/10 p-3.5 text-sm font-medium text-rose-400">
-      <AlertCircle size={16} className="mt-0.5 shrink-0" />
-      <p>{props.children}</p>
-    </div>
-  );
-}
-
-function ActionBlock(props: {
-  buttonLabel: string;
-  disabled: boolean;
-  helper: string;
-  label: string;
-  onSubmit: () => void;
-  setValue: (value: string) => void;
-  title: string;
-  value: string;
-}) {
-  return (
-    <div className="mt-5 rounded-2xl border border-[var(--line)] p-4">
-      <h3 className="font-bold">{props.title}</h3>
-      <label className="mt-3 block text-sm font-semibold">{props.label}</label>
-      <input
-        aria-label={props.label}
-        className="super-input mt-2"
-        value={props.value}
-        onChange={(event) => props.setValue(event.target.value)}
-      />
-      <p className="mt-2 text-xs text-[var(--sea-ink-soft)]">{props.helper}</p>
-      <button
-        className="primary-btn mt-4"
-        type="button"
-        disabled={props.disabled}
-        onClick={props.onSubmit}
-      >
-        {props.buttonLabel}
-      </button>
-    </div>
-  );
-}
-
-function formatAmountPreview(value: string): string {
-  const normalized = value.trim();
-  if (!normalized) return "Enter a raw on-chain integer amount.";
-  if (!/^\d+$/.test(normalized))
-    return "Amounts must use raw on-chain integers only.";
-  return `Preview: ${formatBaseUnits(normalized, 10) || "0"} CACAO`;
-}
-
-function summarizeProviderBond(
-  payload: BondProviderResponse,
-): Array<{ label: string; value: string }> {
-  if (!payload || typeof payload !== "object") {
-    return [];
-  }
-
-  const record = payload as Record<string, unknown>;
-  const summaries: Array<{ label: string; value: string }> = [];
-  const bondedCacao = findNumericField(record, [
-    "totalBondedCacao",
-    "total_bonded_cacao",
-    "bondedCacao",
-  ]);
-  const rewardCacao = findNumericField(record, [
-    "totalRewardCacao",
-    "total_reward_cacao",
-    "reward",
-    "rewards",
-  ]);
-  const providerCount = findNumericField(record, [
-    "providerCount",
-    "provider_count",
-  ]);
-  const nodeCount = findNumericField(record, ["nodeCount", "node_count"]);
-
-  if (bondedCacao != null) {
-    summaries.push({
-      label: "Bonded CACAO",
-      value: formatCompactCacaoValue(bondedCacao),
-    });
-  }
-  if (rewardCacao != null) {
-    summaries.push({
-      label: "Rewards",
-      value: formatCompactCacaoValue(rewardCacao),
-    });
-  }
-  if (providerCount != null) {
-    summaries.push({
-      label: "Providers",
-      value: String(Math.round(providerCount)),
-    });
-  }
-  if (nodeCount != null) {
-    summaries.push({
-      label: "Nodes",
-      value: String(Math.round(nodeCount)),
-    });
-  }
-
-  return summaries;
-}
-
-function findNumericField(
-  record: Record<string, unknown>,
-  keys: string[],
-): number | null {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
-    }
-    if (typeof value === "string") {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) {
-        return parsed;
-      }
-    }
-  }
-
-  return null;
-}
-
-function formatCompactCacaoValue(value: number): string {
-  if (!Number.isFinite(value)) {
-    return "n/a";
-  }
-
-  return new Intl.NumberFormat("en-US", {
-    notation: Math.abs(value) >= 1_000_000 ? "compact" : "standard",
-    maximumFractionDigits: Math.abs(value) >= 1_000 ? 0 : 2,
-  }).format(value);
+  )
 }

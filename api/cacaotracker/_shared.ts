@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type {
   AddressRewardsResponse,
   BondProviderResponse,
+  BondProviderSummary,
   CacaoPoolApyResponse,
   CacaoPoolDetailResponse,
   CacaoPoolHistoryEntry,
@@ -143,6 +144,76 @@ async function readUpstreamErrorMessage(response: Response): Promise<string> {
   }
 
   return fallback
+}
+
+function readNumericField(record: UnknownRecord, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value
+    }
+    if (typeof value === 'string') {
+      const parsed = Number(value)
+      if (Number.isFinite(parsed)) {
+        return parsed
+      }
+    }
+  }
+
+  return undefined
+}
+
+function normalizeBondProviderResponse(payload: unknown): BondProviderResponse {
+  if (!isRecord(payload)) {
+    return null
+  }
+
+  const nodes = Array.isArray(payload.nodes)
+    ? payload.nodes
+        .filter(isRecord)
+        .map((entry) => ({
+          nodeAddress:
+            typeof entry.nodeAddress === 'string'
+              ? entry.nodeAddress
+              : typeof entry.node_address === 'string'
+                ? entry.node_address
+                : '',
+          bondedCacao:
+            readNumericField(entry, ['bondedCacao', 'bonded_cacao']) ?? 0,
+          rewardCacao: readNumericField(entry, [
+            'rewardCacao',
+            'reward_cacao',
+            'reward',
+          ]),
+        }))
+        .filter((entry) => entry.nodeAddress)
+    : undefined
+
+  const summary: BondProviderSummary = {
+    totalBondedCacao: readNumericField(payload, [
+      'totalBondedCacao',
+      'total_bonded_cacao',
+      'bondedCacao',
+    ]),
+    totalRewardCacao: readNumericField(payload, [
+      'totalRewardCacao',
+      'total_reward_cacao',
+      'reward',
+      'rewards',
+    ]),
+    providerCount: readNumericField(payload, ['providerCount', 'provider_count']),
+    nodeCount: readNumericField(payload, ['nodeCount', 'node_count']),
+    nodes,
+  }
+
+  const hasData =
+    summary.totalBondedCacao != null ||
+    summary.totalRewardCacao != null ||
+    summary.providerCount != null ||
+    summary.nodeCount != null ||
+    (summary.nodes?.length ?? 0) > 0
+
+  return hasData ? summary : null
 }
 
 function normalizeCacaoPoolHistoryResponse(
@@ -608,13 +679,12 @@ export async function fetchPooledNodesDetail(
   dependencies: CacaotrackerDependencies = {},
 ): Promise<PooledNodesDetailResponse> {
   const encodedAddress = encodeURIComponent(address)
-  const providerBond = await fetchCacaotrackerJson<BondProviderResponse>(
-    `/bond/provider/${encodedAddress}`,
-    {
+  const providerBond = normalizeBondProviderResponse(
+    await fetchCacaotrackerJson<unknown>(`/bond/provider/${encodedAddress}`, {
       ...dependencies,
       cacheBucket: 'pooledNodes',
-    },
-  ).catch(() => null)
+    }).catch(() => null),
+  )
 
   return { providerBond }
 }

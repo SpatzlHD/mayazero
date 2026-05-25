@@ -44,6 +44,15 @@ CACAOTRACKER_API_KEY=your_cacaotracker_api_key
 
 These values are used only inside the `/api/cacaotracker/*` proxy layer. Do not expose them as `VITE_` variables or store them in browser settings.
 
+Browser analytics require public Vite environment variables:
+
+```bash
+VITE_ANALYTICS_ALLOWED_HOSTS=mayazero.app
+VITE_OPENPANEL_CLIENT_ID=your_openpanel_client_id
+```
+
+`VITE_ANALYTICS_ALLOWED_HOSTS` is a comma-separated list of production hostnames where analytics may run. `VITE_OPENPANEL_CLIENT_ID` comes from your OpenPanel Cloud project settings and enables product analytics alongside Vercel Analytics.
+
 ## Styling
 
 This project uses [Tailwind CSS](https://tailwindcss.com/) for styling.

@@ -15,7 +15,6 @@ import { TransactionJourneyActivityButton } from "./TransactionJourneyHost";
 import { useImpersonationState } from "#/provider/ImpersonationProvider";
 
 import mayaLogo from "../assets/logos/maya-logo.png";
-import { useHypertune } from "#/generated/hypertune.react";
 
 const primaryLinks = [
   { to: "/", label: "Portfolio" },
@@ -62,40 +61,13 @@ export default function Header() {
   const [isUtilityMenuOpen, setIsUtilityMenuOpen] = useState(false);
   const [filteredToolLinks, setFilteredToolLinks] =
     useState<toolLink[]>(toolLinks);
-  const hypertune = useHypertune();
+
   const toolsMenuId = useId();
   const utilityMenuId = useId();
   const toolsMenuRef = useRef<HTMLDivElement>(null);
   const utilityMenuRef = useRef<HTMLDivElement>(null);
   const toolsTriggerRef = useRef<HTMLButtonElement>(null);
   const utilityTriggerRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (hypertune) {
-      toolLinks.forEach((link) => {
-        if (link.to === "/pooled-nodes") {
-          if (!hypertune.beta({ fallback: false })) {
-            setFilteredToolLinks([
-              { to: "/cacao-pool", label: "CACAOPool" },
-              { to: "/maya-token", label: "Maya Token" },
-              { to: "/mayanames", label: "MAYANames" },
-              { to: "/maya-masks", label: "Maya Masks" },
-              { to: "/settings", label: "Settings" },
-            ]);
-          } else {
-            setFilteredToolLinks([
-              { to: "/pooled-nodes", label: "Pooled Nodes" },
-              { to: "/cacao-pool", label: "CACAOPool" },
-              { to: "/maya-token", label: "Maya Token" },
-              { to: "/mayanames", label: "MAYANames" },
-              { to: "/maya-masks", label: "Maya Masks" },
-              { to: "/settings", label: "Settings" },
-            ]);
-          }
-        }
-      });
-    }
-  }, [hypertune]);
 
   const isToolsRouteActive = filteredToolLinks.some((link) =>
     isPathActive(pathname, link.to),
@@ -251,7 +223,7 @@ export default function Header() {
                     aria-label="Tools"
                     className="absolute top-full left-1/2 z-[90] mt-3 flex w-64 -translate-x-1/2 flex-col gap-1 rounded-[1.25rem] border border-[var(--line)] bg-[var(--surface-strong)]/95 p-3 shadow-2xl backdrop-blur-2xl"
                   >
-                    {filteredToolLinks.map((link) => (
+                    {toolLinks.map((link) => (
                       <Link
                         key={link.to}
                         to={link.to}
@@ -397,7 +369,7 @@ export default function Header() {
             <div className="px-3 pb-2 text-[11px] font-bold uppercase tracking-[0.24em] text-[var(--sea-ink-soft)]">
               Tools
             </div>
-            {filteredToolLinks.map((link) => (
+            {toolLinks.map((link) => (
               <Link
                 key={link.to}
                 to={link.to}

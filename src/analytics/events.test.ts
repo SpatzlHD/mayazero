@@ -1,6 +1,31 @@
 import { Chain } from "@vultisig/sdk";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { sanitizeAnalyticsEvent, toChainCountBucket } from "./events";
+
+const { vercelTrack, trackOpenPanelEvent, isAnalyticsEnabledInBrowser, isAnalyticsOptOutEnabled } =
+  vi.hoisted(() => ({
+    vercelTrack: vi.fn(),
+    trackOpenPanelEvent: vi.fn(),
+    isAnalyticsEnabledInBrowser: vi.fn(() => true),
+    isAnalyticsOptOutEnabled: vi.fn(() => false),
+  }));
+
+vi.mock("@vercel/analytics/react", () => ({
+  track: vercelTrack,
+}));
+
+vi.mock("./openpanel", () => ({
+  trackOpenPanelEvent,
+}));
+
+vi.mock("./runtime", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./runtime")>();
+  return {
+    ...original,
+    isAnalyticsEnabledInBrowser,
+    isAnalyticsOptOutEnabled,
+  };
+});
 
 describe("analytics event helpers", () => {
   it("sanitizes valid custom events into coarse analytics payloads", () => {
@@ -55,5 +80,63 @@ describe("analytics event helpers", () => {
     expect(toChainCountBucket(1)).toBe("1");
     expect(toChainCountBucket(2)).toBe("2_3");
     expect(toChainCountBucket(7)).toBe("4_plus");
+  });
+});
+
+describe("trackAnalyticsEvent", () => {
+  beforeEach(() => {
+    vercelTrack.mockClear();
+    trackOpenPanelEvent.mockClear();
+    isAnalyticsEnabledInBrowser.mockReturnValue(true);
+    isAnalyticsOptOutEnabled.mockReturnValue(false);
+  });
+
+  it("fans out sanitized events to Vercel Analytics and OpenPanel", async () => {
+    const { trackAnalyticsEvent } = await import("./events");
+
+    trackAnalyticsEvent({
+      type: "wallet_connected",
+      source: "sdk",
+      session_kind: "vault",
+      chain_count_bucket: "2_3",
+    });
+
+    expect(vercelTrack).toHaveBeenCalledWith("wallet_connected", {
+      source: "sdk",
+      session_kind: "vault",
+      chain_count_bucket: "2_3",
+    });
+    expect(trackOpenPanelEvent).toHaveBeenCalledWith("wallet_connected", {
+      source: "sdk",
+      session_kind: "vault",
+      chain_count_bucket: "2_3",
+    });
+  });
+
+  it("does not send invalid or opted-out events to either provider", async () => {
+    const { trackAnalyticsEvent } = await import("./events");
+
+    trackAnalyticsEvent({
+      type: "journey_finished",
+      subject: "swap",
+      action: "submit",
+      route: "/swap",
+      status: "success",
+      txHash: "0xdeadbeef",
+    } as Record<string, unknown> as never);
+
+    expect(vercelTrack).not.toHaveBeenCalled();
+    expect(trackOpenPanelEvent).not.toHaveBeenCalled();
+
+    isAnalyticsOptOutEnabled.mockReturnValue(true);
+
+    trackAnalyticsEvent({
+      type: "referral_capture",
+      outcome: "stored",
+      had_existing_referral: false,
+    });
+
+    expect(vercelTrack).not.toHaveBeenCalled();
+    expect(trackOpenPanelEvent).not.toHaveBeenCalled();
   });
 });

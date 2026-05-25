@@ -278,14 +278,7 @@ function SwapTerminalPage() {
             const response = await fetchAddressBalances({
               chain: walletChain,
               address,
-              assetHints: assets
-                .filter((asset) => asset.chain === walletChain)
-                .map((asset) => ({
-                  id: asset.tokenId ?? asset.id,
-                  symbol: asset.ticker,
-                  name: asset.label,
-                  decimals: asset.decimals,
-                })),
+              assetHints: buildSwapBalanceAssetHints(assets, walletChain),
               includeZeroBalances: false,
             });
             if (cancelled) return;
@@ -301,7 +294,7 @@ function SwapTerminalPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeSession, balanceRefreshTick]);
+  }, [activeSession, assets, balanceRefreshTick]);
 
   const hasStoredReferral = Boolean(settings.referralMayaName.trim());
   const manualAffiliateOverride = hasManualAffiliateOverride(
@@ -1824,6 +1817,25 @@ export function formatBaseUnits(
   const fractionalPart = padded.slice(-decimals).replace(/0+$/, "");
 
   return `${negative ? "-" : ""}${integerPart}${fractionalPart ? `.${fractionalPart}` : ""}`;
+}
+
+export function buildSwapBalanceAssetHints(
+  assets: ProtocolAsset[],
+  chain: Chain,
+): Array<{
+  id: string;
+  symbol: string;
+  name: string;
+  decimals: number;
+}> {
+  return assets
+    .filter((asset) => asset.chain === chain)
+    .map((asset) => ({
+      id: asset.tokenId ?? asset.id,
+      symbol: asset.ticker,
+      name: asset.label,
+      decimals: asset.decimals,
+    }));
 }
 
 function formatQuoteFeeAmount(

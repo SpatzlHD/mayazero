@@ -1,5 +1,6 @@
 import { Analytics } from "@vercel/analytics/react";
 import { useSettings } from "#/provider/SettingsProvider";
+import { OpenPanelScreenTracker } from "./OpenPanelScreenTracker";
 import {
   isAnalyticsEnabledInBrowser,
   sanitizeAnalyticsBeforeSend,
@@ -12,5 +13,10 @@ export function AppAnalytics() {
     return null;
   }
 
-  return <Analytics beforeSend={sanitizeAnalyticsBeforeSend} />;
+  return (
+    <>
+      <Analytics beforeSend={sanitizeAnalyticsBeforeSend} />
+      <OpenPanelScreenTracker />
+    </>
+  );
 }

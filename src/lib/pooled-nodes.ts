@@ -1,3 +1,10 @@
+import type { BondProviderSummary } from './cacaotracker-types'
+import {
+  classifyProviderPoolAsset,
+  computeEffectiveBondUnits,
+  type BondPositionSource,
+} from './pooled-nodes-bond'
+
 type FetchLike = typeof fetch
 
 type MayanodeNodeRecord = {
@@ -216,6 +223,137 @@ export function sortPooledNodes(nodes: PooledNode[]): PooledNode[] {
 
     return left.nodeAddress.localeCompare(right.nodeAddress)
   })
+}
+
+export type ProviderBondAllocation = {
+  asset: string
+  units: string
+  source: BondPositionSource | null
+  effectiveUnits: string
+}
+
+export function sumProviderEffectiveBondUnits(
+  pools: Record<string, string>,
+): bigint {
+  return Object.entries(pools).reduce((sum, [asset, amount]) => {
+    if (!/^\d+$/.test(amount)) {
+      return sum
+    }
+
+    const source = classifyProviderPoolAsset(asset)
+    if (source === 'cacao-pool') {
+      return sum + computeEffectiveBondUnits(amount, 'cacao-pool')
+    }
+
+    if (source === 'lp') {
+      return sum + BigInt(amount)
+    }
+
+    return sum + BigInt(amount)
+  }, 0n)
+}
+
+export function getProviderBondAllocations(
+  provider: PooledNodeProvider,
+): ProviderBondAllocation[] {
+  return Object.entries(provider.pools).map(([asset, units]) => {
+    const source = classifyProviderPoolAsset(asset)
+    return {
+      asset,
+      units,
+      source,
+      effectiveUnits:
+        source != null
+          ? computeEffectiveBondUnits(units, source).toString()
+          : units,
+    }
+  })
+}
+
+export type ConnectedProviderPosition = {
+  provider: PooledNodeProvider | null
+  poolSumBaseUnits: string | null
+  effectiveBondUnits: string | null
+  nodeBondShareBps: number | null
+}
+
+export type BondPortfolioSummary = {
+  operatorNodeCount: number
+  providerOnlyNodeCount: number
+  warningNodeCount: number
+  totalNodeRewardsBaseUnits: string
+  totalBondedCacao?: number
+  totalRewardCacao?: number
+  providerCount?: number
+  nodeCount?: number
+}
+
+export function sumProviderPoolBaseUnits(pools: Record<string, string>): bigint {
+  return Object.values(pools).reduce((sum, value) => {
+    if (/^\d+$/.test(value)) {
+      return sum + BigInt(value)
+    }
+    return sum
+  }, 0n)
+}
+
+export function getConnectedProviderPosition(
+  node: PooledNode,
+  address: string,
+): ConnectedProviderPosition {
+  const normalized = normalizeAddress(address)
+  const provider =
+    node.providers.find(
+      (candidate) => normalizeAddress(candidate.bondAddress) === normalized,
+    ) ?? null
+
+  if (!provider) {
+    return {
+      provider: null,
+      poolSumBaseUnits: null,
+      effectiveBondUnits: null,
+      nodeBondShareBps: null,
+    }
+  }
+
+  const poolSum = sumProviderPoolBaseUnits(provider.pools)
+  const effectiveSum = sumProviderEffectiveBondUnits(provider.pools)
+  const poolSumBaseUnits = poolSum > 0n ? poolSum.toString() : null
+  const effectiveBondUnits = effectiveSum > 0n ? effectiveSum.toString() : null
+  let nodeBondShareBps: number | null = null
+  const nodeBond = BigInt(node.bond || '0')
+  if (effectiveSum > 0n && nodeBond > 0n) {
+    nodeBondShareBps = Number((effectiveSum * 10000n) / nodeBond)
+  }
+
+  return { provider, poolSumBaseUnits, effectiveBondUnits, nodeBondShareBps }
+}
+
+export function buildBondPortfolioSummary(
+  nodes: PooledNode[],
+  providerBond: BondProviderSummary | null,
+): BondPortfolioSummary {
+  const operatorNodeCount = nodes.filter((node) => node.isOperator).length
+  const providerOnlyNodeCount = nodes.filter(
+    (node) => node.isProvider && !node.isOperator,
+  ).length
+  const warningNodeCount = nodes.filter(
+    (node) => getPooledNodeWarnings(node).length > 0,
+  ).length
+  const totalNodeRewardsBaseUnits = nodes
+    .reduce((sum, node) => sum + BigInt(node.reward || '0'), 0n)
+    .toString()
+
+  return {
+    operatorNodeCount,
+    providerOnlyNodeCount,
+    warningNodeCount,
+    totalNodeRewardsBaseUnits,
+    totalBondedCacao: providerBond?.totalBondedCacao,
+    totalRewardCacao: providerBond?.totalRewardCacao,
+    providerCount: providerBond?.providerCount,
+    nodeCount: providerBond?.nodeCount ?? nodes.length,
+  }
 }
 
 export function getPooledNodeWarnings(node: PooledNode | null): string[] {

@@ -13,6 +13,7 @@
     "copy:vultisig-wasm": "powershell -NoProfile -Command \"Get-ChildItem 'node_modules/@vultisig/sdk/dist' -Recurse -Filter *.wasm | Copy-Item -Destination 'public' -Force; Copy-Item 'node_modules/@trustwallet/wallet-core/dist/lib/wallet-core.wasm' -Destination 'public' -Force; Copy-Item 'node_modules/7z-wasm/7zz.wasm' -Destination 'public' -Force\""
   },
   "dependencies": {
+    "@openpanel/web": "^1.4.1",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-devtools": "latest",
     "@tanstack/react-router": "latest",

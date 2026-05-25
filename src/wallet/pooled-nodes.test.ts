@@ -1,6 +1,7 @@
 import { Chain } from '@vultisig/sdk'
 import { describe, expect, it, vi } from 'vitest'
 import { MayaWalletManager } from './manager'
+import { BOND_DEPOSIT_BASE_UNITS } from '#/lib/pooled-nodes-bond'
 import {
   buildPooledNodeMemo,
   getPooledNodeActionSupport,
@@ -9,7 +10,25 @@ import {
 import { createFakeSdkClient, createFakeVault, createMemoryStorage } from './test-utils'
 
 describe('wallet pooled-node helper', () => {
-  it('builds the exact v1 memo forms', () => {
+  it('builds LP bond and unbond memos with 0.02 CACAO deposit amount', () => {
+    expect(buildPooledNodeMemo({
+      action: 'provider.bond',
+      amountBaseUnits: '10',
+      bondAsset: 'BTC.BTC',
+      bondUnits: '5000000000',
+      nodeAddress: 'maya1node',
+    })).toBe('BOND:BTC.BTC:5000000000:maya1node')
+
+    expect(buildPooledNodeMemo({
+      action: 'provider.unbond',
+      amountBaseUnits: '20',
+      bondAsset: 'BTC.BTC',
+      bondUnits: '1000000000',
+      nodeAddress: 'maya1node',
+    })).toBe('UNBOND:BTC.BTC:1000000000:maya1node')
+  })
+
+  it('builds legacy pooled operator memos', () => {
     expect(buildPooledNodeMemo({
       action: 'provider.bond',
       amountBaseUnits: '10',
@@ -70,6 +89,8 @@ describe('wallet pooled-node helper', () => {
     const result = await submitPooledNodeAction(manager, {
       action: 'provider.unbond',
       amountBaseUnits: '25000000000',
+      bondAsset: 'BTC.BTC',
+      bondUnits: '25000000000',
       nodeAddress: 'maya1node',
       sessionId: 'extension:vultisig',
     })
@@ -77,16 +98,16 @@ describe('wallet pooled-node helper', () => {
     expect(result).toMatchObject({
       route: 'extension',
       txHash: 'maya-pooled-hash',
-      txAmountBaseUnits: '1',
-      memo: 'UNBOND:maya1node:25000000000',
+      txAmountBaseUnits: BOND_DEPOSIT_BASE_UNITS,
+      memo: 'UNBOND:BTC.BTC:25000000000:maya1node',
     })
     expect(requests).toContainEqual(
       expect.objectContaining({
         method: 'deposit_transaction',
         params: [
           expect.objectContaining({
-            amount: { amount: '1', decimals: 10 },
-            memo: 'UNBOND:maya1node:25000000000',
+            amount: { amount: BOND_DEPOSIT_BASE_UNITS, decimals: 10 },
+            memo: 'UNBOND:BTC.BTC:25000000000:maya1node',
           }),
         ],
       }),

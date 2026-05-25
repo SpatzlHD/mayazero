@@ -1,5 +1,6 @@
 import { Chain } from "@vultisig/sdk";
 import { track } from "@vercel/analytics/react";
+import { trackOpenPanelEvent } from "./openpanel";
 import {
   ANALYTICS_ROUTE_CHAIN,
   isAnalyticsEnabledInBrowser,
@@ -297,4 +298,5 @@ export function trackAnalyticsEvent(event: AnalyticsEvent): void {
   }
 
   track(sanitized.name, sanitized.properties);
+  trackOpenPanelEvent(sanitized.name, sanitized.properties);
 }

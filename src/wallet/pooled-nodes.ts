@@ -1,10 +1,11 @@
 import { Chain } from '@vultisig/sdk'
+import { BOND_DEPOSIT_BASE_UNITS } from '#/lib/pooled-nodes-bond'
 import type { WalletCommandMap, WalletSession } from './types'
 import type { MayaWalletManager } from './manager'
 import { WalletCapabilityError, WalletSessionNotFoundError } from './errors'
 
 const CACAO_DECIMALS = 10
-const MINIMUM_DEPOSIT_AMOUNT = '1'
+const MINIMUM_DEPOSIT_AMOUNT = BOND_DEPOSIT_BASE_UNITS
 
 export type PooledNodeActionKind =
   | 'provider.bond'
@@ -24,6 +25,8 @@ export type PooledNodeActionSupport = {
 export type SubmitPooledNodeActionInput = {
   action: PooledNodeActionKind
   amountBaseUnits: string
+  bondAsset?: string
+  bondUnits?: string
   journeyId?: string
   nodeAddress: string
   operatorFeeBps?: string
@@ -115,15 +118,21 @@ export function getPooledNodeActionSupport(
 export function buildPooledNodeMemo(
   input: Pick<
     SubmitPooledNodeActionInput,
-    'action' | 'amountBaseUnits' | 'nodeAddress' | 'operatorFeeBps' | 'providerAddress'
+    'action' | 'amountBaseUnits' | 'bondAsset' | 'bondUnits' | 'nodeAddress' | 'operatorFeeBps' | 'providerAddress'
   >,
 ): string {
   const nodeAddress = normalizeMayaAddress(input.nodeAddress, 'Node address')
 
   switch (input.action) {
     case 'provider.bond':
+      if (input.bondAsset && input.bondUnits) {
+        return `BOND:${normalizeBondAsset(input.bondAsset)}:${normalizeBaseUnitAmount(input.bondUnits)}:${nodeAddress}`
+      }
       return `BOND:${nodeAddress}`
     case 'provider.unbond':
+      if (input.bondAsset && input.bondUnits) {
+        return `UNBOND:${normalizeBondAsset(input.bondAsset)}:${normalizeBaseUnitAmount(input.bondUnits)}:${nodeAddress}`
+      }
       return `UNBOND:${nodeAddress}:${normalizeBaseUnitAmount(input.amountBaseUnits)}`
     case 'operator.add-provider':
       return `BOND:${nodeAddress}:${normalizeMayaAddress(
@@ -262,10 +271,18 @@ export async function submitPooledNodeAction(
 function resolveTxAmountBaseUnits(input: SubmitPooledNodeActionInput): string {
   switch (input.action) {
     case 'provider.bond':
+    case 'provider.unbond':
+      if (input.bondAsset && input.bondUnits) {
+        return MINIMUM_DEPOSIT_AMOUNT
+      }
+      if (input.action === 'provider.unbond') {
+        normalizeBaseUnitAmount(input.amountBaseUnits)
+        return MINIMUM_DEPOSIT_AMOUNT
+      }
+      return normalizeBaseUnitAmount(input.amountBaseUnits)
     case 'operator.add-provider':
     case 'operator.update-fee':
       return normalizeBaseUnitAmount(input.amountBaseUnits)
-    case 'provider.unbond':
     case 'operator.remove-provider':
       normalizeBaseUnitAmount(input.amountBaseUnits)
       return MINIMUM_DEPOSIT_AMOUNT
@@ -315,6 +332,14 @@ function normalizeBaseUnitAmount(value: string | undefined): string {
   const normalized = value?.trim() ?? ''
   if (!/^\d+$/.test(normalized) || normalized === '0') {
     throw new Error('Enter a valid positive on-chain amount.')
+  }
+  return normalized
+}
+
+function normalizeBondAsset(value: string | undefined): string {
+  const normalized = value?.trim() ?? ''
+  if (!normalized) {
+    throw new Error('Bond asset is required.')
   }
   return normalized
 }

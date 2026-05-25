@@ -1,7 +1,7 @@
-import { Link } from '@tanstack/react-router'
-import { Chain } from '@vultisig/sdk'
-import { type HTMLInputTypeAttribute, useState } from 'react'
-import QRCode from 'react-qr-code'
+import { Link } from "@tanstack/react-router";
+import { Chain } from "@vultisig/sdk";
+import { type HTMLInputTypeAttribute, useState } from "react";
+import QRCode from "react-qr-code";
 import {
   Activity,
   type LucideIcon,
@@ -13,97 +13,119 @@ import {
   WalletCards,
   X,
   Search,
-} from 'lucide-react'
+} from "lucide-react";
 import {
   type WalletChain,
   type WalletCommandMap,
   type WalletOperation,
   type WalletSession,
-} from '#/wallet'
+} from "#/wallet";
 
 export type ProtocolAsset = {
-  id: string
-  label: string
-  chain: WalletChain
-  ticker: string
-  decimals: number
-  blurb: string
-  mayaAsset: string
-  tokenId?: string
-  priceUsd?: string
-}
+  id: string;
+  label: string;
+  chain: WalletChain;
+  ticker: string;
+  decimals: number;
+  blurb: string;
+  mayaAsset: string;
+  tokenId?: string;
+  priceUsd?: string;
+};
 
-const rawIcons = import.meta.glob('../assets/assets/icons/*.{png,svg}', { eager: true })
-const iconMap: Record<string, string> = {}
+const rawIcons = import.meta.glob("../assets/assets/icons/*.{png,svg}", {
+  eager: true,
+});
+const iconMap: Record<string, string> = {};
 for (const path in rawIcons) {
-  const filename = path.split('/').pop()?.split('.')[0]
+  const filename = path.split("/").pop()?.split(".")[0];
   if (filename) {
-    iconMap[filename.toLowerCase()] = (rawIcons[path] as { default: string }).default || (rawIcons[path] as string)
+    iconMap[filename.toLowerCase()] =
+      (rawIcons[path] as { default: string }).default ||
+      (rawIcons[path] as string);
   }
 }
 
-export function AssetIcon({ assetId, className = "w-6 h-6" }: { assetId: string, className?: string }) {
-  const src = iconMap[assetId.toLowerCase()]
+export function AssetIcon({
+  assetId,
+  className = "w-6 h-6",
+}: {
+  assetId: string;
+  className?: string;
+}) {
+  console.log("assetId", assetId);
+  const src = iconMap[assetId.toLowerCase()];
+  console.log("src", assetId, src);
   if (!src) {
-    return <div className={`rounded-full bg-[var(--line)] border border-[var(--sea-ink-soft)] ${className}`} />
+    return (
+      <div
+        className={`rounded-full bg-[var(--line)] border border-[var(--sea-ink-soft)] ${className}`}
+      />
+    );
   }
-  return <img src={src} alt={assetId} className={`rounded-full object-contain ${className}`} />
+  return (
+    <img
+      src={src}
+      alt={assetId}
+      className={`rounded-full object-contain ${className}`}
+    />
+  );
 }
 
 export const protocolAssets: ProtocolAsset[] = [
   {
-    id: 'cacao',
-    label: 'CACAO',
+    id: "cacao",
+    label: "CACAO",
     chain: Chain.MayaChain,
-    ticker: 'CACAO',
+    ticker: "CACAO",
     decimals: 10,
-    mayaAsset: 'MAYA.CACAO',
-    blurb: 'MayaChain native settlement asset',
+    mayaAsset: "MAYA.CACAO",
+    blurb: "MayaChain native settlement asset",
   },
   {
-    id: 'eth',
-    label: 'ETH',
+    id: "eth",
+    label: "ETH",
     chain: Chain.Ethereum,
-    ticker: 'ETH',
+    ticker: "ETH",
     decimals: 18,
-    mayaAsset: 'ETH.ETH',
-    blurb: 'Ethereum gas asset and common route origin',
+    mayaAsset: "ETH.ETH",
+    blurb: "Ethereum gas asset and common route origin",
   },
   {
-    id: 'usdc',
-    label: 'USDC',
+    id: "usdc",
+    label: "USDC",
     chain: Chain.Ethereum,
-    ticker: 'USDC',
+    ticker: "USDC",
     decimals: 6,
-    mayaAsset: 'ETH.USDC-0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-    tokenId: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-    blurb: 'Stable route anchor on Ethereum',
+    mayaAsset: "ETH.USDC-0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    tokenId: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    blurb: "Stable route anchor on Ethereum",
   },
   {
-    id: 'btc',
-    label: 'BTC',
+    id: "btc",
+    label: "BTC",
     chain: Chain.Bitcoin,
-    ticker: 'BTC',
+    ticker: "BTC",
     decimals: 8,
-    mayaAsset: 'BTC.BTC',
-    blurb: 'Bitcoin settlement destination',
+    mayaAsset: "BTC.BTC",
+    blurb: "Bitcoin settlement destination",
   },
   {
-    id: 'kuji',
-    label: 'KUJI',
+    id: "kuji",
+    label: "KUJI",
     chain: Chain.Kujira,
-    ticker: 'KUJI',
+    ticker: "KUJI",
     decimals: 6,
-    mayaAsset: 'KUJI.KUJI',
-    blurb: 'Cosmos-side liquidity pair asset',
+    mayaAsset: "KUJI.KUJI",
+    blurb: "Cosmos-side liquidity pair asset",
   },
-]
+];
 
 export const lpPositions = [
-  { pool: 'CACAO / ETH', apr: '14.2%', depth: '$12.4m', status: 'balanced' },
-  { pool: 'CACAO / BTC', apr: '9.8%', depth: '$18.1m', status: 'deep' },
-  { pool: 'CACAO / KUJI', apr: '21.5%', depth: '$3.9m', status: 'volatile' },
-]
+  { pool: "CACAO / ETH", apr: "14.2%", depth: "$12.4m", status: "balanced" },
+  { pool: "CACAO / BTC", apr: "9.8%", depth: "$18.1m", status: "deep" },
+  { pool: "CACAO / KUJI", apr: "21.5%", depth: "$3.9m", status: "volatile" },
+];
 
 export function BoardHeading({
   eyebrow,
@@ -111,10 +133,10 @@ export function BoardHeading({
   description,
   icon: Icon,
 }: {
-  eyebrow: string
-  title: string
-  description: string
-  icon: LucideIcon
+  eyebrow: string;
+  title: string;
+  description: string;
+  icon: LucideIcon;
 }) {
   return (
     <div className="flex items-start justify-between gap-4">
@@ -127,7 +149,7 @@ export function BoardHeading({
         <Icon size={20} />
       </div>
     </div>
-  )
+  );
 }
 
 export function MetricCard({
@@ -136,10 +158,10 @@ export function MetricCard({
   value,
   detail,
 }: {
-  icon: LucideIcon
-  label: string
-  value: string
-  detail: string
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  detail: string;
 }) {
   return (
     <article className="metric-card">
@@ -150,7 +172,7 @@ export function MetricCard({
       <p className="metric-value">{value}</p>
       <p className="panel-micro">{detail}</p>
     </article>
-  )
+  );
 }
 
 export function MetricMini({ label, value }: { label: string; value: string }) {
@@ -159,44 +181,46 @@ export function MetricMini({ label, value }: { label: string; value: string }) {
       <p className="panel-label">{label}</p>
       <p className="mini-metric-value">{value}</p>
     </article>
-  )
+  );
 }
 
 export function SignalTag({
   label,
   value,
-  tone = 'default',
+  tone = "default",
 }: {
-  label: string
-  value: string
-  tone?: 'default' | 'accent' | 'muted'
+  label: string;
+  value: string;
+  tone?: "default" | "accent" | "muted";
 }) {
   return (
     <div className={`signal-tag signal-tag-${tone}`}>
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
-  )
+  );
 }
 
-export function SummaryPill({ label, value }: { label: string; value: string }) {
+export function SummaryPill({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
   return (
     <div className="summary-pill">
       <span className="summary-label">{label}</span>
       <strong>{value}</strong>
     </div>
-  )
+  );
 }
 
-export function DataCard({
-  title,
-  data,
-}: {
-  title: string
-  data: unknown
-}) {
+export function DataCard({ title, data }: { title: string; data: unknown }) {
   const isEmptyObject =
-    typeof data === 'object' && data !== null && Object.keys(data as object).length === 0
+    typeof data === "object" &&
+    data !== null &&
+    Object.keys(data as object).length === 0;
 
   return (
     <article className="data-card">
@@ -209,19 +233,19 @@ export function DataCard({
         </pre>
       )}
     </article>
-  )
+  );
 }
 
 export function Field({
   label,
   value,
   onChange,
-  type = 'text',
+  type = "text",
 }: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  type?: HTMLInputTypeAttribute
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: HTMLInputTypeAttribute;
 }) {
   return (
     <label className="field-block">
@@ -233,7 +257,7 @@ export function Field({
         onChange={(event) => onChange(event.target.value)}
       />
     </label>
-  )
+  );
 }
 
 export function SelectField({
@@ -242,10 +266,10 @@ export function SelectField({
   onChange,
   options,
 }: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  options: Array<{ value: string; label: string }>
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
 }) {
   return (
     <label className="field-block">
@@ -262,7 +286,7 @@ export function SelectField({
         ))}
       </select>
     </label>
-  )
+  );
 }
 
 export function ToggleField({
@@ -270,23 +294,23 @@ export function ToggleField({
   checked,
   onChange,
 }: {
-  label: string
-  checked: boolean
-  onChange: (checked: boolean) => void
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
 }) {
   return (
     <label className="field-block field-toggle">
       <span className="field-label">{label}</span>
       <button
-        className={`toggle-pill ${checked ? 'toggle-pill-on' : ''}`}
+        className={`toggle-pill ${checked ? "toggle-pill-on" : ""}`}
         onClick={() => onChange(!checked)}
         type="button"
       >
         <span />
-        {checked ? 'Enabled' : 'Disabled'}
+        {checked ? "Enabled" : "Disabled"}
       </button>
     </label>
-  )
+  );
 }
 
 export function SessionCard({
@@ -296,14 +320,16 @@ export function SessionCard({
   onSelect,
   onSwitchChain,
 }: {
-  session: WalletSession
-  isSelected: boolean
-  actionChain: string | null
-  onSelect: () => void
-  onSwitchChain: (chain: WalletChain) => void
+  session: WalletSession;
+  isSelected: boolean;
+  actionChain: string | null;
+  onSelect: () => void;
+  onSwitchChain: (chain: WalletChain) => void;
 }) {
   return (
-    <article className={`session-card ${isSelected ? 'session-card-active' : ''}`}>
+    <article
+      className={`session-card ${isSelected ? "session-card-active" : ""}`}
+    >
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
@@ -315,7 +341,7 @@ export function SessionCard({
           </p>
         </div>
         <button className="wallet-btn" onClick={onSelect}>
-          {isSelected ? 'Selected' : 'Select'}
+          {isSelected ? "Selected" : "Select"}
         </button>
       </div>
 
@@ -323,7 +349,7 @@ export function SessionCard({
         {session.chains.map((chain) => (
           <button
             key={`${session.id}-${chain}`}
-            className={`wallet-chip ${chain === actionChain ? 'wallet-chip-active' : ''}`}
+            className={`wallet-chip ${chain === actionChain ? "wallet-chip-active" : ""}`}
             onClick={() => onSwitchChain(chain)}
           >
             {chain}
@@ -333,21 +359,21 @@ export function SessionCard({
 
       <div className="session-meta-grid mt-5">
         <MetaItem label="Accounts" value={String(session.accounts.length)} />
-        <MetaItem label="Vault type" value={session.vaultMeta?.type ?? 'n/a'} />
+        <MetaItem label="Vault type" value={session.vaultMeta?.type ?? "n/a"} />
         <MetaItem
           label="Encrypted"
           value={
             session.vaultMeta
               ? session.vaultMeta.isEncrypted
-                ? 'yes'
-                : 'no'
-              : 'n/a'
+                ? "yes"
+                : "no"
+              : "n/a"
           }
         />
         <MetaItem label="Session id" value={session.id} monospace />
       </div>
     </article>
-  )
+  );
 }
 
 export function SessionDeck({
@@ -357,11 +383,11 @@ export function SessionDeck({
   onSelect,
   onSwitchChain,
 }: {
-  sessions: WalletSession[]
-  activeSessionId: string | null
-  activeChain: string | null
-  onSelect: (sessionId: string) => void
-  onSwitchChain: (sessionId: string, chain: WalletChain) => void
+  sessions: WalletSession[];
+  activeSessionId: string | null;
+  activeChain: string | null;
+  onSelect: (sessionId: string) => void;
+  onSwitchChain: (sessionId: string, chain: WalletChain) => void;
 }) {
   return sessions.length ? (
     <div className="grid gap-4">
@@ -387,18 +413,18 @@ export function SessionDeck({
         </p>
       </div>
     </div>
-  )
+  );
 }
 
 export function OperationFeed({
   latestOperation,
 }: {
-  latestOperation: WalletOperation | null
+  latestOperation: WalletOperation | null;
 }) {
   const progressValue =
-    typeof latestOperation?.progress?.value === 'number'
+    typeof latestOperation?.progress?.value === "number"
       ? Math.max(0, Math.min(100, latestOperation.progress.value))
-      : null
+      : null;
 
   return latestOperation ? (
     <div className="mt-6 space-y-5">
@@ -406,7 +432,7 @@ export function OperationFeed({
         <div>
           <p className="panel-label">{latestOperation.name}</p>
           <h3 className="operation-title">
-            {latestOperation.progress?.message ?? 'Waiting for next update'}
+            {latestOperation.progress?.message ?? "Waiting for next update"}
           </h3>
         </div>
         <span className="status-badge">{latestOperation.status}</span>
@@ -425,7 +451,8 @@ export function OperationFeed({
         <div className="join-meter">
           <span>Devices joined</span>
           <strong>
-            {latestOperation.deviceJoin.joined}/{latestOperation.deviceJoin.required}
+            {latestOperation.deviceJoin.joined}/
+            {latestOperation.deviceJoin.required}
           </strong>
         </div>
       ) : null}
@@ -447,7 +474,7 @@ export function OperationFeed({
         </p>
       </div>
     </div>
-  )
+  );
 }
 
 export function WalletDock({
@@ -464,24 +491,24 @@ export function WalletDock({
   onFetchBalance,
   onToggleVaultLock,
 }: {
-  actionChain: string
-  activeSession: WalletSession | null
-  sessionCount: number
-  canConnect: boolean
-  canFetchAddress: boolean
-  canFetchBalance: boolean
-  onInitialize: () => void
-  onRefresh: () => void
-  onConnect: () => void
-  onFetchAddress: () => void
-  onFetchBalance: () => void
-  onToggleVaultLock?: () => void
+  actionChain: string;
+  activeSession: WalletSession | null;
+  sessionCount: number;
+  canConnect: boolean;
+  canFetchAddress: boolean;
+  canFetchBalance: boolean;
+  onInitialize: () => void;
+  onRefresh: () => void;
+  onConnect: () => void;
+  onFetchAddress: () => void;
+  onFetchBalance: () => void;
+  onToggleVaultLock?: () => void;
 }) {
   return (
     <>
       <div className="summary-ribbon mt-6">
         <SummaryPill label="Active chain" value={actionChain} />
-        <SummaryPill label="Session" value={activeSession?.label ?? 'none'} />
+        <SummaryPill label="Session" value={activeSession?.label ?? "none"} />
         <SummaryPill label="Sessions" value={String(sessionCount)} />
       </div>
 
@@ -493,7 +520,11 @@ export function WalletDock({
           <RefreshCw size={16} />
           Refresh
         </button>
-        <button className="wallet-btn" disabled={!canConnect} onClick={onConnect}>
+        <button
+          className="wallet-btn"
+          disabled={!canConnect}
+          onClick={onConnect}
+        >
           Connect chain
         </button>
         <button
@@ -513,16 +544,16 @@ export function WalletDock({
         </button>
       </div>
 
-      {activeSession?.source === 'sdk' && onToggleVaultLock ? (
+      {activeSession?.source === "sdk" && onToggleVaultLock ? (
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <button className="wallet-btn" onClick={onToggleVaultLock}>
             <LockKeyhole size={16} />
-            {activeSession.status === 'locked' ? 'Unlock vault' : 'Lock vault'}
+            {activeSession.status === "locked" ? "Unlock vault" : "Lock vault"}
           </button>
         </div>
       ) : null}
     </>
-  )
+  );
 }
 
 export function QuickLinkCard({
@@ -531,10 +562,10 @@ export function QuickLinkCard({
   title,
   description,
 }: {
-  to: string
-  icon: LucideIcon
-  title: string
-  description: string
+  to: string;
+  icon: LucideIcon;
+  title: string;
+  description: string;
 }) {
   return (
     <Link to={to} className="quick-link-card no-underline">
@@ -544,7 +575,7 @@ export function QuickLinkCard({
       <h3 className="session-title">{title}</h3>
       <p className="panel-micro mt-2">{description}</p>
     </Link>
-  )
+  );
 }
 
 function MetaItem({
@@ -552,16 +583,16 @@ function MetaItem({
   value,
   monospace = false,
 }: {
-  label: string
-  value: string
-  monospace?: boolean
+  label: string;
+  value: string;
+  monospace?: boolean;
 }) {
   return (
     <div className="meta-item">
       <span>{label}</span>
-      <strong className={monospace ? 'font-mono text-xs' : ''}>{value}</strong>
+      <strong className={monospace ? "font-mono text-xs" : ""}>{value}</strong>
     </div>
-  )
+  );
 }
 
 export function resolveSessionAddress(
@@ -569,14 +600,14 @@ export function resolveSessionAddress(
   chain: WalletChain,
 ): string {
   if (!session) {
-    return ''
+    return "";
   }
 
   return (
     session.addresses[chain] ??
     session.accounts.find((account) => account.chain === chain)?.address ??
-    ''
-  )
+    ""
+  );
 }
 
 export function toAccountCoin(asset: ProtocolAsset, address: string) {
@@ -586,42 +617,51 @@ export function toAccountCoin(asset: ProtocolAsset, address: string) {
     decimals: asset.decimals,
     address,
     ...(asset.tokenId ? { id: asset.tokenId } : {}),
-  }
+  };
 }
 
 export function shortenAddress(value: string): string {
-  return value.length > 14 ? `${value.slice(0, 8)}...${value.slice(-4)}` : value
+  return value.length > 14
+    ? `${value.slice(0, 8)}...${value.slice(-4)}`
+    : value;
 }
 
 export function formatUnknown(value: unknown): string {
-  if (value === null || value === undefined || value === '') {
-    return 'n/a'
+  if (value === null || value === undefined || value === "") {
+    return "n/a";
   }
 
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return String(value)
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return String(value);
   }
 
-  if (typeof value === 'object') {
-    return 'available'
+  if (typeof value === "object") {
+    return "available";
   }
 
-  return 'n/a'
+  return "n/a";
 }
 
-export function getObjectRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null
+export function getObjectRecord(
+  value: unknown,
+): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null
     ? (value as Record<string, unknown>)
-    : null
+    : null;
 }
 
-export type SwapQuote = WalletCommandMap['swap.quote']['output']['quote']
-export type SwapPreparePayload = WalletCommandMap['swap.prepare']['output']['payload']
+export type SwapQuote = WalletCommandMap["swap.quote"]["output"]["quote"];
+export type SwapPreparePayload =
+  WalletCommandMap["swap.prepare"]["output"]["payload"];
 
 export const protocolIcons = {
   ShieldCheck,
   QrCode,
-}
+};
 
 export function SelectionModal({
   isOpen,
@@ -630,72 +670,93 @@ export function SelectionModal({
   items,
   onSelect,
 }: {
-  isOpen: boolean
-  onClose: () => void
-  title: string
+  isOpen: boolean;
+  onClose: () => void;
+  title: string;
   items: {
-    id: string
-    label: string
-    iconMain: string
-    iconSub?: string
-    subtitle?: string
-    priceUsd?: string
-    balanceRaw?: string
-    chainBadge?: string
-    statusBadge?: string
-  }[]
-  onSelect: (id: string) => void
+    id: string;
+    label: string;
+    iconMain: string;
+    iconSub?: string;
+    subtitle?: string;
+    priceUsd?: string;
+    balanceRaw?: string;
+    chainBadge?: string;
+    statusBadge?: string;
+  }[];
+  onSelect: (id: string) => void;
 }) {
-  const [search, setSearch] = useState('')
-  if (!isOpen) return null
+  const [search, setSearch] = useState("");
+  if (!isOpen) return null;
 
   const filtered = items.filter(
     (i) =>
       i.label.toLowerCase().includes(search.toLowerCase()) ||
       i.id.toLowerCase().includes(search.toLowerCase()) ||
-      i.subtitle?.toLowerCase().includes(search.toLowerCase())
-  )
+      i.subtitle?.toLowerCase().includes(search.toLowerCase()),
+  );
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200" onClick={onClose}>
-      <div 
-        className="glass-panel-strong w-full max-w-md max-h-[80vh] flex flex-col shadow-2xl relative overflow-hidden bg-[var(--bg-base)] border border-[var(--line)]" 
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div
+        className="glass-panel-strong w-full max-w-md max-h-[80vh] flex flex-col shadow-2xl relative overflow-hidden bg-[var(--bg-base)] border border-[var(--line)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center p-5 border-b border-[var(--line)] bg-[var(--surface)]">
-          <span className="font-bold text-lg text-[var(--sea-ink)] tracking-tight">{title}</span>
-          <button onClick={onClose} className="p-2 rounded-xl text-[var(--sea-ink-soft)] hover:text-[var(--cacao-neon)] hover:bg-[var(--chip-bg)] transition-colors">
+          <span className="font-bold text-lg text-[var(--sea-ink)] tracking-tight">
+            {title}
+          </span>
+          <button
+            onClick={onClose}
+            className="p-2 rounded-xl text-[var(--sea-ink-soft)] hover:text-[var(--cacao-neon)] hover:bg-[var(--chip-bg)] transition-colors"
+          >
             <X size={20} />
           </button>
         </div>
-        
+
         <div className="p-4 border-b border-[var(--line)] bg-[var(--surface)]">
           <div className="flex items-center gap-3 bg-[var(--chip-bg)] border border-[var(--line)] focus-within:border-[var(--maya-teal)] rounded-xl px-4 py-3 transition-colors shadow-inner">
             <Search size={18} className="text-[var(--sea-ink-soft)]" />
-            <input 
+            <input
               autoFocus
-              className="super-input text-base" 
-              placeholder="Search name or symbol..." 
-              value={search} 
-              onChange={e => setSearch(e.target.value)} 
+              className="super-input text-base"
+              placeholder="Search name or symbol..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
             />
           </div>
         </div>
-        
+
         <div className="flex-1 overflow-y-auto custom-scrollbar p-2 bg-[var(--bg-base)]">
-          {filtered.map(item => (
-            <button 
+          {filtered.map((item) => (
+            <button
               key={item.id}
               className="w-full flex items-center gap-4 p-4 rounded-2xl hover:bg-[var(--surface-strong)] transition-all text-left group"
-              onClick={() => { onSelect(item.id); onClose(); }}
+              onClick={() => {
+                onSelect(item.id);
+                onClose();
+              }}
             >
               <div className="relative flex items-center justify-center min-w-[3rem]">
-                 <AssetIcon assetId={item.iconMain} className="w-10 h-10 relative z-10 shadow-sm border border-[var(--line)] bg-[var(--bg-base)]" />
-                 {item.iconSub && <AssetIcon assetId={item.iconSub} className="w-10 h-10 relative -ml-4 z-0 shadow-sm border-2 border-[var(--bg-base)] opacity-80 group-hover:opacity-100 transition-opacity" />}
+                <AssetIcon
+                  assetId={item.iconMain}
+                  className="w-10 h-10 relative z-10 shadow-sm border border-[var(--line)] bg-[var(--bg-base)]"
+                />
+                {item.iconSub && (
+                  <AssetIcon
+                    assetId={item.iconSub}
+                    className="w-10 h-10 relative -ml-4 z-0 shadow-sm border-2 border-[var(--bg-base)] opacity-80 group-hover:opacity-100 transition-opacity"
+                  />
+                )}
               </div>
               <div className="flex flex-col flex-1 pl-1 text-left">
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-[var(--sea-ink)] text-lg leading-tight group-hover:text-[var(--maya-teal)] transition-colors">{item.label}</span>
+                  <span className="font-bold text-[var(--sea-ink)] text-lg leading-tight group-hover:text-[var(--maya-teal)] transition-colors">
+                    {item.label}
+                  </span>
                   {item.chainBadge && (
                     <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--sea-ink-soft)] bg-[var(--surface-strong)] px-1.5 py-0.5 rounded border border-[var(--line)]">
                       {item.chainBadge}
@@ -707,31 +768,47 @@ export function SelectionModal({
                     </span>
                   )}
                 </div>
-                {item.subtitle && <span className="text-xs font-medium text-[var(--sea-ink-soft)] mt-0.5">{item.subtitle}</span>}
+                {item.subtitle && (
+                  <span className="text-xs font-medium text-[var(--sea-ink-soft)] mt-0.5">
+                    {item.subtitle}
+                  </span>
+                )}
               </div>
-              
+
               <div className="flex flex-col items-end pr-2 text-right">
                 {item.balanceRaw !== undefined ? (
-                  <span className={`font-bold text-base ${Number(item.balanceRaw) > 0 ? 'text-[var(--maya-teal)]' : 'text-[var(--sea-ink)]'}`}>
-                    {Number(item.balanceRaw) > 0 ? Number(item.balanceRaw).toFixed(4).replace(/\.?0+$/, '') : '0.00'}
+                  <span
+                    className={`font-bold text-base ${Number(item.balanceRaw) > 0 ? "text-[var(--maya-teal)]" : "text-[var(--sea-ink)]"}`}
+                  >
+                    {Number(item.balanceRaw) > 0
+                      ? Number(item.balanceRaw)
+                          .toFixed(4)
+                          .replace(/\.?0+$/, "")
+                      : "0.00"}
                   </span>
                 ) : null}
                 {item.priceUsd && (
                   <span className="text-[11px] font-medium text-[var(--sea-ink-soft)] mt-0.5">
-                    ${Number(item.priceUsd) < 0.01 ? '<0.01' : Number(item.priceUsd).toFixed(2)}
+                    $
+                    {Number(item.priceUsd) < 0.01
+                      ? "<0.01"
+                      : Number(item.priceUsd).toFixed(2)}
                   </span>
                 )}
               </div>
             </button>
           ))}
           {filtered.length === 0 && (
-             <div className="flex flex-col items-center justify-center p-12 text-[var(--sea-ink-soft)]">
-                <Search size={32} className="opacity-30 mb-3 text-[var(--sea-ink-soft)]" />
-                <p>No assets found</p>
-             </div>
+            <div className="flex flex-col items-center justify-center p-12 text-[var(--sea-ink-soft)]">
+              <Search
+                size={32}
+                className="opacity-30 mb-3 text-[var(--sea-ink-soft)]"
+              />
+              <p>No assets found</p>
+            </div>
           )}
         </div>
       </div>
     </div>
-  )
+  );
 }
