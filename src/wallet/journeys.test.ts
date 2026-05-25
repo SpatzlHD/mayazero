@@ -384,6 +384,7 @@ describe('wallet journeys', () => {
           route: '/swap',
           subject: 'swap',
           has_referral: true,
+          affiliate_mayaname: 'm0',
         },
         steps: createExecutionJourneySteps({
           source: 'sdk',
@@ -396,32 +397,33 @@ describe('wallet journeys', () => {
         },
       })
 
-      expect(vi.mocked(trackAnalyticsEvent).mock.calls).toEqual([
-        [
-          {
-            type: 'journey_started',
-            action: 'submit',
-            route: '/swap',
-            subject: 'swap',
-            source: 'sdk',
-            chain: Chain.Ethereum,
-            has_referral: true,
-          },
-        ],
-        [
-          {
-            type: 'journey_finished',
-            action: 'submit',
-            route: '/swap',
-            status,
-            subject: 'swap',
-            source: 'sdk',
-            chain: Chain.Ethereum,
-            has_referral: true,
-          },
-        ],
-      ])
-      expect(JSON.stringify(vi.mocked(trackAnalyticsEvent).mock.calls)).not.toContain('0xsecret')
+      const startedCall = vi.mocked(trackAnalyticsEvent).mock.calls[0]?.[0]
+      const finishedCall = vi.mocked(trackAnalyticsEvent).mock.calls[1]?.[0]
+
+      expect(startedCall?.type).toBe('journey_started')
+      expect(finishedCall?.type).toBe('journey_finished')
+      expect(startedCall?.journey_id).toEqual(finishedCall?.journey_id)
+      expect(startedCall).toMatchObject({
+        action: 'submit',
+        route: '/swap',
+        subject: 'swap',
+        source: 'sdk',
+        chain: Chain.Ethereum,
+        has_referral: true,
+        affiliate_mayaname: 'm0',
+      })
+      expect(finishedCall).toMatchObject({
+        action: 'submit',
+        route: '/swap',
+        status,
+        subject: 'swap',
+        source: 'sdk',
+        chain: Chain.Ethereum,
+        has_referral: true,
+        affiliate_mayaname: 'm0',
+        tx_hash: '0xsecret',
+      })
+      expect(typeof finishedCall?.duration_ms).toBe('number')
       expect(JSON.stringify(vi.mocked(trackAnalyticsEvent).mock.calls)).not.toContain('friend')
     }
   })
@@ -455,17 +457,53 @@ describe('wallet journeys', () => {
       }),
     ).rejects.toBeInstanceOf(DOMException)
 
-    expect(vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)).toEqual([
-      {
-        type: 'journey_finished',
+    const cancelledCall = vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)?.[0]
+    expect(cancelledCall).toMatchObject({
+      type: 'journey_finished',
+      action: 'send',
+      route: '/chains/:chainKey',
+      status: 'cancelled',
+      subject: 'asset_send',
+      source: 'extension',
+      chain: Chain.Ethereum,
+    })
+    expect(cancelledCall).not.toHaveProperty('tx_hash')
+  })
+
+  it('does not include tx_hash on finished asset_send journeys even when a hash is set', async () => {
+    const manager = new MayaWalletManager({
+      sdk: createFakeSdkClient().sdk,
+      extensionWindow: createFakeExtensionWindow(),
+      prefsStorage: createMemoryStorage(),
+    })
+
+    await trackTransactionJourney(manager, {
+      kind: 'send',
+      title: 'Tracked send',
+      source: 'extension',
+      chain: Chain.Ethereum,
+      routePath: '/chains/ethereum',
+      analytics: {
         action: 'send',
         route: '/chains/:chainKey',
-        status: 'cancelled',
         subject: 'asset_send',
-        source: 'extension',
-        chain: Chain.Ethereum,
       },
-    ])
+      steps: createExecutionJourneySteps({
+        source: 'extension',
+        finalLabel: 'Transfer Complete',
+      }),
+      run: async (journey) => {
+        journey.setPrimaryTxHash('0xsecret')
+        journey.complete(undefined, 'success')
+      },
+    })
+
+    const finishedCall = vi.mocked(trackAnalyticsEvent).mock.calls.at(-1)?.[0]
+    expect(finishedCall).toMatchObject({
+      type: 'journey_finished',
+      subject: 'asset_send',
+    })
+    expect(finishedCall).not.toHaveProperty('tx_hash')
   })
 
   it('hydrates swap journeys from tracker snapshots and final updates', async () => {

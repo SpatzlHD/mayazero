@@ -30,6 +30,7 @@ export function getOpenPanelClient(): OpenPanel | null {
       trackOutgoingLinks: true,
       trackAttributes: false,
       trackHashChanges: false,
+
       filter: () => shouldTrackAnalytics(),
     });
   }
@@ -39,7 +40,7 @@ export function getOpenPanelClient(): OpenPanel | null {
 
 export function trackOpenPanelEvent(
   name: string,
-  properties: Record<string, string | boolean>,
+  properties: Record<string, string | boolean | number>,
 ): void {
   if (!shouldTrackAnalytics()) {
     return;

@@ -11,7 +11,7 @@ import {
   TrendingUp,
   Wallet,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { buildCacaoPoolAnalyticsContext } from "#/analytics/journey-enrichment";
 import {
   createExecutionJourneySteps,
   depositToCacaoPool,
@@ -410,6 +410,7 @@ export function CacaoPoolPage({
           action: isWithdraw ? "withdraw" : "deposit",
           route: "/cacao-pool",
           subject: "cacao_pool",
+          ...buildCacaoPoolAnalyticsContext(),
         },
         steps: createExecutionJourneySteps({
           source: activeSession.source,

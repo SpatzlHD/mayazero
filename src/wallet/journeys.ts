@@ -11,7 +11,9 @@ import {
   trackAnalyticsEvent,
   type JourneyAnalyticsContext,
   type JourneyStatus,
+  type JourneySubject,
 } from '#/analytics'
+import { allowsTxHash } from '#/analytics/journey-enrichment'
 import type { MayaWalletManager } from './manager'
 import type {
   WalletChain,
@@ -90,6 +92,7 @@ export async function trackTransactionJourney<T>(
   if (input.analytics) {
     trackAnalyticsEvent({
       type: 'journey_started',
+      journey_id: journeyId,
       action: input.analytics.action,
       route: input.analytics.route,
       subject: input.analytics.subject,
@@ -97,6 +100,12 @@ export async function trackTransactionJourney<T>(
       ...(input.chain ? { chain: input.chain } : {}),
       ...(input.analytics.has_referral !== undefined
         ? { has_referral: input.analytics.has_referral }
+        : {}),
+      ...(input.analytics.referral_mayaname
+        ? { referral_mayaname: input.analytics.referral_mayaname }
+        : {}),
+      ...(input.analytics.affiliate_mayaname
+        ? { affiliate_mayaname: input.analytics.affiliate_mayaname }
         : {}),
     })
   }
@@ -108,8 +117,14 @@ export async function trackTransactionJourney<T>(
     }
 
     hasTrackedOutcome = true
+    const journey = manager.getState().journeys.find((item) => item.id === journeyId)
+    const startedAt = journey?.startedAt ?? Date.now()
+    const subject = input.analytics.subject as JourneySubject
+
     trackAnalyticsEvent({
       type: 'journey_finished',
+      journey_id: journeyId,
+      duration_ms: Date.now() - startedAt,
       action: input.analytics.action,
       route: input.analytics.route,
       status,
@@ -118,6 +133,15 @@ export async function trackTransactionJourney<T>(
       ...(input.chain ? { chain: input.chain } : {}),
       ...(input.analytics.has_referral !== undefined
         ? { has_referral: input.analytics.has_referral }
+        : {}),
+      ...(input.analytics.referral_mayaname
+        ? { referral_mayaname: input.analytics.referral_mayaname }
+        : {}),
+      ...(input.analytics.affiliate_mayaname
+        ? { affiliate_mayaname: input.analytics.affiliate_mayaname }
+        : {}),
+      ...(allowsTxHash(subject) && journey?.primaryTxHash
+        ? { tx_hash: journey.primaryTxHash }
         : {}),
     })
   }

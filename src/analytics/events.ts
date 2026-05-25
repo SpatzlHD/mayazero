@@ -1,5 +1,13 @@
 import { Chain } from "@vultisig/sdk";
 import { track } from "@vercel/analytics/react";
+import {
+  allowsMayaNameContext,
+  allowsTxHash,
+  isAllowedDurationMs,
+  isAllowedJourneyId,
+  isAllowedTxHash,
+  sanitizeAnalyticsMayaName,
+} from "./journey-enrichment";
 import { trackOpenPanelEvent } from "./openpanel";
 import {
   ANALYTICS_ROUTE_CHAIN,
@@ -76,6 +84,8 @@ export type JourneyAnalyticsContext = {
   route: AnalyticsJourneyRoute;
   subject: JourneySubject;
   has_referral?: boolean;
+  referral_mayaname?: string;
+  affiliate_mayaname?: string;
 };
 
 export type AnalyticsEvent =
@@ -87,12 +97,16 @@ export type AnalyticsEvent =
     }
   | ({
       type: "journey_started";
+      journey_id: string;
       chain?: Chain;
       route: AnalyticsJourneyRoute;
       source?: JourneySource;
     } & JourneyAnalyticsContext)
   | ({
       type: "journey_finished";
+      journey_id: string;
+      duration_ms: number;
+      tx_hash?: string;
       chain?: Chain;
       route: AnalyticsJourneyRoute;
       source?: JourneySource;
@@ -104,7 +118,7 @@ export type AnalyticsEvent =
       had_existing_referral: boolean;
     };
 
-type AnalyticsProperties = Record<string, string | boolean>;
+export type AnalyticsProperties = Record<string, string | boolean | number>;
 
 type SanitizedAnalyticsEvent = {
   name: AnalyticsEvent["type"];
@@ -142,6 +156,90 @@ function isAllowedRoute(value: unknown): value is AnalyticsJourneyRoute {
     typeof value === "string" &&
     ANALYTICS_JOURNEY_ROUTES.has(normalizeAnalyticsRoute(value))
   );
+}
+
+function sanitizeJourneyMayaNameFields(
+  event: Record<string, unknown>,
+  subject: JourneySubject,
+): Pick<AnalyticsProperties, "referral_mayaname" | "affiliate_mayaname"> | null {
+  const hasReferralField = event.referral_mayaname !== undefined;
+  const hasAffiliateField = event.affiliate_mayaname !== undefined;
+
+  if (!hasReferralField && !hasAffiliateField) {
+    return {};
+  }
+
+  if (!allowsMayaNameContext(subject)) {
+    return null;
+  }
+
+  const referral_mayaname = hasReferralField
+    ? sanitizeAnalyticsMayaName(event.referral_mayaname)
+    : undefined;
+  const affiliate_mayaname = hasAffiliateField
+    ? sanitizeAnalyticsMayaName(event.affiliate_mayaname)
+    : undefined;
+
+  if (
+    (hasReferralField && !referral_mayaname) ||
+    (hasAffiliateField && !affiliate_mayaname)
+  ) {
+    return null;
+  }
+
+  return {
+    ...(referral_mayaname ? { referral_mayaname } : {}),
+    ...(affiliate_mayaname ? { affiliate_mayaname } : {}),
+  };
+}
+
+function sanitizeJourneyContext(
+  event: Record<string, unknown>,
+): SanitizedAnalyticsEvent["properties"] | null {
+  if (
+    !isAllowedString(event.subject, JOURNEY_SUBJECTS) ||
+    !isAllowedString(event.action, JOURNEY_ACTIONS) ||
+    !isAllowedRoute(event.route) ||
+    (event.source !== undefined &&
+      !isAllowedString(event.source, JOURNEY_SOURCES)) ||
+    (event.chain !== undefined && !isAllowedChain(event.chain)) ||
+    (event.has_referral !== undefined && !isAllowedBoolean(event.has_referral))
+  ) {
+    return null;
+  }
+
+  const mayaNameFields = sanitizeJourneyMayaNameFields(event, event.subject);
+  if (mayaNameFields === null) {
+    return null;
+  }
+
+  return {
+    subject: event.subject,
+    action: event.action,
+    route: normalizeAnalyticsRoute(event.route),
+    ...(event.source ? { source: event.source } : {}),
+    ...(event.chain ? { chain: event.chain } : {}),
+    ...(event.has_referral !== undefined
+      ? { has_referral: event.has_referral }
+      : {}),
+    ...mayaNameFields,
+  };
+}
+
+function toVercelProperties(
+  properties: AnalyticsProperties,
+): Record<string, string | boolean> {
+  const result: Record<string, string | boolean> = {};
+
+  for (const [key, value] of Object.entries(properties)) {
+    if (typeof value === "number") {
+      result[key] = String(value);
+    } else {
+      result[key] = value;
+    }
+  }
+
+  return result;
 }
 
 export function toChainCountBucket(count: number): ChainCountBucket {
@@ -192,36 +290,31 @@ export function sanitizeAnalyticsEvent(
       if (
         !hasOnlyKeys(event, [
           "type",
+          "journey_id",
           "subject",
           "action",
           "route",
           "source",
           "chain",
           "has_referral",
+          "referral_mayaname",
+          "affiliate_mayaname",
         ]) ||
-        !isAllowedString(event.subject, JOURNEY_SUBJECTS) ||
-        !isAllowedString(event.action, JOURNEY_ACTIONS) ||
-        !isAllowedRoute(event.route) ||
-        (event.source !== undefined &&
-          !isAllowedString(event.source, JOURNEY_SOURCES)) ||
-        (event.chain !== undefined && !isAllowedChain(event.chain)) ||
-        (event.has_referral !== undefined &&
-          !isAllowedBoolean(event.has_referral))
+        !isAllowedJourneyId(event.journey_id)
       ) {
+        return null;
+      }
+
+      const context = sanitizeJourneyContext(event);
+      if (!context) {
         return null;
       }
 
       return {
         name: event.type,
         properties: {
-          subject: event.subject,
-          action: event.action,
-          route: normalizeAnalyticsRoute(event.route),
-          ...(event.source ? { source: event.source } : {}),
-          ...(event.chain ? { chain: event.chain } : {}),
-          ...(event.has_referral !== undefined
-            ? { has_referral: event.has_referral }
-            : {}),
+          journey_id: event.journey_id,
+          ...context,
         },
       };
     }
@@ -229,6 +322,9 @@ export function sanitizeAnalyticsEvent(
       if (
         !hasOnlyKeys(event, [
           "type",
+          "journey_id",
+          "duration_ms",
+          "tx_hash",
           "subject",
           "action",
           "route",
@@ -236,32 +332,32 @@ export function sanitizeAnalyticsEvent(
           "source",
           "chain",
           "has_referral",
+          "referral_mayaname",
+          "affiliate_mayaname",
         ]) ||
-        !isAllowedString(event.subject, JOURNEY_SUBJECTS) ||
-        !isAllowedString(event.action, JOURNEY_ACTIONS) ||
-        !isAllowedRoute(event.route) ||
+        !isAllowedJourneyId(event.journey_id) ||
+        !isAllowedDurationMs(event.duration_ms) ||
         !isAllowedString(event.status, JOURNEY_STATUSES) ||
-        (event.source !== undefined &&
-          !isAllowedString(event.source, JOURNEY_SOURCES)) ||
-        (event.chain !== undefined && !isAllowedChain(event.chain)) ||
-        (event.has_referral !== undefined &&
-          !isAllowedBoolean(event.has_referral))
+        (event.tx_hash !== undefined &&
+          (!isAllowedTxHash(event.tx_hash) ||
+            !allowsTxHash(event.subject as JourneySubject)))
       ) {
+        return null;
+      }
+
+      const context = sanitizeJourneyContext(event);
+      if (!context) {
         return null;
       }
 
       return {
         name: event.type,
         properties: {
-          subject: event.subject,
-          action: event.action,
-          route: normalizeAnalyticsRoute(event.route),
+          journey_id: event.journey_id,
+          duration_ms: event.duration_ms,
           status: event.status,
-          ...(event.source ? { source: event.source } : {}),
-          ...(event.chain ? { chain: event.chain } : {}),
-          ...(event.has_referral !== undefined
-            ? { has_referral: event.has_referral }
-            : {}),
+          ...(event.tx_hash ? { tx_hash: event.tx_hash } : {}),
+          ...context,
         },
       };
     }
@@ -297,6 +393,6 @@ export function trackAnalyticsEvent(event: AnalyticsEvent): void {
     return;
   }
 
-  track(sanitized.name, sanitized.properties);
+  track(sanitized.name, toVercelProperties(sanitized.properties));
   trackOpenPanelEvent(sanitized.name, sanitized.properties);
 }

@@ -32,6 +32,8 @@ describe("analytics event helpers", () => {
     expect(
       sanitizeAnalyticsEvent({
         type: "journey_finished",
+        journey_id: "1710000000000-abc123",
+        duration_ms: 1200,
         subject: "swap",
         action: "submit",
         route: "/chains/ethereum",
@@ -39,10 +41,14 @@ describe("analytics event helpers", () => {
         source: "sdk",
         chain: Chain.Ethereum,
         has_referral: true,
+        affiliate_mayaname: "m0",
+        tx_hash: "0xdeadbeef",
       }),
     ).toEqual({
       name: "journey_finished",
       properties: {
+        journey_id: "1710000000000-abc123",
+        duration_ms: 1200,
         subject: "swap",
         action: "submit",
         route: "/chains/:chainKey",
@@ -50,8 +56,47 @@ describe("analytics event helpers", () => {
         source: "sdk",
         chain: Chain.Ethereum,
         has_referral: true,
+        affiliate_mayaname: "m0",
+        tx_hash: "0xdeadbeef",
       },
     });
+  });
+
+  it("accepts correlated journey_started events with mayaname context", () => {
+    expect(
+      sanitizeAnalyticsEvent({
+        type: "journey_started",
+        journey_id: "1710000000000-abc123",
+        subject: "liquidity",
+        action: "deposit",
+        route: "/liquidity",
+        affiliate_mayaname: "m0",
+      }),
+    ).toEqual({
+      name: "journey_started",
+      properties: {
+        journey_id: "1710000000000-abc123",
+        subject: "liquidity",
+        action: "deposit",
+        route: "/liquidity",
+        affiliate_mayaname: "m0",
+      },
+    });
+  });
+
+  it("rejects tx_hash on asset_send journeys", () => {
+    expect(
+      sanitizeAnalyticsEvent({
+        type: "journey_finished",
+        journey_id: "1710000000000-abc123",
+        duration_ms: 500,
+        subject: "asset_send",
+        action: "send",
+        route: "/chains/:chainKey",
+        status: "success",
+        tx_hash: "0xdeadbeef",
+      }),
+    ).toBeNull();
   });
 
   it("rejects unknown properties instead of sending possibly sensitive payloads", () => {
@@ -110,6 +155,43 @@ describe("trackAnalyticsEvent", () => {
       source: "sdk",
       session_kind: "vault",
       chain_count_bucket: "2_3",
+    });
+  });
+
+  it("stringifies numeric properties for Vercel while preserving numbers for OpenPanel", async () => {
+    const { trackAnalyticsEvent } = await import("./events");
+
+    trackAnalyticsEvent({
+      type: "journey_finished",
+      journey_id: "1710000000000-abc123",
+      duration_ms: 2500,
+      subject: "swap",
+      action: "submit",
+      route: "/swap",
+      status: "success",
+      affiliate_mayaname: "m0",
+      tx_hash: "ABC123",
+    });
+
+    expect(vercelTrack).toHaveBeenCalledWith("journey_finished", {
+      journey_id: "1710000000000-abc123",
+      duration_ms: "2500",
+      subject: "swap",
+      action: "submit",
+      route: "/swap",
+      status: "success",
+      affiliate_mayaname: "m0",
+      tx_hash: "ABC123",
+    });
+    expect(trackOpenPanelEvent).toHaveBeenCalledWith("journey_finished", {
+      journey_id: "1710000000000-abc123",
+      duration_ms: 2500,
+      subject: "swap",
+      action: "submit",
+      route: "/swap",
+      status: "success",
+      affiliate_mayaname: "m0",
+      tx_hash: "ABC123",
     });
   });
 

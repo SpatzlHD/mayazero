@@ -39,6 +39,7 @@ import {
 import { VIEW_ONLY_IMPERSONATION_REASON } from "#/lib/impersonation";
 import { parseDecimalToBaseUnits, formatBaseUnits } from "#/lib/cacao-pool";
 import { INTERFACE_AFFILIATE_MAYANAME } from "#/lib/swap-affiliates";
+import { buildLiquidityAnalyticsContext } from "#/analytics/journey-enrichment";
 import { buildPageSeoHead } from "#/lib/seo";
 import {
   useEffectiveWalletSession,
@@ -517,6 +518,7 @@ function LiquidityTerminalPage() {
         action: input.action,
         route: "/liquidity",
         subject: "liquidity",
+        ...buildLiquidityAnalyticsContext(),
       },
       steps: createExecutionJourneySteps({
         source: activeSession.source,

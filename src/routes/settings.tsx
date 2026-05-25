@@ -326,7 +326,10 @@ function SettingsPage() {
                 MayaZero only emits minimal analytics on approved production hosts. Query strings and URL hashes are stripped before pageviews are sent.
               </p>
               <p className="text-sm text-[var(--sea-ink)] leading-relaxed">
-                Wallet addresses, transaction hashes, vault identifiers, MAYANames, memos, and other sensitive payloads are never sent to Vercel Analytics or OpenPanel.
+                Swaps, liquidity, and CACAOPool journeys may include MAYAName affiliate or referral labels and on-chain transaction hashes so journey outcomes can be analyzed.
+              </p>
+              <p className="text-sm text-[var(--sea-ink)] leading-relaxed">
+                Wallet addresses, transaction hashes from asset sends, vault identifiers, memos, and other sensitive payloads are never sent to Vercel Analytics or OpenPanel.
               </p>
               <p className="text-sm text-[var(--sea-ink)] leading-relaxed">
                 Browser privacy signals like Do Not Track and Global Privacy Control disable analytics automatically, and MayaZero does not create its own analytics identifier in local storage or cookies.

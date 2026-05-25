@@ -53,6 +53,7 @@ import {
   normalizeSupportReferrerBps,
   resolveSwapAffiliateDrafts,
 } from "#/lib/swap-affiliates";
+import { buildSwapAnalyticsContext } from "#/analytics/journey-enrichment";
 import {
   getMayaAssetChainTicker,
   getMayaAssetTicker,
@@ -568,6 +569,7 @@ function SwapTerminalPage() {
           route: "/swap",
           subject: "swap",
           has_referral: hasStoredReferral,
+          ...buildSwapAnalyticsContext(settings, effectiveAffiliateDrafts),
         },
         steps: journeySteps,
         run: async (journey) => {
