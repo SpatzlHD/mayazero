@@ -46,6 +46,7 @@ import {
 } from "#/provider/ImpersonationProvider";
 import { useSettings } from "#/provider/SettingsProvider";
 import { buildPageSeoHead } from "#/lib/seo";
+import { useEffect, useMemo, useState } from "react";
 
 export const Route = createFileRoute("/cacao-pool")({
   head: () =>
@@ -726,7 +727,7 @@ export function CacaoPoolPage({
                     </p>
                     <p className="mt-1 font-mono text-xs text-[var(--sea-ink)]">
                       {formatCacaoBaseUnits(
-                        CACAO_POOL_WITHDRAW_DUST_BASE_UNITS,
+                        CACAO_POOL_WITHDRAW_DUST_BASE_UNITS ?? "0",
                       )}{" "}
                       CACAO
                     </p>
