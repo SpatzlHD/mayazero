@@ -86,7 +86,7 @@ export function OperatorBondControls(props: {
 
     const position = getConnectedProviderPosition(props.node, selectedRemoveProvider.bondAddress)
     if (position.poolSumBaseUnits) {
-      setRemoveAmount(formatBaseUnits(position.poolSumBaseUnits, 10) || '')
+      setRemoveAmount(position.poolSumBaseUnits)
     }
   }, [props.node, selectedRemoveProvider])
 

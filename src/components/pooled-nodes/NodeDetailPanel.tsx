@@ -1,5 +1,6 @@
 import { shortenAddress } from '#/components/ProtocolPrimitives'
 import { formatBaseUnits } from '#/lib/cacao-pool'
+import { formatLiquidityUnitsLabel } from '#/lib/pooled-nodes-bond'
 import {
   getConnectedProviderPosition,
   getPooledNodeWarnings,
@@ -98,7 +99,7 @@ export function NodeDetailPanel(props: {
               label="Raw Allocation Sum"
               value={
                 position.poolSumBaseUnits
-                  ? `${formatBaseUnits(position.poolSumBaseUnits, 8) || position.poolSumBaseUnits} units`
+                  ? `${formatLiquidityUnitsLabel(position.poolSumBaseUnits)} units`
                   : 'No allocation map'
               }
             />
@@ -106,7 +107,7 @@ export function NodeDetailPanel(props: {
               label="Effective Bond"
               value={
                 position.effectiveBondUnits
-                  ? `${formatBaseUnits(position.effectiveBondUnits, 8) || position.effectiveBondUnits} weighted units`
+                  ? `${formatLiquidityUnitsLabel(position.effectiveBondUnits)} weighted units`
                   : 'n/a'
               }
             />

@@ -1,4 +1,5 @@
 import { shortenAddress } from '#/components/ProtocolPrimitives'
+import { computeLiquidityUnitFraction } from '#/lib/pooled-nodes-bond'
 import { AlertCircle, Check, ChevronDown, Copy, Loader2, Shield } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 
@@ -200,6 +201,45 @@ export function FormInput(props: {
       onChange={(event) => props.onChange(event.target.value)}
       placeholder={props.placeholder}
     />
+  )
+}
+
+export const UNIT_FRACTION_PRESETS = [
+  { label: 'Max', percent: 100 },
+  { label: '75%', percent: 75 },
+  { label: '50%', percent: 50 },
+  { label: '25%', percent: 25 },
+] as const
+
+export function UnitFractionButtons(props: {
+  totalUnits: string | null | undefined
+  disabled?: boolean
+  onSelect: (units: string) => void
+  className?: string
+}) {
+  const hasTotal =
+    Boolean(props.totalUnits) &&
+    props.totalUnits !== '0' &&
+    /^\d+$/.test(props.totalUnits?.trim() ?? '')
+
+  return (
+    <div className={`flex flex-wrap gap-2 ${props.className ?? ''}`.trim()}>
+      {UNIT_FRACTION_PRESETS.map(({ label, percent }) => (
+        <button
+          key={label}
+          type="button"
+          disabled={props.disabled || !hasTotal}
+          onClick={() => {
+            if (!props.totalUnits) return
+            const next = computeLiquidityUnitFraction(props.totalUnits, percent)
+            if (next) props.onSelect(next)
+          }}
+          className="inline-flex h-9 items-center justify-center rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 text-xs font-bold text-[var(--sea-ink-soft)] transition-colors hover:border-[var(--maya-teal)]/40 hover:text-[var(--maya-teal)] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   )
 }
 

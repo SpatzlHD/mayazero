@@ -7,6 +7,7 @@ import {
   formatBondablePositionOptionLabel,
   formatBondedAllocationOptionLabel,
   formatEffectiveBondUnits,
+  formatLiquidityUnitsLabel,
 } from '#/lib/pooled-nodes-bond'
 import {
   getPooledNodePrimaryAction,
@@ -30,6 +31,7 @@ import {
   PanelHeader,
   PrimaryPanel,
   SegmentedTabs,
+  UnitFractionButtons,
 } from './shared'
 
 type ProviderActionTab = 'bond' | 'unbond'
@@ -261,10 +263,19 @@ export function ProviderBondActions(props: {
             onChange={setBondUnits}
             placeholder="1000000000"
           />
+          <UnitFractionButtons
+            className="mt-2"
+            totalUnits={selectedBondPosition?.availableUnits}
+            disabled={props.isViewOnly || props.isSubmitting}
+            onSelect={setBondUnits}
+          />
           {selectedBondPosition && bondUnits.trim() ? (
             <p className="mt-2 text-xs text-[var(--sea-ink-soft)]">
               Effective bond contribution:{' '}
-              {formatEffectiveBondUnits(bondUnits, selectedBondPosition.source)} units
+              {formatLiquidityUnitsLabel(
+                formatEffectiveBondUnits(bondUnits, selectedBondPosition.source),
+              )}{' '}
+              weighted units
             </p>
           ) : null}
           <p className="mt-2 text-xs text-[var(--sea-ink-soft)]">
@@ -317,6 +328,12 @@ export function ProviderBondActions(props: {
             onChange={setUnbondUnits}
             placeholder="1000000000"
           />
+          <UnitFractionButtons
+            className="mt-2"
+            totalUnits={selectedBondedAllocation?.units}
+            disabled={props.isViewOnly || props.isSubmitting}
+            onSelect={setUnbondUnits}
+          />
           <p className="mt-2 text-xs text-[var(--sea-ink-soft)]">
             Memo format: UNBOND:ASSET:UNITS:NODE. Confirm churn status with your operator before
             unbonding.
@@ -330,9 +347,9 @@ export function ProviderBondActions(props: {
 function BondedAllocationHint(props: { allocation: ProviderBondAllocation }) {
   return (
     <p className="mt-2 text-xs text-[var(--sea-ink-soft)]">
-      Bonded {props.allocation.units} units
+      Bonded {formatLiquidityUnitsLabel(props.allocation.units)} units
       {props.allocation.source === 'cacao-pool'
-        ? ` • effective bond ${props.allocation.effectiveUnits} units (50% weight)`
+        ? ` • effective bond ${formatLiquidityUnitsLabel(props.allocation.effectiveUnits)} weighted units (50% weight)`
         : props.allocation.source === 'lp'
           ? ' • full LP bond weight'
           : null}

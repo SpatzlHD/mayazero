@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   buildBondablePositions,
   computeEffectiveBondUnits,
+  computeLiquidityUnitFraction,
+  formatBondablePositionOptionLabel,
   formatEffectiveBondUnits,
   CACAO_POOL_BOND_WEIGHT,
 } from './pooled-nodes-bond'
@@ -85,5 +87,31 @@ describe('pooled nodes bond helpers', () => {
     })
 
     expect(positions).toHaveLength(0)
+  })
+
+  it('formats bondable position labels as integer units', () => {
+    expect(
+      formatBondablePositionOptionLabel({
+        id: 'cacao-pool',
+        source: 'cacao-pool',
+        asset: 'MAYA.CACAO',
+        label: 'CACAO Pool',
+        walletUnits: '469937049864',
+        bondedUnits: '97804245790261',
+        availableUnits: '469937049864',
+        bondWeight: CACAO_POOL_BOND_WEIGHT,
+      }),
+    ).toBe(
+      'CACAO Pool — 469,937,049,864 units available (97,804,245,790,261 already bonded)',
+    )
+  })
+
+  it('computes integer unit fractions with floor rounding', () => {
+    expect(computeLiquidityUnitFraction('1000', 100)).toBe('1000')
+    expect(computeLiquidityUnitFraction('1000', 75)).toBe('750')
+    expect(computeLiquidityUnitFraction('1000', 50)).toBe('500')
+    expect(computeLiquidityUnitFraction('1000', 25)).toBe('250')
+    expect(computeLiquidityUnitFraction('1001', 50)).toBe('500')
+    expect(computeLiquidityUnitFraction('0', 50)).toBeNull()
   })
 })

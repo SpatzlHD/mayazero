@@ -1,6 +1,6 @@
 import type { CacaoPoolPosition } from './cacao-pool'
 import type { LiquidityPosition } from './liquidity'
-import { formatBaseUnits, parseDecimalToBaseUnits } from './cacao-pool'
+import { parseDecimalToBaseUnits } from './cacao-pool'
 
 export const POOLED_NODE_CACAO_DECIMALS = 10
 /** CACAO sent with bond/unbond/remove-provider deposit memos (not the bonded LP amount). */
@@ -33,6 +33,46 @@ export type BondablePosition = {
 export type BondedAllocationRef = {
   asset: string
   units: string
+}
+
+/** Liquidity / CACAO pool units are always whole on-chain integers — never decimal amounts. */
+export function formatLiquidityUnits(value: string): string {
+  const trimmed = value.trim()
+  if (!/^\d+$/.test(trimmed)) {
+    return trimmed
+  }
+  return trimmed.replace(/^0+(?=\d)/, '') || '0'
+}
+
+export function formatLiquidityUnitsLabel(value: string): string {
+  const normalized = formatLiquidityUnits(value)
+  if (!/^\d+$/.test(normalized)) {
+    return normalized
+  }
+  return BigInt(normalized).toLocaleString('en-US')
+}
+
+export function computeLiquidityUnitFraction(
+  units: string,
+  percent: number,
+): string | null {
+  const normalized = formatLiquidityUnits(units)
+  if (!/^\d+$/.test(normalized) || normalized === '0') {
+    return null
+  }
+  if (percent <= 0 || percent > 100) {
+    return null
+  }
+  if (percent === 100) {
+    return normalized
+  }
+
+  const amount = (BigInt(normalized) * BigInt(percent)) / 100n
+  if (amount <= 0n) {
+    return null
+  }
+
+  return amount.toString()
 }
 
 export function computeEffectiveBondUnits(
@@ -166,16 +206,12 @@ export function buildBondablePositions(input: {
 export function formatBondablePositionOptionLabel(
   position: BondablePosition,
 ): string {
-  const decimals = position.source === 'cacao-pool' ? 10 : 8
-  const available =
-    formatBaseUnits(position.availableUnits, decimals) || position.availableUnits
+  const available = formatLiquidityUnitsLabel(position.availableUnits)
   const bonded = BigInt(position.bondedUnits)
   if (bonded > 0n) {
-    const bondedLabel =
-      formatBaseUnits(position.bondedUnits, decimals) || position.bondedUnits
-    return `${position.label} — ${available} available (${bondedLabel} already bonded)`
+    return `${position.label} — ${available} units available (${formatLiquidityUnitsLabel(position.bondedUnits)} already bonded)`
   }
-  return `${position.label} — ${available} available`
+  return `${position.label} — ${available} units available`
 }
 
 export function formatBondedAllocationOptionLabel(input: {
@@ -183,13 +219,12 @@ export function formatBondedAllocationOptionLabel(input: {
   units: string
   source: BondPositionSource | null
 }): string {
-  const decimals = input.source === 'cacao-pool' ? 10 : 8
-  const formatted = formatBaseUnits(input.units, decimals) || input.units
+  const formatted = formatLiquidityUnitsLabel(input.units)
   const label =
     input.source === 'cacao-pool' && input.asset === CACAO_POOL_BOND_ASSET
       ? 'CACAO Pool'
       : input.asset
-  return `${label} — ${formatted} bonded`
+  return `${label} — ${formatted} units bonded`
 }
 
 export function findBondablePosition(
@@ -227,7 +262,7 @@ export function validateBondUnitsAgainstPosition(
   }
 
   if (BigInt(units) > BigInt(position.availableUnits)) {
-    return `Amount exceeds available ${position.label} units (${formatBaseUnits(position.availableUnits, 8) || position.availableUnits}).`
+    return `Amount exceeds available ${position.label} units (${formatLiquidityUnitsLabel(position.availableUnits)}).`
   }
 
   return null
@@ -255,8 +290,7 @@ export function summarizeProviderPoolEntry(
   amount: string,
 ): { label: string; formattedAmount: string; bondWeightNote: string } {
   const source = classifyProviderPoolAsset(asset)
-  const decimals = source === 'cacao-pool' ? 10 : 8
-  const formattedAmount = formatBaseUnits(amount, decimals) || amount
+  const formattedAmount = formatLiquidityUnitsLabel(amount)
   const bondWeightNote =
     source === 'cacao-pool'
       ? `Counts at ${CACAO_POOL_BOND_WEIGHT}x LP bond weight`

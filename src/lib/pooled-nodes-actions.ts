@@ -1,9 +1,10 @@
-import { formatBaseUnits, parseDecimalToBaseUnits } from "./cacao-pool";
+import { parseDecimalToBaseUnits } from "./cacao-pool";
 import {
   BOND_DEPOSIT_BASE_UNITS,
   BOND_DEPOSIT_CACAO,
   POOLED_NODE_CACAO_DECIMALS,
   type BondablePosition,
+  formatLiquidityUnitsLabel,
   parseBondUnitsInput,
   validateBondUnitsAgainstPosition,
 } from "./pooled-nodes-bond";
@@ -577,7 +578,7 @@ export function getPooledNodePrimaryAction(params: {
       );
       const requiredBond = providerPosition.poolSumBaseUnits;
 
-      const parsed = parseCacaoAmountInput(params.amountInput);
+      const parsed = parseBondUnitsInput(params.amountInput);
       if (parsed.error) {
         return {
           disabled: true,
@@ -588,25 +589,25 @@ export function getPooledNodePrimaryAction(params: {
           txAmountBaseUnits: null,
         };
       }
-      if (!parsed.baseUnits) {
+      if (!parsed.units) {
         return {
           disabled: true,
-          label: "Enter Refund Amount",
+          label: "Enter Refund Units",
           note: requiredBond
-            ? `Refund the provider's full bond (${formatCompactBaseUnits(requiredBond)} CACAO) to remove them.`
-            : "Enter the provider bond amount to refund.",
+            ? `Refund the provider's full bond (${formatLiquidityUnitsLabel(requiredBond)} units) to remove them.`
+            : "Enter the provider bond units to refund.",
           amountBaseUnits: null,
           memo: null,
           txAmountBaseUnits: null,
         };
       }
 
-      if (requiredBond && parsed.baseUnits !== requiredBond) {
+      if (requiredBond && parsed.units !== requiredBond) {
         return {
           disabled: true,
           label: idleLabels[params.action],
-          note: `Removal requires refunding the provider's full bond of ${formatCompactBaseUnits(requiredBond)} CACAO.`,
-          amountBaseUnits: parsed.baseUnits,
+          note: `Removal requires refunding the provider's full bond of ${formatLiquidityUnitsLabel(requiredBond)} units.`,
+          amountBaseUnits: parsed.units,
           memo: null,
           txAmountBaseUnits: null,
         };
@@ -614,13 +615,13 @@ export function getPooledNodePrimaryAction(params: {
 
       const memo = buildPooledNodeMemo({
         action: "operator.remove-provider",
-        amountBaseUnits: parsed.baseUnits,
+        amountBaseUnits: parsed.units,
         nodeAddress,
         providerAddress: provider.bondAddress,
       });
       const txAmountBaseUnits = resolveTxAmountBaseUnits(
         "operator.remove-provider",
-        parsed.baseUnits,
+        parsed.units,
         false,
       );
 
@@ -629,7 +630,7 @@ export function getPooledNodePrimaryAction(params: {
           disabled: true,
           label: "Insufficient CACAO",
           note: `Provider removal requires at least ${MIN_DUST_CACAO} CACAO for the deposit memo.`,
-          amountBaseUnits: parsed.baseUnits,
+          amountBaseUnits: parsed.units,
           memo,
           txAmountBaseUnits,
         };
@@ -638,14 +639,10 @@ export function getPooledNodePrimaryAction(params: {
       return {
         disabled: false,
         label: idleLabels[params.action],
-        amountBaseUnits: parsed.baseUnits,
+        amountBaseUnits: parsed.units,
         memo,
         txAmountBaseUnits,
       };
     }
   }
-}
-
-function formatCompactBaseUnits(value: string): string {
-  return formatBaseUnits(value, POOLED_NODE_CACAO_DECIMALS) || "0";
 }
