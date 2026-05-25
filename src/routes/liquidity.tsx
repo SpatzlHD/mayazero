@@ -231,7 +231,7 @@ function LiquidityTerminalPage() {
     hasPendingCancelPosition: Boolean(pendingCancelMode),
     hasPosition: Boolean(
       selectedPosition &&
-        (selectedPosition.units !== "0" || pendingCancelMode !== null),
+      (selectedPosition.units !== "0" || pendingCancelMode !== null),
     ),
     hasSession: Boolean(activeSession),
     isViewOnly,
@@ -1068,7 +1068,7 @@ function LiquidityTerminalPage() {
                   <p className="mt-4 text-sm leading-relaxed text-[var(--sea-ink-soft)]">
                     This action cancels the pending-only LP add and returns the{" "}
                     {pendingCancelMode === "asset"
-                      ? selectedPool?.symbol ?? "asset"
+                      ? (selectedPool?.symbol ?? "asset")
                       : "CACAO"}{" "}
                     side in full.
                   </p>
@@ -1141,9 +1141,9 @@ function LiquidityTerminalPage() {
                 <p className="leading-snug">
                   Symmetric deposit pending for {pendingDeposit.poolAsset}.
                   Resume with the CACAO leg on the deposit tab or cancel it on
-                  the withdraw tab to return the pending asset side. The
-                  stored {INTERFACE_AFFILIATE_MAYANAME} affiliate remains
-                  tracking-only at 0%.
+                  the withdraw tab to return the pending asset side. The stored{" "}
+                  {INTERFACE_AFFILIATE_MAYANAME} affiliate remains tracking-only
+                  at 0%.
                 </p>
               </div>
             ) : null}
@@ -1159,7 +1159,7 @@ function LiquidityTerminalPage() {
                   {selectedPosition?.pool ?? selectedPool?.asset}. Use the
                   withdraw tab to cancel it and return the pending{" "}
                   {pendingCancelMode === "asset"
-                    ? selectedPool?.symbol ?? "asset"
+                    ? (selectedPool?.symbol ?? "asset")
                     : "CACAO"}{" "}
                   side.
                 </p>
@@ -1250,7 +1250,9 @@ function LiquidityTerminalPage() {
           loadError={loadError}
           onFocusAnalyticsPool={focusAnalyticsPool}
           onRetryLoad={() => void refreshLiquidityData()}
-          onSyncDepositToAnalytics={() => setSelectedPoolAsset(analyticsPoolAsset)}
+          onSyncDepositToAnalytics={() =>
+            setSelectedPoolAsset(analyticsPoolAsset)
+          }
           poolDetail={liquidityPoolDetail}
           poolDetailError={liquidityPoolDetailError}
           pools={visiblePools}
@@ -1271,10 +1273,10 @@ function LiquidityTerminalPage() {
             ? "1"
             : "0",
           chainBadge: pool.chainTicker,
-          iconMain: "cacao",
-          iconSub: pool.iconId,
+          iconMain: pool.symbol,
+          iconSub: "cacao",
           id: pool.asset,
-          label: `CACAO / ${pool.symbol}`,
+          label: `${pool.symbol} / CACAO`,
           priceUsd: pool.assetPriceUsd,
           statusBadge: isStagedLiquidityPool(pool) ? "Staged" : undefined,
           subtitle: `${formatPercent(pool.apr)} • ${formatUsdCompact(pool.depthUsd)} depth`,
