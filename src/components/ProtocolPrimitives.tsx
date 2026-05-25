@@ -53,9 +53,8 @@ export function AssetIcon({
   assetId: string;
   className?: string;
 }) {
-  console.log("assetId", assetId);
   const src = iconMap[assetId.toLowerCase()];
-  console.log("src", assetId, src);
+
   if (!src) {
     return (
       <div
