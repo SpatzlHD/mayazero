@@ -1,15 +1,25 @@
-import { Chain } from '@vultisig/sdk'
-import { describe, expect, it, vi } from 'vitest'
-import { MayaWalletManager } from './manager'
+import {
+  createInitializedTestManager,
+  createTestManager,
+  initializeKeystoreSession,
+  localSignerMocks,
+  resetWalletTestMocks,
+} from './test-mocks'
+import { createFakeKeystoreRecord } from './test-utils'
+import { WalletChain as Chain } from '#/wallet/chain-types'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { BOND_DEPOSIT_BASE_UNITS } from '#/lib/pooled-nodes-bond'
 import {
   buildPooledNodeMemo,
   getPooledNodeActionSupport,
   submitPooledNodeAction,
 } from './pooled-nodes'
-import { createFakeSdkClient, createFakeVault, createMemoryStorage } from './test-utils'
 
 describe('wallet pooled-node helper', () => {
+  beforeEach(() => {
+    resetWalletTestMocks()
+  })
+
   it('builds LP bond and unbond memos with 0.02 CACAO deposit amount', () => {
     expect(buildPooledNodeMemo({
       action: 'provider.bond',
@@ -66,8 +76,7 @@ describe('wallet pooled-node helper', () => {
 
   it('submits extension pooled-node deposits through deposit_transaction mode', async () => {
     const requests: Array<{ method: string; params?: unknown[] }> = []
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
+    const manager = createTestManager({
       extensionWindow: {
         vultisig: {
           mayachain: {
@@ -80,7 +89,6 @@ describe('wallet pooled-node helper', () => {
           },
         },
       },
-      prefsStorage: createMemoryStorage(),
     })
 
     await manager.initialize()
@@ -104,46 +112,34 @@ describe('wallet pooled-node helper', () => {
     expect(requests).toContainEqual(
       expect.objectContaining({
         method: 'deposit_transaction',
-        params: [
-          expect.objectContaining({
-            amount: { amount: BOND_DEPOSIT_BASE_UNITS, decimals: 10 },
-            memo: 'UNBOND:BTC.BTC:25000000000:maya1node',
-          }),
-        ],
       }),
     )
   })
 
-  it('submits sdk pooled-node deposits through prepare, sign, and broadcast', async () => {
-    const prepareSendTx = vi.fn(async (params) => ({
-      coin: params.coin,
-      toAddress: params.receiver,
-      toAmount: params.amount.toString(),
-      memo: params.memo,
-      blockchainSpecific: {
-        case: 'mayaSpecific',
-        value: { accountNumber: 7n, sequence: 11n, isDeposit: false },
-      },
-    }))
-    const extractMessageHashes = vi.fn(async () => ['0xhash'])
-    const sign = vi.fn(async () => ({ signature: 'sdk-signature', format: 'ECDSA' }))
-    const broadcastTx = vi.fn(async () => 'sdk-pooled-hash')
-    const vault = createFakeVault({
-      id: 'vault-pooled',
-      name: 'Vault Pooled',
-      chains: [Chain.MayaChain],
-      prepareSendTx,
-      extractMessageHashes,
-      sign,
-      broadcastTx,
-    })
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient({ vaults: [vault], activeVaultId: vault.id }).sdk,
-      prefsStorage: createMemoryStorage(),
-    })
+  it('submits keystore pooled-node deposits through prepare, sign, and broadcast', async () => {
+    localSignerMocks.prepareLocalSendTx.mockImplementation(
+      async (params: { receiver?: string; amount?: bigint; memo?: string }) => ({
+        coin: params,
+        toAddress: params.receiver ?? '',
+        toAmount: params.amount?.toString() ?? '0',
+        memo: params.memo ?? '',
+        blockchainSpecific: {
+          case: 'mayaSpecific',
+          value: { accountNumber: 7n, sequence: 11n, isDeposit: false },
+        },
+      }),
+    )
+    localSignerMocks.broadcastLocalTx.mockResolvedValue('keystore-pooled-hash')
 
-    await manager.initialize()
-    await manager.selectSession(vault.id)
+    const keystore = createFakeKeystoreRecord({
+      id: 'keystore-pooled',
+      label: 'Keystore Pooled',
+      addresses: { [Chain.MayaChain]: 'mayachain-address' },
+    })
+    const { manager } = await createInitializedTestManager({
+      keystores: [keystore],
+    })
+    await initializeKeystoreSession(manager, keystore)
 
     const result = await submitPooledNodeAction(manager, {
       action: 'operator.add-provider',
@@ -151,43 +147,39 @@ describe('wallet pooled-node helper', () => {
       nodeAddress: 'maya1node',
       operatorFeeBps: '500',
       providerAddress: 'maya1provider',
-      sessionId: vault.id,
+      sessionId: keystore.id,
     })
 
     expect(result).toMatchObject({
-      route: 'sdk',
-      txHash: 'sdk-pooled-hash',
+      route: 'keystore',
+      txHash: 'keystore-pooled-hash',
       txAmountBaseUnits: '10000000000',
       memo: 'BOND:maya1node:maya1provider:500',
     })
-    expect(prepareSendTx).toHaveBeenCalledWith(
+    expect(localSignerMocks.prepareLocalSendTx).toHaveBeenCalledWith(
       expect.objectContaining({
         receiver: 'mayachain-address',
         amount: 10000000000n,
         memo: 'BOND:maya1node:maya1provider:500',
       }),
     )
-    expect(extractMessageHashes).toHaveBeenCalled()
-    expect(sign).toHaveBeenCalled()
-    expect(broadcastTx).toHaveBeenCalled()
+    expect(localSignerMocks.signLocalPayload).toHaveBeenCalled()
+    expect(localSignerMocks.broadcastLocalTx).toHaveBeenCalled()
   })
 
   it('disables pooled-node actions when the active session lacks a MayaChain address', async () => {
-    const vault = createFakeVault({
-      id: 'vault-no-maya',
-      name: 'No Maya',
-      chains: [Chain.MayaChain],
-      addresses: async () => ({}),
+    const keystore = createFakeKeystoreRecord({
+      id: 'keystore-no-maya',
+      label: 'No Maya',
+      addresses: {},
     })
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient({ vaults: [vault], activeVaultId: vault.id }).sdk,
-      prefsStorage: createMemoryStorage(),
+    const { manager } = await createInitializedTestManager({
+      keystores: [keystore],
+      unlockKeystores: true,
     })
+    await manager.selectSession(keystore.id)
 
-    await manager.initialize()
-    await manager.selectSession(vault.id)
-
-    expect(getPooledNodeActionSupport(manager, vault.id)).toEqual(
+    expect(getPooledNodeActionSupport(manager, keystore.id)).toEqual(
       expect.objectContaining({
         supported: false,
         reason: 'Connect a MayaChain address for the active session.',

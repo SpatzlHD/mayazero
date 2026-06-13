@@ -1,4 +1,4 @@
-import { Chain } from "@vultisig/sdk";
+import { WalletChain as Chain } from "#/wallet/chain-types";
 import { track } from "@vercel/analytics/react";
 import {
   allowsMayaNameContext,

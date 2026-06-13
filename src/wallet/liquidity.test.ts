@@ -1,15 +1,21 @@
-import { Chain } from '@vultisig/sdk'
+import {
+  createInitializedTestManager,
+  createTestManager,
+  initializeKeystoreSession,
+  localSignerMocks,
+  resetWalletTestMocks,
+} from './test-mocks'
+import { createFakeKeystoreRecord } from './test-utils'
+import { WalletChain as Chain } from '#/wallet/chain-types'
 import { decodeFunctionData, encodeFunctionData, erc20Abi } from 'viem'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LiquidityPool, LiquidityPosition } from '#/lib/liquidity'
-import { MayaWalletManager } from './manager'
 import {
   getLiquidityDepositSupport,
   prepareLiquidityDepositSteps,
   submitLiquidityDepositStep,
   submitLiquidityWithdraw,
 } from './liquidity'
-import { createFakeSdkClient, createFakeVault, createMemoryStorage } from './test-utils'
 
 const routerAbi = [
   {
@@ -129,25 +135,38 @@ function makePosition(overrides: Partial<LiquidityPosition> = {}): LiquidityPosi
   }
 }
 
+const defaultLiquidityAddresses = {
+  [Chain.MayaChain]: 'mayachain-address',
+  [Chain.Ethereum]: 'ethereum-address',
+  [Chain.Arbitrum]: 'arbitrum-address',
+}
+
+async function setupKeystoreLiquiditySession(
+  id: string,
+  addresses: Partial<Record<Chain, string>> = defaultLiquidityAddresses,
+) {
+  const keystore = createFakeKeystoreRecord({
+    id,
+    label: id,
+    addresses,
+  })
+  const { manager } = await createInitializedTestManager({
+    keystores: [keystore],
+    unlockKeystores: true,
+  })
+  await manager.selectSession(keystore.id)
+  return { manager, keystore }
+}
+
 describe('wallet liquidity helper', () => {
   const extensionEvmAddress = '0x00000000000000000000000000000000000000e1'
 
-  it('prepares guided symmetric deposit steps', async () => {
-    const vault = createFakeVault({
-      id: 'vault-liquidity',
-      name: 'Liquidity Vault',
-      chains: [Chain.MayaChain, Chain.Ethereum],
-    })
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient({
-        vaults: [vault],
-        activeVaultId: vault.id,
-      }).sdk,
-      prefsStorage: createMemoryStorage(),
-    })
+  beforeEach(() => {
+    resetWalletTestMocks()
+  })
 
-    await manager.initialize()
-    await manager.selectSession(vault.id)
+  it('prepares guided symmetric deposit steps', async () => {
+    const { manager, keystore } = await setupKeystoreLiquiditySession('keystore-liquidity')
 
     const steps = prepareLiquidityDepositSteps(manager, {
       affiliate: {
@@ -158,7 +177,7 @@ describe('wallet liquidity helper', () => {
       cacaoAmountBaseUnits: '10000000000',
       mode: 'symmetric',
       pool: makePool(),
-      sessionId: vault.id,
+      sessionId: keystore.id,
     }).steps
 
     expect(steps).toEqual([
@@ -181,21 +200,7 @@ describe('wallet liquidity helper', () => {
   })
 
   it('routes ERC-20 asset legs through the Maya router', async () => {
-    const vault = createFakeVault({
-      id: 'vault-router-liquidity',
-      name: 'Router Liquidity Vault',
-      chains: [Chain.MayaChain, Chain.Arbitrum],
-    })
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient({
-        vaults: [vault],
-        activeVaultId: vault.id,
-      }).sdk,
-      prefsStorage: createMemoryStorage(),
-    })
-
-    await manager.initialize()
-    await manager.selectSession(vault.id)
+    const { manager, keystore } = await setupKeystoreLiquiditySession('keystore-router-liquidity')
 
     const [assetStep, cacaoStep] = prepareLiquidityDepositSteps(manager, {
       affiliate: {
@@ -206,7 +211,7 @@ describe('wallet liquidity helper', () => {
       cacaoAmountBaseUnits: '10000000000',
       mode: 'symmetric',
       pool: makeArbUsdcPool(),
-      sessionId: vault.id,
+      sessionId: keystore.id,
     }).steps
 
     expect(assetStep).toEqual(
@@ -230,8 +235,7 @@ describe('wallet liquidity helper', () => {
 
   it('submits extension asset and cacao steps via eth_sendTransaction and deposit_transaction', async () => {
     const requests: Array<{ method: string; params?: unknown[] }> = []
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
+    const manager = createTestManager({
       extensionWindow: {
         vultisig: {
           ethereum: {
@@ -260,7 +264,6 @@ describe('wallet liquidity helper', () => {
           },
         },
       },
-      prefsStorage: createMemoryStorage(),
     })
 
     await manager.initialize()
@@ -317,8 +320,7 @@ describe('wallet liquidity helper', () => {
   it('submits extension ERC-20 asset legs via approval and depositWithExpiry router calls', async () => {
     const requests: Array<{ method: string; params?: unknown[] }> = []
     let txQueryCount = 0
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
+    const manager = createTestManager({
       extensionWindow: {
         vultisig: {
           ethereum: {
@@ -358,7 +360,6 @@ describe('wallet liquidity helper', () => {
           },
         },
       },
-      prefsStorage: createMemoryStorage(),
     })
 
     await manager.initialize()
@@ -424,8 +425,7 @@ describe('wallet liquidity helper', () => {
   it('uses a 1-base-unit ERC-20 router amount for pending asset-side cancels', async () => {
     const requests: Array<{ method: string; params?: unknown[] }> = []
     let txQueryCount = 0
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
+    const manager = createTestManager({
       extensionWindow: {
         vultisig: {
           ethereum: {
@@ -465,7 +465,6 @@ describe('wallet liquidity helper', () => {
           },
         },
       },
-      prefsStorage: createMemoryStorage(),
     })
 
     await manager.initialize()
@@ -526,8 +525,7 @@ describe('wallet liquidity helper', () => {
 
   it('stops before the router call when an extension approval receipt reverts', async () => {
     const requests: Array<{ method: string; params?: unknown[] }> = []
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
+    const manager = createTestManager({
       extensionWindow: {
         vultisig: {
           ethereum: {
@@ -565,7 +563,6 @@ describe('wallet liquidity helper', () => {
           },
         },
       },
-      prefsStorage: createMemoryStorage(),
     })
 
     await manager.initialize()
@@ -597,8 +594,7 @@ describe('wallet liquidity helper', () => {
 
   it('resets a nonzero extension allowance before approving the router amount', async () => {
     const requests: Array<{ method: string; params?: unknown[] }> = []
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
+    const manager = createTestManager({
       extensionWindow: {
         vultisig: {
           ethereum: {
@@ -641,7 +637,6 @@ describe('wallet liquidity helper', () => {
           },
         },
       },
-      prefsStorage: createMemoryStorage(),
     })
 
     await manager.initialize()
@@ -702,122 +697,70 @@ describe('wallet liquidity helper', () => {
     })
   })
 
-  it('submits sdk maya-side withdraws as deposit memos', async () => {
-    const prepareSendTx = vi.fn(async (params) => ({
-      coin: params.coin,
-      toAddress: params.receiver,
-      toAmount: params.amount.toString(),
-      memo: params.memo,
-      blockchainSpecific: {
-        case: 'mayaSpecific',
-        value: {
-          accountNumber: 9n,
-          sequence: 3n,
-          isDeposit: false,
+  it('submits keystore maya-side withdraws as deposit memos', async () => {
+    localSignerMocks.prepareLocalSendTx.mockImplementation(
+      async (params: { receiver?: string; amount?: bigint; memo?: string }) => ({
+        coin: params,
+        toAddress: params.receiver ?? '',
+        toAmount: params.amount?.toString() ?? '0',
+        memo: params.memo ?? '',
+        blockchainSpecific: {
+          case: 'mayaSpecific',
+          value: {
+            accountNumber: 9n,
+            sequence: 3n,
+            isDeposit: false,
+          },
         },
-      },
-    }))
-    const sign = vi.fn(async () => ({
-      signature: 'sdk-signature',
-      format: 'ECDSA',
-    }))
-    const broadcastTx = vi.fn(async () => 'sdk-withdraw-hash')
-    const vault = createFakeVault({
-      id: 'vault-withdraw',
-      name: 'Withdraw Vault',
-      chains: [Chain.MayaChain, Chain.Ethereum],
-      prepareSendTx,
-      sign,
-      broadcastTx,
-    })
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient({
-        vaults: [vault],
-        activeVaultId: vault.id,
-      }).sdk,
-      prefsStorage: createMemoryStorage(),
-    })
+      }),
+    )
+    localSignerMocks.broadcastLocalTx.mockResolvedValue('keystore-withdraw-hash')
 
-    await manager.initialize()
-    await manager.selectSession(vault.id)
+    const { manager, keystore } = await setupKeystoreLiquiditySession('keystore-withdraw')
+    await initializeKeystoreSession(manager, keystore)
 
     const result = await submitLiquidityWithdraw(manager, {
       basisPoints: 5000,
       mode: 'symmetric',
       pool: makePool(),
-      sessionId: vault.id,
+      sessionId: keystore.id,
     })
 
     expect(result).toMatchObject({
       memo: 'WD:e:5000',
-      route: 'sdk',
-      txHash: 'sdk-withdraw-hash',
+      route: 'keystore',
+      txHash: 'keystore-withdraw-hash',
     })
-    expect(prepareSendTx).toHaveBeenCalledWith(
+    expect(localSignerMocks.prepareLocalSendTx).toHaveBeenCalledWith(
       expect.objectContaining({
         amount: 1n,
         memo: 'WD:e:5000',
         receiver: 'mayachain-address',
       }),
     )
-    expect(sign).toHaveBeenCalledWith(
-      expect.objectContaining({
-        chain: Chain.MayaChain,
-        transaction: expect.objectContaining({
-          blockchainSpecific: {
-            case: 'mayaSpecific',
-            value: {
-              accountNumber: 9n,
-              sequence: 3n,
-              isDeposit: true,
-            },
-          },
-          memo: 'WD:e:5000',
-          toAddress: '',
-        }),
-      }),
-      expect.any(Object),
-    )
+    expect(localSignerMocks.signLocalPayload).toHaveBeenCalled()
   })
 
   it('builds a MayaChain pending-cacao cancel memo with fixed 10000 bps', async () => {
-    const prepareSendTx = vi.fn(async (params) => ({
-      coin: params.coin,
-      toAddress: params.receiver,
-      toAmount: params.amount.toString(),
-      memo: params.memo,
-      blockchainSpecific: {
-        case: 'mayaSpecific',
-        value: {
-          accountNumber: 9n,
-          sequence: 3n,
-          isDeposit: false,
+    localSignerMocks.prepareLocalSendTx.mockImplementation(
+      async (params: { receiver?: string; memo?: string }) => ({
+        coin: params,
+        toAddress: params.receiver ?? '',
+        memo: params.memo ?? '',
+        blockchainSpecific: {
+          case: 'mayaSpecific',
+          value: {
+            accountNumber: 9n,
+            sequence: 3n,
+            isDeposit: false,
+          },
         },
-      },
-    }))
-    const sign = vi.fn(async () => ({
-      signature: 'sdk-signature',
-      format: 'ECDSA',
-    }))
-    const broadcastTx = vi.fn(async () => 'sdk-pending-cacao-cancel-hash')
-    const vault = createFakeVault({
-      id: 'vault-pending-cacao-cancel',
-      name: 'Pending Cacao Cancel Vault',
-      chains: [Chain.MayaChain, Chain.Ethereum],
-      prepareSendTx,
-      sign,
-      broadcastTx,
-    })
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient({
-        vaults: [vault],
-        activeVaultId: vault.id,
-      }).sdk,
-      prefsStorage: createMemoryStorage(),
-    })
+      }),
+    )
+    localSignerMocks.broadcastLocalTx.mockResolvedValue('keystore-pending-cacao-cancel-hash')
 
-    await manager.initialize()
-    await manager.selectSession(vault.id)
+    const { manager, keystore } = await setupKeystoreLiquiditySession('keystore-pending-cacao-cancel')
+    await initializeKeystoreSession(manager, keystore)
 
     const result = await submitLiquidityWithdraw(manager, {
       basisPoints: 2500,
@@ -829,15 +772,15 @@ describe('wallet liquidity helper', () => {
         pendingAsset: '0',
         pendingCacao: '5000000000',
       }),
-      sessionId: vault.id,
+      sessionId: keystore.id,
     })
 
     expect(result).toMatchObject({
       memo: 'WD:e:10000',
-      route: 'sdk',
-      txHash: 'sdk-pending-cacao-cancel-hash',
+      route: 'keystore',
+      txHash: 'keystore-pending-cacao-cancel-hash',
     })
-    expect(prepareSendTx).toHaveBeenCalledWith(
+    expect(localSignerMocks.prepareLocalSendTx).toHaveBeenCalledWith(
       expect.objectContaining({
         memo: 'WD:e:10000',
         receiver: 'mayachain-address',
@@ -846,46 +789,27 @@ describe('wallet liquidity helper', () => {
   })
 
   it('builds an external-chain paired-address memo for pending-asset cancels', async () => {
-    const prepareSendTx = vi.fn(async (params) => ({
-      coin: params.coin,
-      toAddress: params.receiver,
-      toAmount: params.amount.toString(),
-      memo: params.memo,
-      blockchainSpecific: {
-        case: 'ethereumSpecific',
-        value: {
-          nonce: 3n,
-          gasLimit: 21_000n,
-          maxFeePerGasWei: 1n,
-          maxPriorityFeePerGasWei: 1n,
-          chainId: 1n,
+    localSignerMocks.prepareLocalSendTx.mockImplementation(
+      async (params: { receiver?: string; memo?: string }) => ({
+        coin: params,
+        toAddress: params.receiver ?? '',
+        memo: params.memo ?? '',
+        blockchainSpecific: {
+          case: 'ethereumSpecific',
+          value: {
+            nonce: 3n,
+            gasLimit: 21_000n,
+            maxFeePerGasWei: 1n,
+            maxPriorityFeePerGasWei: 1n,
+            chainId: 1n,
+          },
         },
-      },
-    }))
-    const sign = vi.fn(async () => ({
-      signature: 'sdk-signature',
-      format: 'ECDSA',
-      recovery: 1,
-    }))
-    const broadcastTx = vi.fn(async () => 'sdk-pending-asset-cancel-hash')
-    const vault = createFakeVault({
-      id: 'vault-pending-asset-cancel',
-      name: 'Pending Asset Cancel Vault',
-      chains: [Chain.MayaChain, Chain.Ethereum],
-      prepareSendTx,
-      sign,
-      broadcastTx,
-    })
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient({
-        vaults: [vault],
-        activeVaultId: vault.id,
-      }).sdk,
-      prefsStorage: createMemoryStorage(),
-    })
+      }),
+    )
+    localSignerMocks.broadcastLocalTx.mockResolvedValue('keystore-pending-asset-cancel-hash')
 
-    await manager.initialize()
-    await manager.selectSession(vault.id)
+    const { manager, keystore } = await setupKeystoreLiquiditySession('keystore-pending-asset-cancel')
+    await initializeKeystoreSession(manager, keystore)
 
     const result = await submitLiquidityWithdraw(manager, {
       basisPoints: 5000,
@@ -897,15 +821,15 @@ describe('wallet liquidity helper', () => {
         pendingAsset: '1000000000000000000',
         pendingCacao: '0',
       }),
-      sessionId: vault.id,
+      sessionId: keystore.id,
     })
 
     expect(result).toMatchObject({
       memo: 'WD:e:10000:e:mayachain-address',
-      route: 'sdk',
-      txHash: 'sdk-pending-asset-cancel-hash',
+      route: 'keystore',
+      txHash: 'keystore-pending-asset-cancel-hash',
     })
-    expect(prepareSendTx).toHaveBeenCalledWith(
+    expect(localSignerMocks.prepareLocalSendTx).toHaveBeenCalledWith(
       expect.objectContaining({
         memo: 'WD:e:10000:e:mayachain-address',
         receiver: '0xinbound',
@@ -914,21 +838,7 @@ describe('wallet liquidity helper', () => {
   })
 
   it('keeps the empty paired-address slot for asymmetric affiliate deposits', async () => {
-    const vault = createFakeVault({
-      id: 'vault-asym',
-      name: 'Asymmetric Vault',
-      chains: [Chain.MayaChain, Chain.Ethereum],
-    })
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient({
-        vaults: [vault],
-        activeVaultId: vault.id,
-      }).sdk,
-      prefsStorage: createMemoryStorage(),
-    })
-
-    await manager.initialize()
-    await manager.selectSession(vault.id)
+    const { manager, keystore } = await setupKeystoreLiquiditySession('keystore-asym')
 
     const [assetStep] = prepareLiquidityDepositSteps(manager, {
       affiliate: {
@@ -938,37 +848,22 @@ describe('wallet liquidity helper', () => {
       assetAmountBaseUnits: '1000000000000000000',
       mode: 'asset',
       pool: makePool(),
-      sessionId: vault.id,
+      sessionId: keystore.id,
     }).steps
 
     expect(assetStep?.memo).toBe('ADD:e::m0:25')
   })
 
   it('gates liquidity support when MayaChain is missing', async () => {
-    const vault = createFakeVault({
-      id: 'vault-no-maya',
-      name: 'No Maya',
-      chains: [Chain.Ethereum],
-      addresses: async () => ({
-        [Chain.Ethereum]: 'ethereum-address',
-      }),
+    const { manager, keystore } = await setupKeystoreLiquiditySession('keystore-no-maya', {
+      [Chain.Ethereum]: 'ethereum-address',
     })
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient({
-        vaults: [vault],
-        activeVaultId: vault.id,
-      }).sdk,
-      prefsStorage: createMemoryStorage(),
-    })
-
-    await manager.initialize()
-    await manager.selectSession(vault.id)
 
     expect(
       getLiquidityDepositSupport(manager, {
         pool: makePool(),
         mode: 'symmetric',
-        sessionId: vault.id,
+        sessionId: keystore.id,
       }),
     ).toEqual(
       expect.objectContaining({

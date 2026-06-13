@@ -1,4 +1,4 @@
-import { Chain } from '@vultisig/sdk'
+import { WalletChain as Chain } from '#/wallet/chain-types'
 import { getChainDefinition } from './chains'
 import { normalizeEvmAddress } from '#/lib/evm-address'
 import type { WalletChain } from './types'

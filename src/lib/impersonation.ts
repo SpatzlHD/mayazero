@@ -1,4 +1,4 @@
-import { Chain } from "@vultisig/sdk";
+import { WalletChain as Chain } from "#/wallet/chain-types";
 import { isAddress as isEvmAddress } from "viem";
 import { supportedWalletChains } from "#/wallet/chains";
 import { type WalletChain, type WalletSession } from "#/wallet/types";

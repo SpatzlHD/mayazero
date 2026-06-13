@@ -1,4 +1,4 @@
-import { Chain } from "@vultisig/sdk";
+import { WalletChain as Chain } from "#/wallet/chain-types";
 import { getMayaChainIdentity } from "./maya-asset-catalog";
 import { formatBaseUnits } from "./cacao-pool";
 import { tryNormalizeEvmAddress } from "./evm-address";

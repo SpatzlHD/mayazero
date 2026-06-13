@@ -10,7 +10,7 @@ import {
   X,
   AlertCircle,
 } from "lucide-react";
-import { Chain } from "@vultisig/sdk";
+import { WalletChain as Chain } from "#/wallet/chain-types";
 import { startTransition, useEffect, useMemo, useState } from "react";
 import { AssetIcon } from "#/components/ProtocolPrimitives";
 import {

@@ -1,13 +1,11 @@
-import { describe, expect, it } from 'vitest'
-import { renderToString } from 'react-dom/server'
-import { MayaWalletManager } from './manager'
-import { MayaWalletProvider, useActiveWalletSession, useMayaWalletState } from './react'
+import { createInitializedTestManager, resetWalletTestMocks } from './test-mocks'
 import {
   createFakeExtensionWindow,
-  createFakeSdkClient,
-  createFakeVault,
-  createMemoryStorage,
+  createFakeKeystoreRecord,
 } from './test-utils'
+import { describe, expect, it } from 'vitest'
+import { renderToString } from 'react-dom/server'
+import { MayaWalletProvider, useActiveWalletSession, useMayaWalletState } from './react'
 
 function Probe() {
   const state = useMayaWalletState()
@@ -23,20 +21,16 @@ function Probe() {
 
 describe('MayaWalletProvider', () => {
   it('exposes manager state through hooks in a React tree', async () => {
-    const vault = createFakeVault({
-      id: 'react-vault',
-      name: 'React Vault',
+    resetWalletTestMocks()
+    const keystore = createFakeKeystoreRecord({
+      id: 'react-keystore',
+      label: 'React Keystore',
     })
-    const fakeSdk = createFakeSdkClient({
-      vaults: [vault],
-      activeVaultId: vault.id,
-    })
-    const manager = new MayaWalletManager({
-      sdk: fakeSdk.sdk,
+    const { manager } = await createInitializedTestManager({
       extensionWindow: createFakeExtensionWindow(),
-      prefsStorage: createMemoryStorage(),
+      keystores: [keystore],
     })
-    await manager.initialize()
+    await manager.selectSession(keystore.id)
 
     const html = renderToString(
       <MayaWalletProvider manager={manager}>
@@ -45,7 +39,6 @@ describe('MayaWalletProvider', () => {
     )
 
     expect(html).toContain('>2<')
-    expect(html).toContain('React Vault')
-    expect(fakeSdk.getInitializeCount()).toBe(1)
+    expect(html).toContain('React Keystore')
   })
 })

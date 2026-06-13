@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { Chain } from '@vultisig/sdk'
+import { WalletChain as Chain } from '#/wallet/chain-types'
 import { Settings, Save } from 'lucide-react'
 import { useSettings } from '#/provider/SettingsProvider'
 import { useEffect, useState } from 'react'
@@ -68,7 +68,6 @@ function SettingsPage() {
     mayanodeUrl: settings.mayanodeUrl,
     midgardUrl: settings.midgardUrl,
     tendermintUrl: settings.tendermintUrl,
-    useVultisigSwap: settings.useVultisigSwap,
     analyticsDisabled: settings.analyticsDisabled,
     referralMayaName: settings.referralMayaName,
     impersonationEnabled: settings.impersonationEnabled,
@@ -273,27 +272,6 @@ function SettingsPage() {
                   </p>
                 </div>
               </div>
-
-              {/* Temporarily hidden while Vultisig functionality targets THORChain natively
-              <label className="flex items-center gap-3 cursor-pointer p-4 bg-[var(--chip-bg)] border border-[var(--line)] rounded-xl hover:border-[var(--cacao-neon)] transition-colors">
-                <input 
-                  type="checkbox" 
-                  className="w-5 h-5 accent-[var(--cacao-neon)] bg-[var(--surface)] border-[var(--line)] cursor-pointer"
-                  checked={formConfig.useVultisigSwap}
-                  onChange={e => {
-                    const checked = e.target.checked
-                    setFormConfig(p => ({
-                      ...p, 
-                      useVultisigSwap: checked,
-                    }))
-                  }}
-                />
-                <div className="flex flex-col">
-                  <span className="font-bold text-[var(--sea-ink)]">Use Vultisig Swap Function</span>
-                  <span className="text-xs text-[var(--sea-ink-soft)]">Prefer Vultisig SDK routing. This uses the fee attached to the Vultisig route.</span>
-                </div>
-              </label>
-              */}
             </div>
           </section>
 

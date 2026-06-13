@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { Chain } from '@vultisig/sdk'
+import { WalletChain as Chain } from '#/wallet/chain-types'
 import { AlertCircle, Coins, Loader2, RefreshCw } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { AssetIcon, shortenAddress } from '#/components/ProtocolPrimitives'

@@ -286,7 +286,6 @@ const config = defineConfig(({ mode }) => {
       apiRouteDevPlugin(),
     ],
     optimizeDeps: {
-      exclude: ["@vultisig/sdk"],
       include: [
         "jayson",
         "bn.js",
@@ -322,6 +321,9 @@ const config = defineConfig(({ mode }) => {
         : {
             "process.version": JSON.stringify("v18.0.0"),
           }),
+    },
+    test: {
+      setupFiles: ["./src/wallet/test-setup.ts"],
     },
   };
 });

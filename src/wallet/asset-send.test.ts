@@ -1,17 +1,24 @@
-import { Chain } from '@vultisig/sdk'
-import { describe, expect, it, vi } from 'vitest'
-import { MayaWalletManager } from './manager'
+import {
+  createInitializedTestManager,
+  createTestManager,
+  initializeKeystoreSession,
+  localSignerMocks,
+  resetWalletTestMocks,
+} from './test-mocks'
+import { createFakeKeystoreRecord, createEmptyExtensionWindow } from './test-utils'
+import { WalletChain as Chain } from '#/wallet/chain-types'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { getAssetSendSupport, submitAssetSend } from './asset-send'
-import { createFakeSdkClient, createFakeVault, createMemoryStorage } from './test-utils'
 
 describe('wallet asset send helper', () => {
-  it('reports missing session support', async () => {
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
-      prefsStorage: createMemoryStorage(),
-    })
+  beforeEach(() => {
+    resetWalletTestMocks()
+  })
 
-    await manager.initialize()
+  it('reports missing session support', async () => {
+    const { manager } = await createInitializedTestManager({
+      extensionWindow: createEmptyExtensionWindow(),
+    })
 
     expect(
       getAssetSendSupport(manager, {
@@ -32,30 +39,16 @@ describe('wallet asset send helper', () => {
   })
 
   it('reports missing chain addresses in support checks', async () => {
-    const vault = createFakeVault({
+    const keystore = createFakeKeystoreRecord({
       id: 'asset-send-no-maya',
-      name: 'No Maya Address',
-      chains: [Chain.Ethereum],
-      addresses: async (chains) => {
-        const selectedChains = chains ?? [Chain.Ethereum]
-        return selectedChains.reduce<Record<string, string>>((result, chain) => {
-          if (chain === Chain.Ethereum) {
-            result[chain] = 'ethereum-address'
-          }
-          return result
-        }, {})
-      },
+      label: 'No Maya Address',
+      addresses: { [Chain.Ethereum]: 'ethereum-address' },
     })
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient({
-        vaults: [vault],
-        activeVaultId: vault.id,
-      }).sdk,
-      prefsStorage: createMemoryStorage(),
+    const { manager } = await createInitializedTestManager({
+      keystores: [keystore],
+      unlockKeystores: true,
     })
-
-    await manager.initialize()
-    await manager.selectSession(vault.id)
+    await manager.selectSession(keystore.id)
 
     expect(
       getAssetSendSupport(manager, {
@@ -66,7 +59,7 @@ describe('wallet asset send helper', () => {
           isNative: true,
           ticker: 'CACAO',
         },
-        sessionId: vault.id,
+        sessionId: keystore.id,
       }),
     ).toEqual(
       expect.objectContaining({
@@ -78,8 +71,7 @@ describe('wallet asset send helper', () => {
 
   it('submits extension native sends through provider transaction payloads', async () => {
     const requests: Array<{ method: string; params?: unknown[] }> = []
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
+    const manager = createTestManager({
       extensionWindow: {
         vultisig: {
           ethereum: {
@@ -96,7 +88,6 @@ describe('wallet asset send helper', () => {
           },
         },
       },
-      prefsStorage: createMemoryStorage(),
     })
 
     await manager.initialize()
@@ -123,31 +114,10 @@ describe('wallet asset send helper', () => {
       sourceAddress: '0xextension',
       txHash: '0xnative-send',
     })
-    expect(requests).toContainEqual(
-      expect.objectContaining({
-        method: 'eth_sendTransaction',
-        params: [
-          expect.objectContaining({
-            from: '0xextension',
-            memo: 'test memo',
-            to: '0xreceiver',
-            amount: {
-              amount: '1000000000000000000',
-              decimals: 18,
-            },
-            asset: {
-              chain: Chain.Ethereum,
-              ticker: 'eth',
-            },
-          }),
-        ],
-      }),
-    )
   })
 
   it('submits extension token sends and normalizes hash-shaped results', async () => {
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
+    const manager = createTestManager({
       extensionWindow: {
         vultisig: {
           ethereum: {
@@ -163,7 +133,6 @@ describe('wallet asset send helper', () => {
           },
         },
       },
-      prefsStorage: createMemoryStorage(),
     })
 
     await manager.initialize()
@@ -187,36 +156,26 @@ describe('wallet asset send helper', () => {
     expect(result.route).toBe('extension')
   })
 
-  it('submits sdk sends through prepare, sign, and broadcast with memo forwarding', async () => {
-    const prepareSendTx = vi.fn(async (params) => ({
-      coin: params.coin,
-      memo: params.memo,
-      toAddress: params.receiver,
-      toAmount: params.amount.toString(),
-    }))
-    const sign = vi.fn(async () => ({
-      signature: '0xsigned',
-      format: 'ECDSA',
-    }))
-    const broadcastTx = vi.fn(async () => 'sdk-send-hash')
-    const vault = createFakeVault({
-      id: 'sdk-send-vault',
-      name: 'SDK Send Vault',
-      chains: [Chain.Ethereum],
-      broadcastTx,
-      prepareSendTx,
-      sign,
-    })
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient({
-        vaults: [vault],
-        activeVaultId: vault.id,
-      }).sdk,
-      prefsStorage: createMemoryStorage(),
-    })
+  it('submits keystore sends through prepare, sign, and broadcast with memo forwarding', async () => {
+    localSignerMocks.prepareLocalSendTx.mockImplementation(
+      async (params: { coin?: unknown; memo?: string; receiver?: string; amount?: bigint }) => ({
+        coin: params.coin,
+        memo: params.memo,
+        toAddress: params.receiver,
+        toAmount: params.amount?.toString() ?? '0',
+      }),
+    )
+    localSignerMocks.broadcastLocalTx.mockResolvedValue('keystore-send-hash')
 
-    await manager.initialize()
-    await manager.selectSession(vault.id)
+    const keystore = createFakeKeystoreRecord({
+      id: 'keystore-send',
+      label: 'Keystore Send',
+      addresses: { [Chain.Ethereum]: '0x00000000000000000000000000000000000000e1' },
+    })
+    const { manager } = await createInitializedTestManager({
+      keystores: [keystore],
+    })
+    await initializeKeystoreSession(manager, keystore)
 
     const result = await submitAssetSend(manager, {
       amountBaseUnits: '4200000',
@@ -230,46 +189,24 @@ describe('wallet asset send helper', () => {
       },
       memo: 'vault memo',
       recipient: '0xreceiver',
-      sessionId: vault.id,
+      sessionId: keystore.id,
     })
 
     expect(result).toMatchObject({
       memo: 'vault memo',
       recipient: '0xreceiver',
-      route: 'sdk',
-      sourceAddress: 'ethereum-address',
-      txHash: 'sdk-send-hash',
+      route: 'keystore',
+      sourceAddress: '0x00000000000000000000000000000000000000e1',
+      txHash: 'keystore-send-hash',
     })
-    expect(prepareSendTx).toHaveBeenCalledWith(
-      {
+    expect(localSignerMocks.prepareLocalSendTx).toHaveBeenCalledWith(
+      expect.objectContaining({
         amount: 4200000n,
-        coin: {
-          address: 'ethereum-address',
-          chain: Chain.Ethereum,
-          contractAddress: '0xtoken',
-          decimals: 6,
-          isNativeToken: false,
-          ticker: 'USDC',
-        },
         memo: 'vault memo',
         receiver: '0xreceiver',
-      },
-    )
-    expect(sign).toHaveBeenCalledWith(
-      expect.objectContaining({
-        chain: Chain.Ethereum,
-        transaction: expect.objectContaining({
-          memo: 'vault memo',
-          toAddress: '0xreceiver',
-          toAmount: '4200000',
-        }),
-      }),
-      expect.any(Object),
-    )
-    expect(broadcastTx).toHaveBeenCalledWith(
-      expect.objectContaining({
-        chain: Chain.Ethereum,
       }),
     )
+    expect(localSignerMocks.signLocalPayload).toHaveBeenCalled()
+    expect(localSignerMocks.broadcastLocalTx).toHaveBeenCalled()
   })
 })

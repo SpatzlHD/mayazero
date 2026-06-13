@@ -1,5 +1,4 @@
-import { Chain } from '@vultisig/sdk'
-import type { WalletChain } from './types'
+import { WalletChain } from './chain-types'
 
 export type WalletChainFamily =
   | 'evm'
@@ -37,50 +36,50 @@ export type WalletChainDefinition = {
 }
 
 export const chainRegistry: Partial<Record<WalletChain, WalletChainDefinition>> = {
-  [Chain.THORChain]: {
-    chain: Chain.THORChain,
+  [WalletChain.THORChain]: {
+    chain: WalletChain.THORChain,
     family: 'cosmos',
     extensionProviderKey: 'thorchain',
     extensionChainId: 'Thorchain_thorchain',
   },
-  [Chain.MayaChain]: {
-    chain: Chain.MayaChain,
+  [WalletChain.MayaChain]: {
+    chain: WalletChain.MayaChain,
     family: 'cosmos',
     extensionProviderKey: 'maya',
     extensionChainId: 'MayaChain-1',
   },
-  [Chain.Cardano]: {
-    chain: Chain.Cardano,
+  [WalletChain.Cardano]: {
+    chain: WalletChain.Cardano,
     family: 'cardano',
     extensionProviderKey: 'cardano',
     extensionChainId: 'Cardano_cardano',
   },
-  [Chain.Bitcoin]: {
-    chain: Chain.Bitcoin,
+  [WalletChain.Bitcoin]: {
+    chain: WalletChain.Bitcoin,
     family: 'utxo',
     extensionProviderKey: 'bitcoin',
     extensionChainId: '0x1f96',
   },
-  [Chain.Dash]: {
-    chain: Chain.Dash,
+  [WalletChain.Dash]: {
+    chain: WalletChain.Dash,
     family: 'utxo',
     extensionProviderKey: 'dash',
     extensionChainId: 'Dash_dash',
   },
-  [Chain.Zcash]: {
-    chain: Chain.Zcash,
+  [WalletChain.Zcash]: {
+    chain: WalletChain.Zcash,
     family: 'utxo',
     extensionProviderKey: 'zcash',
     extensionChainId: 'Zcash_zcash',
   },
-  [Chain.Ethereum]: {
-    chain: Chain.Ethereum,
+  [WalletChain.Ethereum]: {
+    chain: WalletChain.Ethereum,
     family: 'evm',
     extensionProviderKey: 'ethereum',
     extensionChainId: '0x1',
   },
-  [Chain.Arbitrum]: {
-    chain: Chain.Arbitrum,
+  [WalletChain.Arbitrum]: {
+    chain: WalletChain.Arbitrum,
     family: 'evm',
     extensionProviderKey: 'ethereum',
     extensionChainId: '0xa4b1',

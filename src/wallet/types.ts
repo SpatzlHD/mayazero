@@ -1,8 +1,9 @@
 import type {
   CacaotrackerTxTrackerSessionResponse,
   CacaotrackerTxTrackerState,
+} from '#/lib/cacaotracker-types'
+import type {
   Balance,
-  Chain,
   DiscoveredToken,
   FiatCurrency,
   KeysignPayload,
@@ -14,12 +15,14 @@ import type {
   TransactionSimulationResult,
   TransactionValidationResult,
   TxStatusResult,
-} from '@vultisig/sdk'
+} from './wallet-primitives'
 
-export type WalletChain = Chain
+import type { WalletChain } from './chain-types'
 
-export type WalletSource = 'sdk' | 'extension'
-export type WalletSessionKind = 'vault' | 'extension'
+export type { WalletChain } from './chain-types'
+
+export type WalletSource = 'extension' | 'keystore' | 'walletconnect'
+export type WalletSessionKind = 'extension' | 'keystore' | 'walletconnect'
 export type WalletSessionStatus = 'ready' | 'locked' | 'unavailable'
 export type WalletOperationStatus = 'pending' | 'success' | 'error' | 'cancelled'
 export type WalletJourneyStatus =
@@ -45,11 +48,8 @@ export type WalletJourneyKind =
   | 'pooled-node'
   | 'mayaname'
   | 'send'
-  | 'vault.fast.create'
-  | 'vault.fast.import'
-  | 'vault.fast.verify'
-  | 'vault.secure.create'
-export type WalletJourneySource = WalletSource | 'fast-vault' | 'secure-vault'
+  | 'keystore.import'
+export type WalletJourneySource = WalletSource | 'keystore-import'
 export type WalletCommandName =
   | 'accounts.connect'
   | 'accounts.list'
@@ -75,22 +75,16 @@ export type WalletCommandName =
   | 'tokens.discover'
   | 'security.validate'
   | 'security.simulate'
-  | 'vault.export'
-  | 'vault.lock'
-  | 'vault.unlock'
-  | 'vault.rename'
+  | 'keystore.lock'
+  | 'keystore.unlock'
+  | 'keystore.delete'
   | 'provider.request'
 
 export type WalletManagerOperationName =
   | 'manager.initialize'
   | 'manager.refresh'
-  | 'vault.create.fast'
-  | 'vault.create.fast.import'
-  | 'vault.verify.fast'
-  | 'vault.create.secure'
-  | 'vault.join.secure'
-  | 'vault.import'
-  | 'vault.delete'
+  | 'keystore.import'
+  | 'keystore.delete'
 
 export type WalletOperationName = WalletCommandName | WalletManagerOperationName
 
@@ -109,13 +103,14 @@ export type WalletSession = {
   chains: WalletChain[]
   accounts: WalletAccount[]
   addresses: Partial<Record<WalletChain, string>>
-  vaultMeta?: {
+  keystoreMeta?: {
     id: string
-    name: string
-    type: 'fast' | 'secure'
-    isEncrypted: boolean
-    localPartyId?: string
+    label: string
     createdAt?: number
+  }
+  walletConnectMeta?: {
+    topic: string
+    peerName: string
   }
 }
 
@@ -435,21 +430,17 @@ export type WalletCommandMap = {
     input: { payload: KeysignPayload }
     output: { simulation: TransactionSimulationResult | null }
   }
-  'vault.export': {
-    input: { password?: string }
-    output: { filename: string; data: string }
-  }
-  'vault.lock': {
+  'keystore.lock': {
     input: Record<string, never>
     output: { locked: true }
   }
-  'vault.unlock': {
+  'keystore.unlock': {
     input: { password: string }
     output: { unlocked: true }
   }
-  'vault.rename': {
-    input: { name: string }
-    output: { name: string }
+  'keystore.delete': {
+    input: Record<string, never>
+    output: { deleted: true }
   }
   'provider.request': {
     input: { chain?: WalletChain; method: string; params?: unknown[] }
@@ -473,8 +464,9 @@ export type WalletCommandResult<K extends WalletCommandName> =
 
 export type WalletPreferences = {
   selectedSessionId: string | null
-  preferredVaultId: string | null
+  preferredKeystoreId: string | null
   activeChain: WalletChain | null
+  legacyVaultMigrationDismissed?: boolean
 }
 
 export type MayaWalletState = {
@@ -490,10 +482,5 @@ export type MayaWalletState = {
   balancesBySession: Partial<Record<string, Record<string, Balance>>>
   txStatusBySession: Partial<Record<string, Record<string, unknown>>>
   lastError?: SerializedWalletError
-  passwordRequest?: {
-    vaultId: string
-    vaultName: string
-    resolve: (password: string) => void
-    reject: (error: Error) => void
-  }
+  legacyVaultDetected?: boolean
 }

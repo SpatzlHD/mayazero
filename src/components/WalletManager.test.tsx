@@ -1,10 +1,9 @@
 import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { Chain } from "@vultisig/sdk";
+import { WalletChain as Chain } from "#/wallet/chain-types";
 import type { WalletSession } from "#/wallet";
 import {
   WalletManagerMenuContent,
-  downloadWalletExportFile,
   shouldShowWalletManagerDebugControls,
 } from "./WalletManager";
 
@@ -55,20 +54,21 @@ function findButtonByText(node: ReactNode, pattern: RegExp) {
   ).find((button) => pattern.test(collectText(button.props.children)));
 }
 
-function createSdkSession(overrides: Partial<WalletSession> = {}): WalletSession {
+function createKeystoreSession(
+  overrides: Partial<WalletSession> = {},
+): WalletSession {
   return {
-    id: "sdk-vault",
-    source: "sdk",
-    kind: "vault",
-    label: "Primary Vault",
+    id: "keystore:primary",
+    source: "keystore",
+    kind: "keystore",
+    label: "Primary Wallet",
     status: "ready",
     capabilities: [
       "accounts.connect",
       "addresses.list",
       "balances.list",
-      "vault.export",
-      "vault.lock",
-      "vault.unlock",
+      "keystore.lock",
+      "keystore.unlock",
     ],
     chains: [Chain.Ethereum, Chain.MayaChain],
     accounts: [{ chain: Chain.Ethereum, address: "0xabc" }],
@@ -76,11 +76,9 @@ function createSdkSession(overrides: Partial<WalletSession> = {}): WalletSession
       [Chain.Ethereum]: "0xabc",
       [Chain.MayaChain]: "maya1abc",
     },
-    vaultMeta: {
-      id: "sdk-vault",
-      name: "Primary Vault",
-      type: "fast",
-      isEncrypted: true,
+    keystoreMeta: {
+      id: "keystore:primary",
+      label: "Primary Wallet",
     },
     ...overrides,
   };
@@ -109,7 +107,7 @@ function createMenuProps(
   overrides: Partial<Parameters<typeof WalletManagerMenuContent>[0]> = {},
 ) {
   const activeSession =
-    "activeSession" in overrides ? overrides.activeSession ?? null : createSdkSession();
+    "activeSession" in overrides ? overrides.activeSession ?? null : createKeystoreSession();
   const sessions = overrides.sessions ?? (activeSession ? [activeSession] : []);
 
   return {
@@ -121,7 +119,6 @@ function createMenuProps(
     actionChain: overrides.actionChain ?? Chain.Ethereum,
     canConnect: overrides.canConnect ?? false,
     canFetchData: overrides.canFetchData ?? true,
-    canExport: overrides.canExport ?? true,
     showDebugControls: overrides.showDebugControls ?? false,
     unlockSessionId: overrides.unlockSessionId ?? null,
     unlockPassword: overrides.unlockPassword ?? "",
@@ -130,47 +127,42 @@ function createMenuProps(
     onUnlockPasswordChange: overrides.onUnlockPasswordChange ?? vi.fn(),
     onUnlockSubmit: overrides.onUnlockSubmit ?? vi.fn(),
     onUnlockClose: overrides.onUnlockClose ?? vi.fn(),
-    isExportModalOpen: overrides.isExportModalOpen ?? false,
-    exportPassword: overrides.exportPassword ?? "",
-    isExporting: overrides.isExporting ?? false,
-    exportError: overrides.exportError ?? "",
-    onExportPasswordChange: overrides.onExportPasswordChange ?? vi.fn(),
-    onExportSubmit: overrides.onExportSubmit ?? vi.fn(),
-    onExportOpen: overrides.onExportOpen ?? vi.fn(),
-    onExportClose: overrides.onExportClose ?? vi.fn(),
-    onCreateVault: overrides.onCreateVault ?? vi.fn(),
+    onImportKeystore: overrides.onImportKeystore ?? vi.fn(),
+    onConnectWallet: overrides.onConnectWallet ?? vi.fn(),
     onSessionClick: overrides.onSessionClick ?? vi.fn(),
     onSelectChain: overrides.onSelectChain ?? vi.fn(),
     onConnect: overrides.onConnect ?? vi.fn(),
     onRefreshData: overrides.onRefreshData ?? vi.fn(),
-    onToggleVaultLock: overrides.onToggleVaultLock ?? vi.fn(),
+    onToggleKeystoreLock: overrides.onToggleKeystoreLock ?? vi.fn(),
     onInitialize: overrides.onInitialize ?? vi.fn(),
     onRefreshSessions: overrides.onRefreshSessions ?? vi.fn(),
   };
 }
 
 describe("WalletManagerMenuContent", () => {
-  it("renders the user-facing create and export actions for sdk vaults", () => {
+  it("renders import and connect actions for keystore sessions", () => {
     const tree = WalletManagerMenuContent(createMenuProps());
     const text = collectText(tree);
 
-    expect(text).toContain("Active Vault");
-    expect(text).toContain("Add Vault");
-    expect(text).toContain("Export Vault");
+    expect(text).toContain("Wallet Manager");
+    expect(text).toContain("Active Wallet");
+    expect(text).toContain("Import Keystore");
+    expect(text).toContain("Connect Wallet");
+    expect(text).toContain("Local keystore");
     expect(text).toContain("Switch Wallet Session");
     expect(text).toContain("Refresh Data");
   });
 
-  it("wires the create vault button to the supplied callback", () => {
-    const onCreateVault = vi.fn();
-    const tree = WalletManagerMenuContent(createMenuProps({ onCreateVault }));
-    const button = findButtonByText(tree, /add vault/i);
+  it("wires the import keystore button to the supplied callback", () => {
+    const onImportKeystore = vi.fn();
+    const tree = WalletManagerMenuContent(createMenuProps({ onImportKeystore }));
+    const button = findButtonByText(tree, /import keystore/i);
 
     expect(button).toBeTruthy();
 
     button?.props.onClick?.();
 
-    expect(onCreateVault).toHaveBeenCalledTimes(1);
+    expect(onImportKeystore).toHaveBeenCalledTimes(1);
   });
 
   it("shows a connect button for extension sessions and wires it to the callback", () => {
@@ -181,7 +173,6 @@ describe("WalletManagerMenuContent", () => {
         activeSession: extensionSession,
         sessions: [extensionSession],
         canConnect: true,
-        canExport: false,
         availableChains: [Chain.Ethereum],
         actionChain: Chain.Ethereum,
         onConnect,
@@ -190,69 +181,41 @@ describe("WalletManagerMenuContent", () => {
     const connectButton = findButtonByText(tree, /connect extension/i);
     const text = collectText(tree);
 
-    expect(text).toContain("Vultisig Extension");
+    expect(text).toContain("Vultisig extension");
     expect(text).toContain("Connect Extension");
-    expect(findButtonByText(tree, /export vault/i)).toBeUndefined();
 
     connectButton?.props.onClick?.();
 
     expect(onConnect).toHaveBeenCalledTimes(1);
   });
 
-  it("surfaces the export modal state and forwards submit handlers", () => {
-    const onExportSubmit = vi.fn((e: { preventDefault?: () => void }) => {
-      e.preventDefault?.();
-    });
-    const tree = WalletManagerMenuContent(
-      createMenuProps({
-        isExportModalOpen: true,
-        exportPassword: "BackupPassword123!",
-        exportError: "Backup failed",
-        onExportSubmit,
-      }),
-    );
-    const forms = findElementsByType<{ onSubmit?: (e: unknown) => void }>(
-      tree,
-      "form",
-    );
-    const exportForm = forms[0];
-    const text = collectText(tree);
-
-    expect(text).toContain("Export Vault Backup");
-    expect(text).toContain("Backup failed");
-
-    exportForm?.props.onSubmit?.({ preventDefault: vi.fn() });
-
-    expect(onExportSubmit).toHaveBeenCalledTimes(1);
-  });
-
   it("keeps the locked-session unlock flow visible and clickable", () => {
-    const lockedSession = createSdkSession({
-      id: "locked-vault",
-      label: "Locked Vault",
+    const lockedSession = createKeystoreSession({
+      id: "locked-wallet",
+      label: "Locked Wallet",
       status: "locked",
     });
     const onSessionClick = vi.fn();
     const tree = WalletManagerMenuContent(
       createMenuProps({
-        sessions: [createSdkSession(), lockedSession],
+        sessions: [createKeystoreSession(), lockedSession],
         unlockSessionId: lockedSession.id,
         unlockPassword: "secret",
         onSessionClick,
       }),
     );
-    const lockedButton = findButtonByText(tree, /locked vault/i);
+    const lockedButton = findButtonByText(tree, /locked wallet/i);
     const text = collectText(tree);
 
-    expect(text).toContain("Unlock Vault");
+    expect(text).toContain("Unlock Wallet");
     expect(text).toContain("Unlock & Switch Session");
 
     lockedButton?.props.onClick?.();
 
-    expect(onSessionClick).toHaveBeenCalledWith("locked-vault", "locked");
+    expect(onSessionClick).toHaveBeenCalledWith("locked-wallet", "locked");
   });
 
-  it("renders the empty-state create action when no active session exists", () => {
+  it("renders the empty-state import action when no active session exists", () => {
     const tree = WalletManagerMenuContent(
       createMenuProps({
         activeSession: null,
@@ -260,14 +223,13 @@ describe("WalletManagerMenuContent", () => {
         activeSessionId: null,
         canConnect: false,
         canFetchData: false,
-        canExport: false,
       }),
     );
     const text = collectText(tree);
 
-    expect(text).toContain("No active vault");
+    expect(text).toContain("No active wallet");
     expect(text).toContain("No active session detected.");
-    expect(text).toContain("Add Vault");
+    expect(text).toContain("Import Keystore");
   });
 
   it("shows and wires debug controls only when requested", () => {
@@ -295,45 +257,6 @@ describe("WalletManagerMenuContent", () => {
 });
 
 describe("WalletManager helpers", () => {
-  it("downloads exported vault data through the provided DOM dependencies", () => {
-    const appendChild = vi.fn();
-    const removeChild = vi.fn();
-    const click = vi.fn();
-    const anchor = {
-      href: "",
-      download: "",
-      click,
-    } as unknown as HTMLAnchorElement;
-    const createElement = vi.fn(() => anchor);
-    const createObjectURL = vi.fn(() => "blob:wallet-export");
-    const revokeObjectURL = vi.fn();
-
-    downloadWalletExportFile(
-      { filename: "backup.vult", data: "vault-backup-data" },
-      {
-        documentLike: {
-          createElement,
-          body: {
-            appendChild,
-            removeChild,
-          },
-        },
-        urlLike: {
-          createObjectURL,
-          revokeObjectURL,
-        },
-      },
-    );
-
-    expect(createElement).toHaveBeenCalledWith("a");
-    expect(anchor.href).toBe("blob:wallet-export");
-    expect(anchor.download).toBe("backup.vult");
-    expect(appendChild).toHaveBeenCalledWith(anchor);
-    expect(click).toHaveBeenCalledTimes(1);
-    expect(removeChild).toHaveBeenCalledWith(anchor);
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:wallet-export");
-  });
-
   it("hides debug controls by default and enables them for dev mode or ?dev=true", () => {
     expect(shouldShowWalletManagerDebugControls(false, "")).toBe(false);
     expect(shouldShowWalletManagerDebugControls(true, "")).toBe(true);

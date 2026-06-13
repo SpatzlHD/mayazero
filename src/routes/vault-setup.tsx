@@ -1,13 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { VaultSetupFlow } from '#/components/vault/VaultSetupFlow'
+import { KeystoreSetupFlow } from '#/components/vault/KeystoreSetupFlow'
 import { buildPageSeoHead } from '#/lib/seo'
 
 export const Route = createFileRoute('/vault-setup')({
   head: () =>
     buildPageSeoHead({
-      title: 'Vault Setup',
+      title: 'Import Wallet',
       description:
-        'Create or import a Fast Vault for MayaZero portfolio, swap, and liquidity actions.',
+        'Import an xchain keystore or seedphrase as a local encrypted wallet for MayaZero.',
     }),
   component: VaultSetupPage,
 })
@@ -15,7 +15,7 @@ export const Route = createFileRoute('/vault-setup')({
 function VaultSetupPage() {
   return (
     <main className="page-wrap px-4 py-12 md:py-20 min-h-screen flex flex-col justify-center">
-      <VaultSetupFlow allowSecureVaultCreation={false} />
+      <KeystoreSetupFlow />
     </main>
   )
 }

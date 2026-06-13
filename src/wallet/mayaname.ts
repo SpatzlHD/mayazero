@@ -1,6 +1,7 @@
-import { Chain } from '@vultisig/sdk'
+import { WalletChain as Chain } from '#/wallet/chain-types'
 import type { WalletCommandMap, WalletSession } from './types'
 import type { MayaWalletManager } from './manager'
+import { resolveSigningRoute, type SigningRoute } from './signing-route'
 import { WalletCapabilityError, WalletSessionNotFoundError } from './errors'
 
 const CACAO_DECIMALS = 10
@@ -13,7 +14,7 @@ export type MayaNameDepositInput = {
 }
 
 export type MayaNameDepositResult = {
-  route: 'extension' | 'sdk'
+  route: SigningRoute
   txHash: string | null
   memo: string
   rawResult: unknown
@@ -222,7 +223,7 @@ export async function submitMayaNameDeposit(
   })
 
   return {
-    route: 'sdk',
+    route: resolveSigningRoute(session),
     txHash: broadcast.txHash ?? null,
     memo,
     rawResult: {

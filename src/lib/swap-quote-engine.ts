@@ -28,7 +28,7 @@ export type EffectiveAffiliate = {
   source: "interface" | "user";
 };
 
-export type QuoteStrategy = "vultisig" | "maya";
+export type QuoteStrategy = "maya";
 
 export type NormalizedQuoteFees = {
   asset?: string;
@@ -72,43 +72,28 @@ export type MayaQuoteResponse = {
   [key: string]: unknown;
 };
 
-type VultisigQuoteResult = WalletCommandMap["swap.quote"]["output"]["quote"];
-
-export type SwapQuoteEngineResult =
-  | {
-      route: "vultisig";
-      rawQuote: VultisigQuoteResult;
-      estimatedOutput: string;
-      outputDecimals: number;
-      fees: NormalizedQuoteFees;
-      memo?: string;
-      effectiveAffiliates: EffectiveAffiliate[];
-      canPrepare: boolean;
-      prepareReason?: string;
-      provider?: string;
-    }
-  | {
-      route: "maya";
-      rawQuote: MayaQuoteResponse;
-      estimatedOutput: string;
-      outputDecimals: number;
-      fees: NormalizedQuoteFees;
-      memo?: string;
-      effectiveAffiliates: EffectiveAffiliate[];
-      canPrepare: false;
-      prepareReason: string;
-      provider?: string;
-      inboundAddress?: string;
-      expiry?: number;
-      warning?: string;
-      notes?: string;
-      dustThreshold?: string;
-      recommendedGasRate?: string;
-      gasRateUnits?: string;
-      inboundDetails?: LiquidityActionAvailability | null;
-    };
-
 type WalletQuoteExecutor = Pick<MayaWalletManager, "execute" | "canExecute">;
+
+export type SwapQuoteEngineResult = {
+  route: "maya";
+  rawQuote: MayaQuoteResponse;
+  estimatedOutput: string;
+  outputDecimals: number;
+  fees: NormalizedQuoteFees;
+  memo?: string;
+  effectiveAffiliates: EffectiveAffiliate[];
+  canPrepare: false;
+  prepareReason: string;
+  provider?: string;
+  inboundAddress?: string;
+  expiry?: number;
+  warning?: string;
+  notes?: string;
+  dustThreshold?: string;
+  recommendedGasRate?: string;
+  gasRateUnits?: string;
+  inboundDetails?: LiquidityActionAvailability | null;
+};
 
 export type QuoteSwapParams = {
   wallet: WalletQuoteExecutor;
@@ -238,29 +223,6 @@ export async function quoteSwap(
     params.settings,
     params.fetchImpl,
   );
-  const preferredRoute = resolveQuoteStrategy(
-    params.settings,
-    params.affiliateDrafts,
-  );
-  const canUseVultisig =
-    preferredRoute === "vultisig" &&
-    params.wallet.canExecute("swap.quote", { sessionId: params.sessionId });
-  const route: QuoteStrategy = canUseVultisig ? "vultisig" : "maya";
-
-  if (route === "vultisig") {
-    return quoteWithVultisig({
-      wallet: params.wallet,
-      sessionId: params.sessionId,
-      fromAsset: params.fromAsset,
-      toAsset: params.toAsset,
-      fromAddress: params.fromAddress,
-      toAddress: params.toAddress,
-      amount: params.amount,
-      slippageBps: params.slippageBps,
-      effectiveAffiliates,
-      fiatCurrency: params.fiatCurrency,
-    });
-  }
 
   return quoteWithMaya({
     settings: params.settings,
@@ -275,55 +237,6 @@ export async function quoteSwap(
     streamingInterval: params.streamingInterval,
     streamingQuantity: params.streamingQuantity,
   });
-}
-
-async function quoteWithVultisig(params: {
-  wallet: WalletQuoteExecutor;
-  sessionId: string;
-  fromAsset: ProtocolAsset;
-  toAsset: ProtocolAsset;
-  fromAddress: string;
-  toAddress: string;
-  amount: string;
-  slippageBps?: string;
-  effectiveAffiliates: EffectiveAffiliate[];
-  fiatCurrency?: WalletCommandMap["swap.quote"]["input"]["fiatCurrency"];
-}): Promise<SwapQuoteEngineResult> {
-  const referral = params.effectiveAffiliates[0]?.value;
-  const { quote } = await params.wallet.execute("swap.quote", {
-    input: {
-      fromCoin: toQuoteCoin(params.fromAsset, params.fromAddress),
-      toCoin: toQuoteCoin(params.toAsset, params.toAddress),
-      amount: Number(params.amount),
-      slippageBps: normalizeSlippageBps(params.slippageBps),
-      referral,
-      fiatCurrency: params.fiatCurrency,
-    },
-    sessionId: params.sessionId,
-  });
-
-  const canPrepare = params.wallet.canExecute("swap.prepare", {
-    sessionId: params.sessionId,
-  });
-
-  return {
-    route: "vultisig",
-    rawQuote: quote,
-    estimatedOutput: quote.estimatedOutput.toString(),
-    outputDecimals: params.toAsset.decimals,
-    fees: {
-      network: quote.fees.network.toString(),
-      affiliate: quote.fees.affiliate?.toString(),
-      total: quote.fees.total.toString(),
-    },
-    memo: undefined,
-    effectiveAffiliates: params.effectiveAffiliates,
-    canPrepare,
-    prepareReason: canPrepare
-      ? undefined
-      : "This session cannot prepare Vultisig swap transactions.",
-    provider: quote.provider,
-  };
 }
 
 async function quoteWithMaya(params: {
@@ -503,16 +416,6 @@ function parseAffiliateBps(value: string): number | undefined {
 
 function isMayaAddress(value: string): boolean {
   return /^(maya|tmaya)1[0-9a-z]+$/i.test(value.trim());
-}
-
-function toQuoteCoin(asset: ProtocolAsset, address: string) {
-  return {
-    chain: asset.chain,
-    ticker: asset.ticker,
-    decimals: asset.decimals,
-    address,
-    ...(asset.tokenId ? { id: asset.tokenId } : {}),
-  };
 }
 
 function normalizeSlippageBps(value?: string): number {

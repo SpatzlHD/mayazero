@@ -1,21 +1,27 @@
+import {
+  createInitializedTestManager,
+  createTestManager,
+  initializeKeystoreSession,
+  keystoreStoreMocks,
+  localSignerMocks,
+  resetWalletTestMocks,
+} from './test-mocks'
+import {
+  createFakeExtensionWindow,
+  createFakeKeystoreRecord,
+  createValidRawKeystore,
+} from './test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { Chain } from '@vultisig/sdk'
+import { WalletChain as Chain } from '#/wallet/chain-types'
 import { trackAnalyticsEvent } from '#/analytics'
-import { MayaWalletManager } from './manager'
 import {
   createExecutionJourneySteps,
-  createSecureVaultJourneySteps,
+  createKeystoreImportJourneySteps,
   resolveJourneyStatusFromTrackerState,
   trackSwapJourneyWithCacaotracker,
   trackTransactionJourney,
   waitForJourneyTransactionSettlement,
 } from './journeys'
-import {
-  createFakeExtensionWindow,
-  createFakeSdkClient,
-  createFakeVault,
-  createMemoryStorage,
-} from './test-utils'
 
 class FakeWebSocket {
   private listeners = new Map<string, Set<(event: unknown) => void>>()
@@ -55,14 +61,13 @@ vi.mock('#/analytics', async () => {
 
 describe('wallet journeys', () => {
   beforeEach(() => {
+    resetWalletTestMocks()
     vi.mocked(trackAnalyticsEvent).mockClear()
   })
 
   it('creates, patches, completes, and dismisses journeys', () => {
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
+    const manager = createTestManager({
       extensionWindow: createFakeExtensionWindow(),
-      prefsStorage: createMemoryStorage(),
     })
 
     const journeyId = manager.createJourney({
@@ -96,39 +101,32 @@ describe('wallet journeys', () => {
     expect(manager.getState().journeys.find((journey) => journey.id === journeyId)).toBeUndefined()
   })
 
-  it('links sdk signing progress into a linked journey', async () => {
-    const vault = createFakeVault({
-      id: 'journey-vault',
-      name: 'Journey Vault',
-      chains: [Chain.Ethereum],
+  it('links keystore signing progress into a linked journey', async () => {
+    const keystore = createFakeKeystoreRecord({
+      id: 'journey-keystore',
+      label: 'Journey Keystore',
+      addresses: { [Chain.Ethereum]: '0x00000000000000000000000000000000000000e1' },
     })
-    const { sdk } = createFakeSdkClient({
-      vaults: [vault],
-      activeVaultId: vault.id,
-    })
-    const manager = new MayaWalletManager({
-      sdk,
+    const { manager } = await createInitializedTestManager({
       extensionWindow: createFakeExtensionWindow(),
-      prefsStorage: createMemoryStorage(),
+      keystores: [keystore],
     })
-
-    await manager.initialize()
-    await manager.selectSession(vault.id)
+    await initializeKeystoreSession(manager, keystore)
 
     const journeyId = manager.createJourney({
       kind: 'send',
       title: 'Linked signing',
-      sessionId: vault.id,
-      source: 'sdk',
+      sessionId: keystore.id,
+      source: 'keystore',
       chain: Chain.Ethereum,
       steps: createExecutionJourneySteps({
-        source: 'sdk',
+        source: 'keystore',
         finalLabel: 'Transfer Complete',
       }),
     })
 
     await manager.execute('tx.sign', {
-      sessionId: vault.id,
+      sessionId: keystore.id,
       journey: {
         id: journeyId,
         stepKey: 'signing',
@@ -142,61 +140,51 @@ describe('wallet journeys', () => {
     const journey = manager.getState().journeys.find((item) => item.id === journeyId)
     expect(journey?.operationIds?.length).toBeGreaterThan(0)
     expect(journey?.status).toBe('pending')
-    expect(journey?.steps.find((step) => step.key === 'signing')).toMatchObject({
-      message: 'Signing payload',
-      progress: 50,
-      status: 'success',
-    })
+    expect(journey?.steps.find((step) => step.key === 'signing')?.status).toBe('success')
   })
 
-  it('bridges secure vault QR and device join telemetry into journeys', async () => {
-    const vault = createFakeVault({
-      id: 'secure-vault',
-      name: 'Secure Vault',
-      chains: [Chain.Ethereum],
+  it('tracks keystore import journey steps through manager import', async () => {
+    const imported = createFakeKeystoreRecord({
+      id: 'imported-journey-keystore',
+      label: 'Imported Journey Wallet',
     })
-    const { sdk } = createFakeSdkClient({
-      vaults: [vault],
-      activeVaultId: vault.id,
-    })
-    const manager = new MayaWalletManager({
-      sdk,
-      extensionWindow: createFakeExtensionWindow(),
-      prefsStorage: createMemoryStorage(),
-    })
+    keystoreStoreMocks.importXChainKeystoreWallet.mockResolvedValue(imported)
+    keystoreStoreMocks.listStoredKeystores
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([imported])
 
+    const manager = createTestManager({
+      extensionWindow: createFakeExtensionWindow(),
+    })
     await manager.initialize()
 
     const journeyId = manager.createJourney({
-      kind: 'vault.secure.create',
-      title: 'Create secure vault',
-      source: 'secure-vault',
+      kind: 'keystore.import',
+      title: 'Import Keystore',
+      source: 'keystore-import',
       routePath: '/vault-setup',
-      steps: createSecureVaultJourneySteps(),
+      steps: createKeystoreImportJourneySteps(),
     })
 
-    await manager.createSecureVault({
-      name: 'Team Vault',
-      devices: 2,
-      threshold: 2,
+    const rawKeystore = await createValidRawKeystore('keystore-pass')
+
+    await manager.importKeystoreFromFile({
+      label: 'Imported Journey Wallet',
+      rawKeystore,
+      keystorePassword: 'keystore-pass',
+      vaultPassword: 'vault-pass',
       journeyId,
     })
+    manager.completeJourney(journeyId, { status: 'success' })
 
     const journey = manager.getState().journeys.find((item) => item.id === journeyId)
-    expect(journey?.qrPayload).toBe('vultisig://qr-payload')
-    expect(journey?.deviceJoin).toMatchObject({
-      joined: 2,
-      required: 2,
-    })
-    expect(journey?.steps.find((step) => step.key === 'scan-qr')?.status).toBe('attention')
-    expect(journey?.steps.find((step) => step.key === 'devices-joined')?.status).toBe('success')
+    expect(journey?.status).toBe('success')
+    expect(manager.getState().activeSessionId).toBe('imported-journey-keystore')
   })
 
   it('marks journeys as submitted without hash when confirmation cannot continue', async () => {
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
+    const manager = createTestManager({
       extensionWindow: createFakeExtensionWindow(),
-      prefsStorage: createMemoryStorage(),
     })
 
     const journeyId = manager.createJourney({
@@ -226,34 +214,26 @@ describe('wallet journeys', () => {
   })
 
   it('downgrades confirmation probe failures to unconfirmed instead of erroring the journey', async () => {
-    const vault = createFakeVault({
-      id: 'probe-failure-vault',
-      name: 'Probe Failure Vault',
-      chains: [Chain.THORChain],
-      getTxStatus: async () => {
-        throw new Error('Temporary provider outage')
-      },
+    localSignerMocks.queryLocalTxStatus.mockRejectedValue(new Error('Temporary provider outage'))
+    const keystore = createFakeKeystoreRecord({
+      id: 'probe-failure-keystore',
+      label: 'Probe Failure Keystore',
+      addresses: { [Chain.THORChain]: 'thor1address' },
     })
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient({
-        vaults: [vault],
-        activeVaultId: vault.id,
-      }).sdk,
+    const { manager } = await createInitializedTestManager({
       extensionWindow: createFakeExtensionWindow(),
-      prefsStorage: createMemoryStorage(),
+      keystores: [keystore],
     })
-
-    await manager.initialize()
-    await manager.selectSession(vault.id)
+    await initializeKeystoreSession(manager, keystore)
 
     const journeyId = manager.createJourney({
       kind: 'liquidity',
       title: 'RUNE deposit',
-      sessionId: vault.id,
-      source: 'sdk',
+      sessionId: keystore.id,
+      source: 'keystore',
       chain: Chain.THORChain,
       steps: createExecutionJourneySteps({
-        source: 'sdk',
+        source: 'keystore',
         finalLabel: 'Liquidity Update Complete',
       }),
     })
@@ -261,7 +241,7 @@ describe('wallet journeys', () => {
     const outcome = await waitForJourneyTransactionSettlement(manager, {
       chain: Chain.THORChain,
       journeyId,
-      sessionId: vault.id,
+      sessionId: keystore.id,
       stepKey: 'confirming',
       txHash: 'thor-hash',
     })
@@ -279,35 +259,29 @@ describe('wallet journeys', () => {
   })
 
   it('treats confirmed height-based status payloads as successful confirmations', async () => {
-    const vault = createFakeVault({
-      id: 'height-success-vault',
-      name: 'Height Success Vault',
-      chains: [Chain.THORChain],
-      getTxStatus: async () => ({
-        height: '12345678',
-        txHash: 'thor-hash',
-      }),
+    localSignerMocks.queryLocalTxStatus.mockResolvedValue({
+      height: '12345678',
+      txHash: 'thor-hash',
     })
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient({
-        vaults: [vault],
-        activeVaultId: vault.id,
-      }).sdk,
+    const keystore = createFakeKeystoreRecord({
+      id: 'height-success-keystore',
+      label: 'Height Success Keystore',
+      addresses: { [Chain.THORChain]: 'thor1address' },
+    })
+    const { manager } = await createInitializedTestManager({
       extensionWindow: createFakeExtensionWindow(),
-      prefsStorage: createMemoryStorage(),
+      keystores: [keystore],
     })
-
-    await manager.initialize()
-    await manager.selectSession(vault.id)
+    await initializeKeystoreSession(manager, keystore)
 
     const journeyId = manager.createJourney({
       kind: 'liquidity',
       title: 'RUNE deposit success',
-      sessionId: vault.id,
-      source: 'sdk',
+      sessionId: keystore.id,
+      source: 'keystore',
       chain: Chain.THORChain,
       steps: createExecutionJourneySteps({
-        source: 'sdk',
+        source: 'keystore',
         finalLabel: 'Liquidity Update Complete',
       }),
     })
@@ -315,7 +289,7 @@ describe('wallet journeys', () => {
     const outcome = await waitForJourneyTransactionSettlement(manager, {
       chain: Chain.THORChain,
       journeyId,
-      sessionId: vault.id,
+      sessionId: keystore.id,
       stepKey: 'confirming',
       txHash: 'thor-hash',
     })
@@ -330,19 +304,17 @@ describe('wallet journeys', () => {
   })
 
   it('bumps the balance refresh tick when a balance-relevant journey completes', () => {
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
+    const manager = createTestManager({
       extensionWindow: createFakeExtensionWindow(),
-      prefsStorage: createMemoryStorage(),
     })
 
     const journeyId = manager.createJourney({
       kind: 'swap',
       title: 'Swap CACAO to ETH',
-      source: 'sdk',
+      source: 'keystore',
       chain: Chain.MayaChain,
       steps: createExecutionJourneySteps({
-        source: 'sdk',
+        source: 'keystore',
         finalLabel: 'Swap Complete',
       }),
     })
@@ -365,10 +337,8 @@ describe('wallet journeys', () => {
     ] as const
 
     for (const status of statuses) {
-      const manager = new MayaWalletManager({
-        sdk: createFakeSdkClient().sdk,
+      const manager = createTestManager({
         extensionWindow: createFakeExtensionWindow(),
-        prefsStorage: createMemoryStorage(),
       })
 
       vi.mocked(trackAnalyticsEvent).mockClear()
@@ -376,7 +346,7 @@ describe('wallet journeys', () => {
       await trackTransactionJourney(manager, {
         kind: 'swap',
         title: 'Track swap analytics',
-        source: 'sdk',
+        source: 'keystore',
         chain: Chain.Ethereum,
         routePath: '/swap',
         analytics: {
@@ -387,7 +357,7 @@ describe('wallet journeys', () => {
           affiliate_mayaname: 'm0',
         },
         steps: createExecutionJourneySteps({
-          source: 'sdk',
+          source: 'keystore',
           finalLabel: 'Swap Complete',
         }),
         run: async (journey) => {
@@ -407,7 +377,7 @@ describe('wallet journeys', () => {
         action: 'submit',
         route: '/swap',
         subject: 'swap',
-        source: 'sdk',
+        source: 'keystore',
         chain: Chain.Ethereum,
         has_referral: true,
         affiliate_mayaname: 'm0',
@@ -417,7 +387,7 @@ describe('wallet journeys', () => {
         route: '/swap',
         status,
         subject: 'swap',
-        source: 'sdk',
+        source: 'keystore',
         chain: Chain.Ethereum,
         has_referral: true,
         affiliate_mayaname: 'm0',
@@ -429,10 +399,8 @@ describe('wallet journeys', () => {
   })
 
   it('maps aborted journeys to cancelled analytics outcomes', async () => {
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
+    const manager = createTestManager({
       extensionWindow: createFakeExtensionWindow(),
-      prefsStorage: createMemoryStorage(),
     })
 
     await expect(
@@ -471,10 +439,8 @@ describe('wallet journeys', () => {
   })
 
   it('does not include tx_hash on finished asset_send journeys even when a hash is set', async () => {
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
+    const manager = createTestManager({
       extensionWindow: createFakeExtensionWindow(),
-      prefsStorage: createMemoryStorage(),
     })
 
     await trackTransactionJourney(manager, {
@@ -507,19 +473,17 @@ describe('wallet journeys', () => {
   })
 
   it('hydrates swap journeys from tracker snapshots and final updates', async () => {
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
+    const manager = createTestManager({
       extensionWindow: createFakeExtensionWindow(),
-      prefsStorage: createMemoryStorage(),
     })
 
     const journeyId = manager.createJourney({
       kind: 'swap',
       title: 'Tracker swap',
-      source: 'sdk',
+      source: 'keystore',
       chain: Chain.MayaChain,
       steps: createExecutionJourneySteps({
-        source: 'sdk',
+        source: 'keystore',
         finalLabel: 'Swap Complete',
       }),
     })
@@ -721,19 +685,17 @@ describe('wallet journeys', () => {
   })
 
   it('falls back when the tracker rejects the tx hash subscription', async () => {
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
+    const manager = createTestManager({
       extensionWindow: createFakeExtensionWindow(),
-      prefsStorage: createMemoryStorage(),
     })
 
     const journeyId = manager.createJourney({
       kind: 'swap',
       title: 'Rejected tracker swap',
-      source: 'sdk',
+      source: 'keystore',
       chain: Chain.MayaChain,
       steps: createExecutionJourneySteps({
-        source: 'sdk',
+        source: 'keystore',
         finalLabel: 'Swap Complete',
       }),
     })

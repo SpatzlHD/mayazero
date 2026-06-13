@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Chain } from "@vultisig/sdk";
+import { WalletChain as Chain } from "#/wallet/chain-types";
 import { type HTMLInputTypeAttribute, useState } from "react";
 import QRCode from "react-qr-code";
 import {

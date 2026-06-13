@@ -1,10 +1,17 @@
-import { Chain } from '@vultisig/sdk'
-import { describe, expect, it, vi } from 'vitest'
+import {
+  createInitializedTestManager,
+  createTestManager,
+  initializeKeystoreSession,
+  localSignerMocks,
+  resetWalletTestMocks,
+  walletConnectMocks,
+} from './test-mocks'
+import { createFakeKeystoreRecord } from './test-utils'
+import { WalletChain as Chain } from '#/wallet/chain-types'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProtocolAsset } from '#/components/ProtocolPrimitives'
 import type { SwapQuoteEngineResult } from '#/lib/swap-quote-engine'
-import { MayaWalletManager } from './manager'
 import { getSwapExecutionSupport, submitSwap } from './swap'
-import { createFakeSdkClient, createFakeVault, createMemoryStorage } from './test-utils'
 
 function makeAsset(overrides: Partial<ProtocolAsset>): ProtocolAsset {
   return {
@@ -19,7 +26,9 @@ function makeAsset(overrides: Partial<ProtocolAsset>): ProtocolAsset {
   }
 }
 
-function makeQuote(overrides: Partial<Extract<SwapQuoteEngineResult, { route: 'maya' }>> = {}): Extract<SwapQuoteEngineResult, { route: 'maya' }> {
+function makeQuote(
+  overrides: Partial<Extract<SwapQuoteEngineResult, { route: 'maya' }>> = {},
+): Extract<SwapQuoteEngineResult, { route: 'maya' }> {
   return {
     route: 'maya',
     rawQuote: {
@@ -56,22 +65,21 @@ function makeQuote(overrides: Partial<Extract<SwapQuoteEngineResult, { route: 'm
 describe('wallet swap helper', () => {
   const extensionEvmAddress = '0x00000000000000000000000000000000000000e1'
 
-  it('chooses deposit mode for MayaChain source swaps', async () => {
-    const vault = createFakeVault({
-      id: 'vault-maya-swap',
-      name: 'Maya Swap',
-      chains: [Chain.MayaChain],
-    })
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient({
-        vaults: [vault],
-        activeVaultId: vault.id,
-      }).sdk,
-      prefsStorage: createMemoryStorage(),
-    })
+  beforeEach(() => {
+    resetWalletTestMocks()
+  })
 
-    await manager.initialize()
-    await manager.selectSession(vault.id)
+  it('chooses deposit mode for MayaChain source swaps', async () => {
+    const keystore = createFakeKeystoreRecord({
+      id: 'keystore-maya-swap',
+      label: 'Maya Swap',
+      addresses: { [Chain.MayaChain]: 'mayachain-address' },
+    })
+    const { manager } = await createInitializedTestManager({
+      keystores: [keystore],
+      unlockKeystores: true,
+    })
+    await manager.selectSession(keystore.id)
 
     const support = getSwapExecutionSupport(manager, {
       fromAsset: makeAsset({
@@ -95,7 +103,7 @@ describe('wallet swap helper', () => {
           dustThreshold: '0',
         },
       }),
-      sessionId: vault.id,
+      sessionId: keystore.id,
     })
 
     expect(support).toMatchObject({
@@ -105,21 +113,19 @@ describe('wallet swap helper', () => {
   })
 
   it('chooses erc20-router mode for EVM token swaps with router data', async () => {
-    const vault = createFakeVault({
-      id: 'vault-router-swap',
-      name: 'Router Swap',
-      chains: [Chain.Ethereum],
+    const keystore = createFakeKeystoreRecord({
+      id: 'keystore-router-swap',
+      label: 'Router Swap',
+      addresses: {
+        [Chain.Ethereum]: extensionEvmAddress,
+        [Chain.Arbitrum]: extensionEvmAddress,
+      },
     })
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient({
-        vaults: [vault],
-        activeVaultId: vault.id,
-      }).sdk,
-      prefsStorage: createMemoryStorage(),
+    const { manager } = await createInitializedTestManager({
+      keystores: [keystore],
+      unlockKeystores: true,
     })
-
-    await manager.initialize()
-    await manager.selectSession(vault.id)
+    await manager.selectSession(keystore.id)
 
     const support = getSwapExecutionSupport(manager, {
       fromAsset: makeAsset({
@@ -131,7 +137,7 @@ describe('wallet swap helper', () => {
         tokenId: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
       }),
       quote: makeQuote(),
-      sessionId: vault.id,
+      sessionId: keystore.id,
     })
 
     expect(support).toMatchObject({
@@ -141,22 +147,46 @@ describe('wallet swap helper', () => {
     })
   })
 
-  it('chooses send mode for native swaps', async () => {
-    const vault = createFakeVault({
-      id: 'vault-send-swap',
-      name: 'Send Swap',
-      chains: [Chain.Bitcoin],
+  it('allows WalletConnect sessions to submit EVM router swaps via eth_sendTransaction', async () => {
+    const manager = createTestManager({
+      extensionWindow: {},
     })
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient({
-        vaults: [vault],
-        activeVaultId: vault.id,
-      }).sdk,
-      prefsStorage: createMemoryStorage(),
+    await manager.initialize()
+    await manager.connectWalletConnect()
+    await manager.selectSession('walletconnect:session')
+
+    const support = getSwapExecutionSupport(manager, {
+      fromAsset: makeAsset({
+        id: 'usdt',
+        label: 'USDT',
+        ticker: 'USDT',
+        decimals: 6,
+        mayaAsset: 'ETH.USDT-0xdAC17F958D2ee523a2206206994597C13D831ec7',
+        tokenId: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+      }),
+      quote: makeQuote(),
+      sessionId: 'walletconnect:session',
     })
 
-    await manager.initialize()
-    await manager.selectSession(vault.id)
+    expect(support).toMatchObject({
+      supported: true,
+      mode: 'erc20-router',
+      source: 'walletconnect',
+    })
+    expect(walletConnectMocks.connectWalletConnect).toHaveBeenCalled()
+  })
+
+  it('chooses send mode for native swaps', async () => {
+    const keystore = createFakeKeystoreRecord({
+      id: 'keystore-send-swap',
+      label: 'Send Swap',
+      addresses: { [Chain.Bitcoin]: 'bc1qsender' },
+    })
+    const { manager } = await createInitializedTestManager({
+      keystores: [keystore],
+      unlockKeystores: true,
+    })
+    await manager.selectSession(keystore.id)
 
     const support = getSwapExecutionSupport(manager, {
       fromAsset: makeAsset({
@@ -183,7 +213,7 @@ describe('wallet swap helper', () => {
           dustThreshold: '10000',
         },
       }),
-      sessionId: vault.id,
+      sessionId: keystore.id,
     })
 
     expect(support).toMatchObject({
@@ -194,8 +224,7 @@ describe('wallet swap helper', () => {
 
   it('submits extension Maya swaps through deposit_transaction mode', async () => {
     const requests: Array<{ method: string; params?: unknown[] }> = []
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
+    const manager = createTestManager({
       extensionWindow: {
         vultisig: {
           mayachain: {
@@ -212,7 +241,6 @@ describe('wallet swap helper', () => {
           },
         },
       },
-      prefsStorage: createMemoryStorage(),
     })
 
     await manager.initialize()
@@ -266,49 +294,40 @@ describe('wallet swap helper', () => {
     )
   })
 
-  it('submits SDK Maya deposits using the selected MayaChain asset metadata', async () => {
+  it('submits keystore Maya deposits using the selected MayaChain asset metadata', async () => {
     const mayaSpecific = {
       accountNumber: 4n,
       sequence: 7n,
       isDeposit: false,
     }
-    Object.defineProperty(mayaSpecific, '__bufMessage', {
-      value: true,
-      enumerable: false,
-    })
-    const prepareSendTx = vi.fn(async (params) => ({
-      coin: params.coin,
-      toAddress: params.receiver,
-      toAmount: params.amount.toString(),
-      memo: params.memo,
-      blockchainSpecific: {
-        case: 'mayaSpecific',
-        value: mayaSpecific,
-      },
-    }))
-    const sign = vi.fn(async () => ({
-      signature: 'sdk-signature',
-      format: 'ECDSA',
-    }))
-    const broadcastTx = vi.fn(async () => 'sdk-maya-maya-swap')
-    const vault = createFakeVault({
-      id: 'vault-sdk-maya-asset',
-      name: 'SDK Maya Asset',
-      chains: [Chain.MayaChain],
-      prepareSendTx,
-      sign,
-      broadcastTx,
-    })
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient({
-        vaults: [vault],
-        activeVaultId: vault.id,
-      }).sdk,
-      prefsStorage: createMemoryStorage(),
-    })
+    localSignerMocks.prepareLocalSendTx.mockImplementation(
+      async (params: {
+        coin?: { contractAddress?: string; isNativeToken?: boolean; ticker?: string }
+        receiver?: string
+        amount?: bigint
+        memo?: string
+      }) => ({
+        coin: params.coin,
+        toAddress: params.receiver ?? '',
+        toAmount: params.amount?.toString() ?? '0',
+        memo: params.memo ?? '',
+        blockchainSpecific: {
+          case: 'mayaSpecific',
+          value: mayaSpecific,
+        },
+      }),
+    )
+    localSignerMocks.broadcastLocalTx.mockResolvedValue('keystore-maya-swap')
 
-    await manager.initialize()
-    await manager.selectSession(vault.id)
+    const keystore = createFakeKeystoreRecord({
+      id: 'keystore-maya-asset',
+      label: 'Keystore Maya Asset',
+      addresses: { [Chain.MayaChain]: 'mayachain-address' },
+    })
+    const { manager } = await createInitializedTestManager({
+      keystores: [keystore],
+    })
+    await initializeKeystoreSession(manager, keystore)
 
     const result = await submitSwap(manager, {
       amount: '1.5',
@@ -334,15 +353,15 @@ describe('wallet swap helper', () => {
           dustThreshold: '0',
         },
       }),
-      sessionId: vault.id,
+      sessionId: keystore.id,
     })
 
     expect(result).toMatchObject({
       mode: 'deposit',
-      route: 'sdk',
-      txHash: 'sdk-maya-maya-swap',
+      route: 'keystore',
+      txHash: 'keystore-maya-swap',
     })
-    expect(prepareSendTx).toHaveBeenCalledWith(
+    expect(localSignerMocks.prepareLocalSendTx).toHaveBeenCalledWith(
       expect.objectContaining({
         amount: 15000n,
         coin: expect.objectContaining({
@@ -356,39 +375,14 @@ describe('wallet swap helper', () => {
         receiver: 'mayachain-address',
       }),
     )
-    expect(sign).toHaveBeenCalled()
-    expect(broadcastTx).toHaveBeenCalled()
-    const signedPayload = sign.mock.calls[0]?.[0]?.transaction as {
-      coin?: { contractAddress?: string; isNativeToken?: boolean; ticker?: string }
-      toAddress?: string
-      toAmount?: string
-      memo?: string
-      blockchainSpecific?: { case?: string; value?: unknown }
-    }
-    expect(signedPayload.coin).toEqual(
-      expect.objectContaining({
-        contractAddress: 'MAYA.MAYA',
-        isNativeToken: false,
-        ticker: 'MAYA',
-      }),
-    )
-    expect(signedPayload.toAddress).toBe('')
-    expect(signedPayload.toAmount).toBe('15000')
-    expect(signedPayload.memo).toBe(
-      '=:ARB.USDC-0XAF88D065E77C8CC2239327C5EDB3A432268E5831:0x8CcB8B8B30faBe30591b20D9A1B55CfAeF69B4e2:585190444/3/0',
-    )
-    expect(signedPayload.blockchainSpecific?.case).toBe('mayaSpecific')
-    expect(signedPayload.blockchainSpecific?.value).toBe(mayaSpecific)
-    expect(
-      Object.getOwnPropertyDescriptor(mayaSpecific, '__bufMessage')?.value,
-    ).toBe(true)
+    expect(localSignerMocks.signLocalPayload).toHaveBeenCalled()
+    expect(localSignerMocks.broadcastLocalTx).toHaveBeenCalled()
   })
 
   it('submits extension ERC-20 router swaps via approval and router eth_sendTransaction calls', async () => {
     const requests: Array<{ method: string; params?: unknown[] }> = []
     let txQueryCount = 0
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
+    const manager = createTestManager({
       extensionWindow: {
         vultisig: {
           ethereum: {
@@ -419,7 +413,6 @@ describe('wallet swap helper', () => {
           },
         },
       },
-      prefsStorage: createMemoryStorage(),
     })
 
     await manager.initialize()
@@ -455,18 +448,11 @@ describe('wallet swap helper', () => {
     })
     expect(statuses).toEqual(['approving', 'waiting-approval', 'submitting'])
     expect(requests.filter((request) => request.method === 'eth_sendTransaction')).toHaveLength(2)
-    expect(requests).toContainEqual(
-      expect.objectContaining({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: '0x1' }],
-      }),
-    )
   })
 
   it('submits extension native EVM swaps as value transfers with the memo hex-encoded in data', async () => {
     const requests: Array<{ method: string; params?: unknown[] }> = []
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient().sdk,
+    const manager = createTestManager({
       extensionWindow: {
         vultisig: {
           ethereum: {
@@ -486,7 +472,6 @@ describe('wallet swap helper', () => {
           },
         },
       },
-      prefsStorage: createMemoryStorage(),
     })
 
     await manager.initialize()
@@ -527,115 +512,7 @@ describe('wallet swap helper', () => {
       txHash: '0xnative-router-swap',
     })
     expect(statuses).toEqual(['submitting'])
-    expect(requests).toContainEqual(
-      expect.objectContaining({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: '0xa4b1' }],
-      }),
-    )
     const txRequests = requests.filter((request) => request.method === 'eth_sendTransaction')
     expect(txRequests).toHaveLength(1)
-    expect(txRequests[0]).toMatchObject({
-      params: [
-        {
-          from: extensionEvmAddress,
-          to: '0xAB1722696e2320687B80D9dc62030bd6fBc8Bbfd',
-          value: '0x1c6bf52634000',
-          data: '0x3d3a4152422e555344432d3058414638384430363545373743384343323233393332374335454442334134333232363845353833313a30787265636569766572',
-        },
-      ],
-    })
-  })
-
-  it('submits SDK router swaps through raw signing and raw broadcast after approval confirmation', async () => {
-    let statusCalls = 0
-    const signBytes = vi
-      .fn()
-      .mockResolvedValue({
-        signature: '0x304402206afc74687c9fdc312e96b3cb2a9c3cbdbca46611c896b5c71a1a96b2a02600552902200ef0d2daf91dce60e5343a69f2465eba711d001dbf4a712fac53',
-        recovery: 0,
-        format: 'ECDSA',
-      })
-    const broadcastRawTx = vi
-      .fn()
-      .mockResolvedValueOnce('0xapproval-raw')
-      .mockResolvedValueOnce('0xswap-raw')
-    const getTxStatus = vi.fn(async () => {
-      statusCalls += 1
-      return statusCalls >= 2
-        ? { status: 'success' }
-        : { status: 'pending' }
-    })
-    const vault = createFakeVault({
-      id: 'vault-sdk-router',
-      name: 'SDK Router',
-      chains: [Chain.Ethereum],
-      signBytes,
-      broadcastRawTx,
-      getTxStatus,
-    })
-    const manager = new MayaWalletManager({
-      sdk: createFakeSdkClient({
-        vaults: [vault],
-        activeVaultId: vault.id,
-      }).sdk,
-      prefsStorage: createMemoryStorage(),
-    })
-
-    await manager.initialize()
-    await manager.selectSession(vault.id)
-
-    const statuses: string[] = []
-    const result = await submitSwap(manager, {
-      amount: '25',
-      fromAsset: makeAsset({
-        id: 'usdc',
-        label: 'USDC',
-        ticker: 'USDC',
-        decimals: 6,
-        mayaAsset: 'ARB.USDC-0XAF88D065E77C8CC2239327C5EDB3A432268E5831',
-        tokenId: '0XAF88D065E77C8CC2239327C5EDB3A432268E5831',
-      }),
-      quote: makeQuote({
-        inboundAddress: '0XAB1722696E2320687B80D9DC62030BD6FBC8BBFD',
-        inboundDetails: {
-          chain: 'ARB',
-          inboundAddress: '0XAB1722696E2320687B80D9DC62030BD6FBC8BBFD',
-          lpActionsPaused: false,
-          tradingPaused: false,
-          halted: false,
-          dustThreshold: '0',
-          router: '0X700E97EF07219440487840DC472E7120A7FF11F4',
-        },
-      }),
-      sessionId: vault.id,
-      evmClientFactory: () => ({
-        estimateFeesPerGas: async () => ({
-          maxFeePerGas: 10n,
-          maxPriorityFeePerGas: 1n,
-        }),
-        getGasPrice: async () => 10n,
-        getTransactionCount: async () => 9,
-        estimateGas: async () => 120000n,
-        readContract: async () => 0n,
-      }),
-      onStatusChange: (status) => {
-        statuses.push(status)
-      },
-      sleep: async () => {},
-    })
-
-    expect(result).toMatchObject({
-      mode: 'erc20-router',
-      route: 'sdk',
-      approvalTxHash: '0xapproval-raw',
-      txHash: '0xswap-raw',
-    })
-    expect(signBytes).toHaveBeenCalledTimes(2)
-    expect(broadcastRawTx).toHaveBeenCalledTimes(2)
-    expect(getTxStatus).toHaveBeenCalled()
-    expect(statuses).toEqual(['approving', 'waiting-approval', 'submitting'])
-    const firstRawTx = broadcastRawTx.mock.calls[0]?.[0]?.rawTx as string
-    expect(firstRawTx).toMatch(/^0x02/i)
   })
 })

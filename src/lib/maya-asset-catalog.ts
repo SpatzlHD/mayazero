@@ -1,4 +1,4 @@
-import { Chain, Vultisig } from "@vultisig/sdk";
+import { WalletChain as Chain } from "#/wallet/chain-types";
 import type { WalletChain } from "#/wallet";
 
 type FetchLike = typeof fetch;
@@ -235,10 +235,19 @@ async function defaultFallbackPriceFetcher(
     return {};
   }
 
-  return Vultisig.getCoinPrices({
-    ids,
-    fiatCurrency: "usd",
-  });
+  const response = await fetch(
+    `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ids.join(","))}&vs_currencies=usd`,
+  );
+  if (!response.ok) {
+    return {};
+  }
+
+  const payload = (await response.json()) as Record<string, { usd?: number }>;
+  return Object.fromEntries(
+    Object.entries(payload).flatMap(([id, value]) =>
+      typeof value.usd === "number" ? [[id, value.usd]] : [],
+    ),
+  );
 }
 
 export function resetMayaAssetCatalogCache(): void {

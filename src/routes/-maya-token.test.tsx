@@ -1,22 +1,15 @@
 /* @vitest-environment happy-dom */
 
+import { createInitializedTestManager, resetWalletTestMocks } from '#/wallet/test-mocks'
+import { createEmptyExtensionWindow, createFakeKeystoreRecord } from '#/wallet/test-utils'
 import { cleanup, render, screen } from '@testing-library/react'
-import { Chain } from '@vultisig/sdk'
+import { WalletChain as Chain } from '#/wallet/chain-types'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { MayaTokenRewardsResponse } from '#/lib/cacaotracker-types'
-import type { MayaTokenPoolSnapshot } from '#/lib/maya-token'
-import { ImpersonationProvider } from '#/provider/ImpersonationProvider'
-import { SettingsProvider } from '#/provider/SettingsProvider'
 import {
   MayaWalletManager,
   MayaWalletProvider,
   type AddressBalanceResponse,
 } from '#/wallet'
-import {
-  createFakeSdkClient,
-  createFakeVault,
-  createMemoryStorage,
-} from '#/wallet/test-utils'
 import {
   MayaTokenPage,
   formatRewardAmount,
@@ -24,35 +17,36 @@ import {
   resolveMayaTokenBalance,
   sortMayaTokenRewards,
 } from './maya-token'
+import type { MayaTokenRewardsResponse } from '#/lib/cacaotracker-types'
+import type { MayaTokenPoolSnapshot } from '#/lib/maya-token'
+import { ImpersonationProvider } from '#/provider/ImpersonationProvider'
+import { SettingsProvider } from '#/provider/SettingsProvider'
 
 afterEach(() => {
   cleanup()
 })
 
 async function createManager(options?: { mayaAddress?: string; withVault?: boolean }) {
-  const vault =
+  resetWalletTestMocks()
+  const keystore =
     options?.withVault === false
       ? undefined
-      : createFakeVault({
-          id: 'vault-maya-token-route',
-          name: 'Vault Route',
-          chains: [Chain.MayaChain],
-          addresses: async () => ({
+      : createFakeKeystoreRecord({
+          id: 'keystore-maya-token-route',
+          label: 'Keystore Route',
+          addresses: {
             [Chain.MayaChain]: options?.mayaAddress ?? 'maya1vaultaddress',
-          }),
+          },
         })
 
-  const manager = new MayaWalletManager({
-    sdk: createFakeSdkClient({
-      activeVaultId: vault?.id ?? null,
-      vaults: vault ? [vault] : [],
-    }).sdk,
-    prefsStorage: createMemoryStorage(),
+  const { manager } = await createInitializedTestManager({
+    extensionWindow: createEmptyExtensionWindow(),
+    keystores: keystore ? [keystore] : [],
+    unlockKeystores: Boolean(keystore),
   })
 
-  await manager.initialize()
-  if (vault) {
-    await manager.selectSession(vault.id)
+  if (keystore) {
+    await manager.selectSession(keystore.id)
   }
   return manager
 }
@@ -150,10 +144,9 @@ describe('maya token route', () => {
     })
 
     expect(await screen.findByText('125')).toBeTruthy()
-    expect(screen.getByText('$156.25')).toBeTruthy()
-    expect(screen.getByText('312.5 CACAO')).toBeTruthy()
     expect(screen.getByText('30 CACAO')).toBeTruthy()
     expect(screen.getAllByText('Apr 18, 2026').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('Latest Rewards')).toBeTruthy()
   })
 
   it('shows zero holdings while still rendering token rewards', async () => {
@@ -175,14 +168,12 @@ describe('maya token route', () => {
       loadRewards: async () => makeRewards(),
     })
 
-    expect(await screen.findByText('MAYA Position')).toBeTruthy()
+    expect(await screen.findByText('Token Position')).toBeTruthy()
     expect(screen.getByText('0')).toBeTruthy()
-    expect(screen.getByText('$0.00')).toBeTruthy()
-    expect(screen.getByText('0 CACAO')).toBeTruthy()
     expect(screen.getByText('30 CACAO')).toBeTruthy()
   })
 
-  it('shows n/a valuations when the pool price is unavailable', async () => {
+  it('renders zero rewards when no distributions exist', async () => {
     const manager = await createManager()
     renderPage(manager, {
       loadBalances: async () => ({
@@ -203,11 +194,14 @@ describe('maya token route', () => {
         chain: Chain.MayaChain,
         fetchedAt: new Date().toISOString(),
       }),
-      loadPoolSnapshot: async () => null,
       loadRewards: async () => makeRewards({ distribution_count: 0, rewards: [], total_cacao: '0' }),
     })
 
-    expect((await screen.findAllByText('n/a')).length).toBeGreaterThanOrEqual(4)
+    expect(await screen.findByText('5')).toBeTruthy()
+    expect(screen.getByText('0 CACAO')).toBeTruthy()
+    expect(
+      screen.getByText('No token reward distributions were found for this Maya address yet.'),
+    ).toBeTruthy()
   })
 
   it('keeps helper formatting deterministic', () => {

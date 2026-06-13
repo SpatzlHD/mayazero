@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Chain } from '@vultisig/sdk'
+import { WalletChain as Chain } from '#/wallet/chain-types'
 import { formatBaseUnits, getSwapPrimaryAction } from './swap'
 import type { ProtocolAsset } from '#/components/ProtocolPrimitives'
 import { buildSwapBalanceAssetHints } from './swap'

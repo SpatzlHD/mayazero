@@ -1,4 +1,4 @@
-import { Chain } from '@vultisig/sdk'
+import { WalletChain as Chain } from '#/wallet/chain-types'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SettingsState } from '#/provider/SettingsProvider'
 import type { ProtocolAsset } from '#/components/ProtocolPrimitives'
@@ -20,7 +20,6 @@ function createSettings(overrides: Partial<SettingsState> = {}): SettingsState {
     mayanodeUrl: 'https://mayanode.mayachain.info',
     midgardUrl: 'https://midgard.mayachain.info',
     tendermintUrl: 'https://tendermint.mayachain.info',
-    useVultisigSwap: false,
     analyticsDisabled: false,
     referralMayaName: '',
     supportReferrerEnabled: false,
@@ -66,7 +65,6 @@ describe('swap-quote-engine', () => {
 
   it('prepends m0 and accepts up to four manual affiliates', () => {
     const settings = createSettings({
-      useVultisigSwap: false,
     })
 
     const result = resolveEffectiveAffiliates(
@@ -144,22 +142,16 @@ describe('swap-quote-engine', () => {
     ])
   })
 
-  it('routes quotes according to settings and affiliate count', () => {
-    const mayaSettings = createSettings({
-      useVultisigSwap: false,
-    })
-    const vultisigSettings = createSettings({
-      useVultisigSwap: true,
-    })
+  it('always routes quotes through Maya', () => {
+    const settings = createSettings()
 
-    expect(resolveQuoteStrategy(mayaSettings, [])).toBe('maya')
-    expect(resolveQuoteStrategy(vultisigSettings, [])).toBe('maya')
+    expect(resolveQuoteStrategy(settings, [])).toBe('maya')
     expect(
-      resolveQuoteStrategy(vultisigSettings, createDrafts({ value: 'alpha' })),
+      resolveQuoteStrategy(settings, createDrafts({ value: 'alpha' })),
     ).toBe('maya')
     expect(
       resolveQuoteStrategy(
-        vultisigSettings,
+        settings,
         createDrafts({ value: 'alpha' }, { value: 'beta' }),
       ),
     ).toBe('maya')
@@ -472,63 +464,6 @@ describe('swap-quote-engine', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3)
   })
 
-  it('keeps Maya-native routing even when Vultisig quote support is available', async () => {
-    const execute = vi.fn(async () => ({
-      quote: {
-        estimatedOutput: 12345n,
-        fees: { network: 10n, affiliate: 2n, total: 12n },
-        provider: 'thorchain',
-        quote: { quote: '', discounts: [] },
-        balance: 100n,
-        maxSwapable: 90n,
-        requiresApproval: false,
-        warnings: [],
-        fromCoin: { chain: Chain.MayaChain, ticker: 'CACAO', decimals: 10 },
-        toCoin: { chain: Chain.Ethereum, ticker: 'ETH', decimals: 18 },
-        expiresAt: Date.now() + 10_000,
-      },
-    }))
-    const settings = createSettings({
-      useVultisigSwap: true,
-    })
-
-    const result = await quoteSwap({
-      wallet: {
-        execute: execute as any,
-        canExecute: (command) => command === 'swap.quote' || command === 'swap.prepare',
-      },
-      settings,
-      sessionId: 'vault-1',
-      fromAsset: createAsset({ mayaAsset: 'MAYA.CACAO' }),
-      toAsset: createAsset({ id: 'eth', ticker: 'ETH', mayaAsset: 'ETH.ETH', chain: Chain.Ethereum, decimals: 18 }),
-      fromAddress: 'maya1sender',
-      toAddress: '0xreceiver',
-      amount: '1.5',
-      affiliateDrafts: [],
-      fetchImpl: vi.fn(async (url: string) =>
-        String(url).includes('inbound_addresses')
-          ? ({
-              ok: true,
-              json: async () => [],
-            })
-          : ({
-              ok: true,
-              json: async () => ({
-                expected_amount_out: '12345',
-                memo: '=:ETH.ETH:0xreceiver',
-                inbound_address: '0xinbound',
-                fees: {
-                  outbound: '10',
-                },
-              }),
-            }),
-      ) as unknown as typeof fetch,
-    })
-
-    expect(result.route).toBe('maya')
-    expect(execute).not.toHaveBeenCalled()
-  })
-
   it('normalizes Maya-native quote responses', async () => {
     const fetchImpl = vi.fn(async (url: string) => {
       if (String(url).includes('/mayachain/mayaname/alpha')) {
@@ -576,7 +511,6 @@ describe('swap-quote-engine', () => {
       }
     })
     const settings = createSettings({
-      useVultisigSwap: true,
     })
 
     const result = await quoteSwap({

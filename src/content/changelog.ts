@@ -32,7 +32,7 @@ export const changelogEntries: ChangelogEntry[] = [
       'Keystore imports now decrypt locally in the browser before creating the Vultisig vault.',
       'Imported wallets automatically scan MayaZero-supported chains before the normal email verification step.',
     ],
-    links: [{ href: '/vault-setup', label: 'Open Vault Setup' }],
+    links: [{ href: '/vault-setup', label: 'Import Wallet' }],
   },
   {
     id: '2026-04-11-maya-masks-gallery',

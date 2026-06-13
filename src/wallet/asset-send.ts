@@ -1,5 +1,6 @@
 import { WalletCapabilityError, WalletSessionNotFoundError } from "./errors";
 import type { MayaWalletManager } from "./manager";
+import { resolveSigningRoute, type SigningRoute } from "./signing-route";
 import type { WalletCommandMap, WalletChain, WalletSession } from "./types";
 
 export type AssetSendAsset = {
@@ -23,7 +24,7 @@ export type AssetSendResult = {
   memo?: string;
   rawResult: unknown;
   recipient: string;
-  route: "extension" | "sdk";
+  route: SigningRoute;
   sourceAddress: string;
   txHash: string | null;
 };
@@ -68,10 +69,10 @@ export function getAssetSendSupport(
         sourceAddress,
       };
     }
-  } else if (!canSdkSessionSend(manager, session.id, input.asset.chain)) {
+  } else if (!canLocalSessionSend(manager, session.id, input.asset.chain)) {
     return {
       supported: false,
-      reason: `The active vault session cannot prepare ${input.asset.chain} transfers.`,
+      reason: `The active wallet session cannot prepare ${input.asset.chain} transfers.`,
       sessionId: session.id,
       source: session.source,
       sourceAddress,
@@ -152,7 +153,7 @@ export async function submitAssetSend(
     };
   }
 
-  ensureSdkSendSupport(manager, session.id, input.asset.chain);
+  ensureLocalSendSupport(manager, session.id, input.asset.chain);
 
   const prepared = await manager.execute("tx.prepare.send", {
     sessionId: session.id,
@@ -204,7 +205,7 @@ export async function submitAssetSend(
       txHash: broadcast.txHash,
     },
     recipient: normalizedRecipient,
-    route: "sdk",
+    route: resolveSigningRoute(session),
     sourceAddress,
     txHash: broadcast.txHash ?? null,
   };
@@ -237,11 +238,21 @@ function resolveSession(
   );
 }
 
-function canSdkSessionSend(
+function canLocalSessionSend(
   manager: MayaWalletManager,
   sessionId: string,
   chain: WalletChain,
 ): boolean {
+  const session = manager
+    .getState()
+    .sessions.find((candidate) => candidate.id === sessionId);
+  if (
+    !session ||
+    (session.source !== "keystore" && session.source !== "walletconnect")
+  ) {
+    return false;
+  }
+
   return (
     manager.canExecute("tx.prepare.send", {
       sessionId,
@@ -258,16 +269,16 @@ function canSdkSessionSend(
   );
 }
 
-function ensureSdkSendSupport(
+function ensureLocalSendSupport(
   manager: MayaWalletManager,
   sessionId: string,
   chain: WalletChain,
 ): void {
-  if (!canSdkSessionSend(manager, sessionId, chain)) {
+  if (!canLocalSessionSend(manager, sessionId, chain)) {
     throw new WalletCapabilityError(
       "tx.prepare.send",
       sessionId,
-      "The active vault session cannot prepare the requested transfer.",
+      "The active wallet session cannot prepare the requested transfer.",
     );
   }
 }

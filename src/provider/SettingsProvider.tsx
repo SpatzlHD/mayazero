@@ -20,7 +20,6 @@ export interface SettingsState {
   mayanodeUrl: string
   midgardUrl: string
   tendermintUrl: string
-  useVultisigSwap: boolean
   analyticsDisabled: boolean
   referralMayaName: string
   supportReferrerEnabled: boolean
@@ -57,7 +56,6 @@ const defaultSettings = {
   mayanodeUrl: 'https://mayanode.mayachain.info',
   midgardUrl: 'https://midgard.mayachain.info',
   tendermintUrl: 'https://tendermint.mayachain.info',
-  useVultisigSwap: false,
   analyticsDisabled: false,
   referralMayaName: '',
   supportReferrerEnabled: false,
@@ -223,6 +221,7 @@ function sanitizeStoredSettings(
     interfaceSupportSwapEnabled: _interfaceSupportSwapEnabled,
     interfaceSupportSwapBps: _interfaceSupportSwapBps,
     interfaceSupportBannerDismissed: _interfaceSupportBannerDismissed,
+    useVultisigSwap: _useVultisigSwap,
     ...sanitizedSettings
   } = settings as SettingsPersistedState & {
     useZeroPercentFee?: boolean
@@ -230,6 +229,7 @@ function sanitizeStoredSettings(
     interfaceSupportSwapEnabled?: boolean
     interfaceSupportSwapBps?: string
     interfaceSupportBannerDismissed?: boolean
+    useVultisigSwap?: boolean
   }
   const impersonationAddresses = normalizeImpersonationAddresses(
     sanitizedSettings.impersonationAddresses,

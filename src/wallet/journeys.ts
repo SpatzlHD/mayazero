@@ -689,7 +689,11 @@ export function createExecutionJourneySteps(input: {
   if (input.source === 'extension') {
     steps.push(createJourneyStep('provider', 'Check Extension'))
   } else {
-    steps.push(createJourneyStep('signing', 'Awaiting Device Approval'))
+    const signingLabel =
+      input.source === 'keystore' || input.source === 'walletconnect'
+        ? 'Signing'
+        : 'Awaiting Device Approval'
+    steps.push(createJourneyStep('signing', signingLabel))
     steps.push(createJourneyStep('broadcasting', 'Broadcasting'))
   }
 
@@ -703,53 +707,26 @@ export function createExecutionJourneySteps(input: {
   return steps
 }
 
-export function createFastVaultJourneySteps(): WalletJourneyStep[] {
-  return [
-    createJourneyStep('creating', 'Creating Vault'),
-    createJourneyStep('verification-sent', 'Verification Email Sent'),
-    createJourneyStep('awaiting-code', 'Awaiting Code'),
-  ]
-}
-
-export function createFastVaultImportJourneySteps(): WalletJourneyStep[] {
+export function createKeystoreImportJourneySteps(): WalletJourneyStep[] {
   return [
     createJourneyStep('decrypting-keystore', 'Decrypting Keystore'),
     createJourneyStep('validating-seed', 'Validating Seedphrase'),
-    createJourneyStep('discovering-chains', 'Discovering Chains'),
-    createJourneyStep('creating', 'Creating Vault'),
-    createJourneyStep('verification-sent', 'Verification Email Sent'),
-    createJourneyStep('awaiting-code', 'Awaiting Code'),
-  ]
-}
-
-export function createFastVaultVerifyJourneySteps(): WalletJourneyStep[] {
-  return [
-    createJourneyStep('verifying', 'Verifying Code'),
+    createJourneyStep('encrypting-keystore', 'Encrypting Keystore'),
     createJourneyStep('refreshing-session', 'Refreshing Session'),
-    createJourneyStep('vault-ready', 'Vault Ready'),
-  ]
-}
-
-export function createSecureVaultJourneySteps(): WalletJourneyStep[] {
-  return [
-    createJourneyStep('creating-session', 'Creating Session'),
-    createJourneyStep('scan-qr', 'Scan QR'),
-    createJourneyStep('devices-joined', 'Devices Joined'),
-    createJourneyStep('keygen', 'Key Generation'),
-    createJourneyStep('vault-ready', 'Vault Ready'),
+    createJourneyStep('wallet-ready', 'Wallet Ready'),
   ]
 }
 
 export function getJourneySourceLabel(source?: WalletJourneySource): string {
   switch (source) {
-    case 'sdk':
-      return 'SDK vault'
+    case 'keystore':
+      return 'Local keystore'
+    case 'walletconnect':
+      return 'WalletConnect'
+    case 'keystore-import':
+      return 'Keystore import'
     case 'extension':
-      return 'Extension'
-    case 'fast-vault':
-      return 'Fast vault'
-    case 'secure-vault':
-      return 'Secure vault'
+      return 'Vultisig extension'
     default:
       return 'Wallet'
   }

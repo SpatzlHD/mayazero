@@ -1,4 +1,5 @@
-import { Chain, type Signature } from '@vultisig/sdk'
+import { WalletChain as Chain } from '#/wallet/chain-types'
+import type { Signature } from '#/wallet/wallet-primitives'
 import {
   type Address,
   type Hex,
@@ -21,6 +22,7 @@ import { normalizeEvmAddress } from '#/lib/evm-address'
 import { shortenMayaAssetDenominator } from '#/lib/maya-asset-shorthand'
 import type { WalletChain, WalletCommandMap, WalletSession } from './types'
 import type { MayaWalletManager } from './manager'
+import { resolveSigningRoute, type SigningRoute } from './signing-route'
 import { WalletCapabilityError, WalletSessionNotFoundError } from './errors'
 
 const CACAO_DECIMALS = 10
@@ -102,7 +104,7 @@ export type LiquidityDepositSupport = {
 export type LiquidityStepSubmissionResult = {
   memo: string
   rawResult: unknown
-  route: 'extension' | 'sdk'
+  route: SigningRoute
   stepId: LiquidityDepositStep['id']
   txHash: string | null
 }
@@ -525,7 +527,7 @@ async function submitStandardMemoSend(
     }
   }
 
-  ensureSdkSendSupport(manager, session.id, step.chain)
+  ensureLocalSendSupport(manager, session.id, step.chain)
 
   const prepared = await manager.execute('tx.prepare.send', {
     sessionId: session.id,
@@ -576,7 +578,7 @@ async function submitStandardMemoSend(
       payload: prepared.payload,
       txHash: broadcast.txHash,
     },
-    route: 'sdk',
+    route: resolveSigningRoute(session),
     stepId: step.id,
     txHash: broadcast.txHash ?? null,
   }
@@ -795,7 +797,7 @@ async function submitErc20RouterMemoSend(
         txHash: broadcast.txHash,
       },
     },
-    route: 'sdk',
+    route: resolveSigningRoute(session),
     stepId: step.id,
     txHash: broadcast.txHash ?? null,
   }
@@ -893,7 +895,7 @@ async function submitMayaDepositMemo(
     }
   }
 
-  ensureSdkSendSupport(manager, session.id, Chain.MayaChain)
+  ensureLocalSendSupport(manager, session.id, Chain.MayaChain)
 
   const prepared = await manager.execute('tx.prepare.send', {
     sessionId: session.id,
@@ -955,13 +957,13 @@ async function submitMayaDepositMemo(
       payload: prepared.payload,
       txHash: broadcast.txHash,
     },
-    route: 'sdk',
+    route: resolveSigningRoute(session),
     stepId: step.id,
     txHash: broadcast.txHash ?? null,
   }
 }
 
-function ensureSdkSendSupport(
+function ensureLocalSendSupport(
   manager: MayaWalletManager,
   sessionId: string,
   chain: Chain,
@@ -983,7 +985,7 @@ function ensureSdkSendSupport(
     throw new WalletCapabilityError(
       'tx.prepare.send',
       sessionId,
-      'The active vault session cannot prepare the requested liquidity transaction.',
+      'The active wallet session cannot prepare the requested liquidity transaction.',
     )
   }
 }

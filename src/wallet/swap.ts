@@ -1,4 +1,5 @@
-import { Chain, type Signature } from '@vultisig/sdk'
+import { WalletChain as Chain } from '#/wallet/chain-types'
+import type { Signature } from '#/wallet/wallet-primitives'
 import {
   type Address,
   type Hex,
@@ -16,6 +17,7 @@ import type { ProtocolAsset } from '#/components/ProtocolPrimitives'
 import { normalizeEvmAddress } from '#/lib/evm-address'
 import type { SwapQuoteEngineResult } from '#/lib/swap-quote-engine'
 import type { MayaWalletManager } from './manager'
+import { resolveSigningRoute, type SigningRoute } from './signing-route'
 import type { WalletChain, WalletSession } from './types'
 import { WalletCapabilityError, WalletSessionNotFoundError } from './errors'
 const APPROVAL_TIMEOUT_MS = 180_000
@@ -84,7 +86,7 @@ export type SwapSubmitResult = {
   memo: string
   mode: SwapExecutionMode
   rawResult: unknown
-  route: 'extension' | 'sdk'
+  route: SigningRoute
   router?: string
   txHash: string | null
 }
@@ -255,7 +257,39 @@ export function getSwapExecutionSupport(
     }
   }
 
-  if (session.source === 'extension') {
+  if (supportsEvmProviderSend(session) && isEvmChain(input.fromAsset.chain)) {
+    if (
+      !manager.canExecute('tx.send', {
+        sessionId: session.id,
+        chain: input.fromAsset.chain,
+      })
+    ) {
+      return {
+        supported: false,
+        reason:
+          session.source === 'walletconnect'
+            ? `WalletConnect cannot submit ${input.fromAsset.chain} transactions. Reconnect and approve the Ethereum chain in your wallet.`
+            : `The connected extension session cannot submit ${input.fromAsset.chain} swap transactions.`,
+        sessionId: session.id,
+        source: session.source,
+      }
+    }
+
+    if (
+      mode === 'erc20-router' &&
+      !manager.canExecute('tx.status', {
+        sessionId: session.id,
+        chain: input.fromAsset.chain,
+      })
+    ) {
+      return {
+        supported: false,
+        reason: 'The active session cannot track EVM approval transactions.',
+        sessionId: session.id,
+        source: session.source,
+      }
+    }
+  } else if (session.source === 'extension') {
     if (
       !manager.canExecute('tx.send', {
         sessionId: session.id,
@@ -352,7 +386,7 @@ async function submitStandardMemoSwap(
 ): Promise<SwapSubmitResult> {
   const sourceAddress = session.addresses[fromAsset.chain]!
 
-  if (session.source === 'extension') {
+  if (supportsEvmProviderSend(session)) {
     await ensureExtensionChain(manager, session, fromAsset.chain)
     if (isEvmChain(fromAsset.chain) && !fromAsset.tokenId) {
       const result = await manager.execute('tx.send', {
@@ -376,9 +410,17 @@ async function submitStandardMemoSwap(
         memo: input.memo,
         mode: 'send',
         rawResult: result.result,
-        route: 'extension',
+        route: session.source === 'extension' ? 'extension' : resolveSigningRoute(session),
         txHash: extractTxHash(result.result),
       }
+    }
+
+    if (session.source !== 'extension') {
+      throw new WalletCapabilityError(
+        'tx.send',
+        session.id,
+        `${fromAsset.chain} memo swaps via WalletConnect require native EVM assets or ERC-20 router mode.`,
+      )
     }
 
     const result = await manager.execute('tx.send', {
@@ -466,7 +508,7 @@ async function submitStandardMemoSwap(
       payload: prepared.payload,
       txHash: broadcast.txHash,
     },
-    route: 'sdk',
+    route: resolveSigningRoute(session),
     txHash: broadcast.txHash ?? null,
   }
 }
@@ -578,7 +620,7 @@ async function submitMayaDepositSwap(
       payload: prepared.payload,
       txHash: broadcast.txHash,
     },
-    route: 'sdk',
+    route: resolveSigningRoute(session),
     txHash: broadcast.txHash ?? null,
   }
 }
@@ -625,7 +667,7 @@ async function submitErc20RouterSwap(
     ],
   })
 
-  if (session.source === 'extension') {
+  if (supportsEvmProviderSend(session)) {
     await ensureExtensionChain(manager, session, fromAsset.chain)
     const approvalAmounts = await resolveExtensionApprovalAmounts(manager, {
       chain: fromAsset.chain,
@@ -698,7 +740,7 @@ async function submitErc20RouterSwap(
       memo: input.memo,
       mode: 'erc20-router',
       rawResult: swap.result,
-      route: 'extension',
+      route: session.source === 'extension' ? 'extension' : resolveSigningRoute(session),
       router: input.router,
       txHash: extractTxHash(swap.result),
     }
@@ -812,7 +854,7 @@ async function submitErc20RouterSwap(
       rawTx,
       txHash: broadcast.txHash,
     },
-    route: 'sdk',
+    route: resolveSigningRoute(session),
     router: normalizedRouterAddress,
     txHash: broadcast.txHash ?? null,
   }
@@ -1338,6 +1380,10 @@ function resolveMayaChainAssetIdentifier(asset: ProtocolAsset): string | undefin
 
 function isEvmChain(chain: WalletChain): boolean {
   return chain === Chain.Ethereum || chain === Chain.Arbitrum || chain === Chain.Base
+}
+
+function supportsEvmProviderSend(session: WalletSession): boolean {
+  return session.source === 'extension' || session.source === 'walletconnect'
 }
 
 function encodeEvmMemoData(memo: string): Hex {

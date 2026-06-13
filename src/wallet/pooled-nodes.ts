@@ -1,7 +1,8 @@
-import { Chain } from '@vultisig/sdk'
+import { WalletChain as Chain } from '#/wallet/chain-types'
 import { BOND_DEPOSIT_BASE_UNITS } from '#/lib/pooled-nodes-bond'
 import type { WalletCommandMap, WalletSession } from './types'
 import type { MayaWalletManager } from './manager'
+import { resolveSigningRoute, type SigningRoute } from './signing-route'
 import { WalletCapabilityError, WalletSessionNotFoundError } from './errors'
 
 const CACAO_DECIMALS = 10
@@ -38,7 +39,7 @@ export type PooledNodeActionResult = {
   action: PooledNodeActionKind
   memo: string
   rawResult: unknown
-  route: 'extension' | 'sdk'
+  route: SigningRoute
   txAmountBaseUnits: string
   txHash: string | null
 }
@@ -257,7 +258,7 @@ export async function submitPooledNodeAction(
 
   return {
     action: input.action,
-    route: 'sdk',
+    route: resolveSigningRoute(session),
     txHash: broadcast.txHash ?? null,
     memo,
     rawResult: {

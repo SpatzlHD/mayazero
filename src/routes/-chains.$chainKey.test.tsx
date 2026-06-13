@@ -1,4 +1,4 @@
-import { Chain } from '@vultisig/sdk'
+import { WalletChain as Chain } from '#/wallet/chain-types'
 import { renderToString } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { MayaSupportedChain } from '#/lib/maya-asset-catalog'
@@ -44,7 +44,7 @@ function renderContent(options?: {
   initialSelectedAsset?: ChainAssetRow | null
   initialSendResult?: {
     recipient: string
-    route: 'extension' | 'sdk'
+    route: 'extension' | 'keystore'
     sourceAddress: string
     txHash: string | null
     rawResult: unknown
@@ -74,7 +74,7 @@ function renderContent(options?: {
       onSubmitSend={async ({ recipient }) => ({
         rawResult: { ok: true },
         recipient,
-        route: 'sdk',
+        route: 'keystore',
         sourceAddress: '0xsource',
         txHash: '0xsent',
       })}

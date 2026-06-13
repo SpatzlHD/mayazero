@@ -3,7 +3,6 @@ import { useNavigate } from "@tanstack/react-router";
 import {
   Activity,
   ChevronDown,
-  Download,
   Loader2,
   LockKeyhole,
   Plus,
@@ -24,9 +23,11 @@ import {
   useMayaWalletState,
 } from "#/wallet";
 import type { WalletSession } from "#/wallet";
-import { Chain } from "@vultisig/sdk";
+import { WalletChain as Chain } from "#/wallet/chain-types";
 import { AssetIcon, shortenAddress } from "./ProtocolPrimitives";
 import { isDevModeEnabled } from "#/lib/dev-mode";
+import { isWalletConnectConfigured } from "#/wallet/walletconnect-client";
+import { toast } from "sonner";
 
 const chainIconMap: Record<string, string> = {
   THORChain: "rune",
@@ -47,7 +48,6 @@ type WalletManagerMenuContentProps = {
   actionChain: Chain;
   canConnect: boolean;
   canFetchData: boolean;
-  canExport: boolean;
   showDebugControls: boolean;
   unlockSessionId: string | null;
   unlockPassword: string;
@@ -56,20 +56,13 @@ type WalletManagerMenuContentProps = {
   onUnlockPasswordChange: (value: string) => void;
   onUnlockSubmit: (e: React.FormEvent) => void;
   onUnlockClose: () => void;
-  isExportModalOpen: boolean;
-  exportPassword: string;
-  isExporting: boolean;
-  exportError: string;
-  onExportPasswordChange: (value: string) => void;
-  onExportSubmit: (e: React.FormEvent) => void;
-  onExportOpen: () => void;
-  onExportClose: () => void;
-  onCreateVault: () => void;
+  onImportKeystore: () => void;
+  onConnectWallet: () => void;
   onSessionClick: (sessionId: string, status: string) => void;
   onSelectChain: (chain: Chain) => void;
   onConnect: () => void;
   onRefreshData: () => void;
-  onToggleVaultLock: () => void;
+  onToggleKeystoreLock: () => void;
   onInitialize: () => void;
   onRefreshSessions: () => void;
 };
@@ -78,41 +71,24 @@ function getChainIconId(chain: string) {
   return chainIconMap[chain] || chain.toLowerCase();
 }
 
+function getSessionSourceLabel(source: WalletSession["source"]): string {
+  switch (source) {
+    case "keystore":
+      return "Local keystore";
+    case "walletconnect":
+      return "WalletConnect";
+    case "extension":
+      return "Vultisig extension";
+    default:
+      return "Wallet";
+  }
+}
+
 export function shouldShowWalletManagerDebugControls(
   isDev: boolean,
   search: string,
 ) {
   return isDevModeEnabled(isDev, search);
-}
-
-export function downloadWalletExportFile(
-  exported: { filename: string; data: string },
-  dependencies: {
-    documentLike?: {
-      createElement: (tagName: string) => HTMLAnchorElement;
-      body: {
-        appendChild: (node: HTMLAnchorElement) => unknown;
-        removeChild: (node: HTMLAnchorElement) => unknown;
-      };
-    };
-    urlLike?: {
-      createObjectURL: (blob: Blob) => string;
-      revokeObjectURL: (url: string) => void;
-    };
-  } = {},
-) {
-  const documentLike = dependencies.documentLike ?? document;
-  const urlLike = dependencies.urlLike ?? URL;
-  const blob = new Blob([exported.data], { type: "text/plain;charset=utf-8" });
-  const url = urlLike.createObjectURL(blob);
-  const link = documentLike.createElement("a") as HTMLAnchorElement;
-
-  link.href = url;
-  link.download = exported.filename;
-  documentLike.body.appendChild(link);
-  link.click();
-  documentLike.body.removeChild(link);
-  urlLike.revokeObjectURL(url);
 }
 
 export function WalletManagerMenuContent({
@@ -123,7 +99,6 @@ export function WalletManagerMenuContent({
   actionChain,
   canConnect,
   canFetchData,
-  canExport,
   showDebugControls,
   unlockSessionId,
   unlockPassword,
@@ -132,23 +107,21 @@ export function WalletManagerMenuContent({
   onUnlockPasswordChange,
   onUnlockSubmit,
   onUnlockClose,
-  isExportModalOpen,
-  exportPassword,
-  isExporting,
-  exportError,
-  onExportPasswordChange,
-  onExportSubmit,
-  onExportOpen,
-  onExportClose,
-  onCreateVault,
+  onImportKeystore,
+  onConnectWallet,
   onSessionClick,
   onSelectChain,
   onConnect,
   onRefreshData,
-  onToggleVaultLock,
+  onToggleKeystoreLock,
   onInitialize,
   onRefreshSessions,
 }: WalletManagerMenuContentProps) {
+  const connectLabel =
+    activeSession?.source === "walletconnect"
+      ? "Connect Wallet"
+      : "Connect Extension";
+
   return (
     <div className="absolute top-full right-0 mt-3 w-[min(calc(100vw-2rem),360px)] max-h-[min(calc(100vh-7rem),720px)] glass-panel-strong p-5 shadow-2xl animate-in slide-in-from-top-2 fade-in duration-200 z-[100] border border-[var(--line)] overflow-x-hidden overflow-y-auto overscroll-contain">
       {unlockSessionId && (
@@ -156,7 +129,7 @@ export function WalletManagerMenuContent({
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-2 text-[var(--sea-ink)]">
               <LockKeyhole size={18} className="text-[var(--maya-teal)]" />
-              <span className="font-bold text-base">Unlock Vault</span>
+              <span className="font-bold text-base">Unlock Wallet</span>
             </div>
             <button
               onClick={onUnlockClose}
@@ -173,7 +146,7 @@ export function WalletManagerMenuContent({
                 required
                 value={unlockPassword}
                 onChange={(e) => onUnlockPasswordChange(e.target.value)}
-                placeholder="Enter vault encryption password"
+                placeholder="Enter wallet encryption password"
                 className="super-input text-sm w-full"
                 disabled={isUnlocking}
                 autoFocus
@@ -200,78 +173,10 @@ export function WalletManagerMenuContent({
         </div>
       )}
 
-      {isExportModalOpen && (
-        <div className="absolute inset-0 z-40 glass-panel-strong bg-[var(--bg-base)]/95 backdrop-blur-xl p-5 flex flex-col justify-center animate-in fade-in zoom-in-95 duration-200">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-2 text-[var(--sea-ink)]">
-              <Download size={18} className="text-[var(--maya-teal)]" />
-              <span className="font-bold text-base">Export Vault Backup</span>
-            </div>
-            <button
-              onClick={onExportClose}
-              className="p-1.5 rounded-full hover:bg-[var(--surface)] text-[var(--sea-ink-soft)] transition-colors cursor-pointer"
-            >
-              <X size={14} />
-            </button>
-          </div>
-
-          <form onSubmit={onExportSubmit} className="flex flex-col gap-4">
-            <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3 text-xs font-medium text-[var(--sea-ink-soft)]">
-              Create a downloadable backup for{" "}
-              <span className="font-bold text-[var(--sea-ink)]">
-                {activeSession?.label || "your vault"}
-              </span>
-              . Add a backup password to encrypt the exported file.
-            </div>
-            <div className="bg-[var(--surface-strong)] border border-[var(--line)] rounded-xl p-3 flex items-center focus-within:border-[var(--maya-teal)] transition-colors">
-              <input
-                type="password"
-                value={exportPassword}
-                onChange={(e) => onExportPasswordChange(e.target.value)}
-                placeholder="Optional backup password"
-                className="super-input text-sm w-full"
-                disabled={isExporting}
-                autoFocus
-              />
-            </div>
-            {exportError && (
-              <p className="text-red-500 text-xs font-bold px-1">
-                {exportError}
-              </p>
-            )}
-
-            <div className="flex gap-3 mt-2">
-              <button
-                type="button"
-                disabled={isExporting}
-                onClick={onExportClose}
-                className="secondary-btn flex-1 py-3"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isExporting}
-                className="cacao-btn flex-1 py-3 flex items-center justify-center gap-2"
-              >
-                {isExporting ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : (
-                  <>
-                    <Download size={14} />
-                    Export
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
       <div className="flex items-center justify-between mb-4">
         <span className="font-bold text-[var(--sea-ink)] flex items-center gap-2">
           <ShieldCheck size={18} className="text-[var(--maya-teal)]" />
-          Vault Manager
+          Wallet Manager
         </span>
         <span className="kicker !text-xs">{sessions.length} Sessions</span>
       </div>
@@ -280,7 +185,7 @@ export function WalletManagerMenuContent({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <span className="text-[10px] uppercase font-bold text-[var(--sea-ink-soft)] block mb-2">
-              Active Vault
+              Active Wallet
             </span>
             {activeSession ? (
               <>
@@ -290,17 +195,15 @@ export function WalletManagerMenuContent({
                     className="text-[var(--maya-teal)] shrink-0"
                   />
                   <span className="font-bold truncate">
-                    {activeSession.label || "Vault"}
+                    {activeSession.label || "Wallet"}
                   </span>
                   {activeSession.status === "locked" && (
                     <LockKeyhole size={14} className="opacity-50 shrink-0" />
                   )}
                 </div>
                 <p className="mt-1 text-xs font-medium text-[var(--sea-ink-soft)]">
-                  {activeSession.source === "sdk"
-                    ? `${activeSession.vaultMeta?.type === "fast" ? "Fast" : "Secure"} vault`
-                    : "Vultisig extension"}{" "}
-                  - {availableChains.length} supported chains
+                  {getSessionSourceLabel(activeSession.source)} -{" "}
+                  {availableChains.length} supported chains
                 </p>
               </>
             ) : (
@@ -310,11 +213,11 @@ export function WalletManagerMenuContent({
                     size={16}
                     className="text-[var(--sea-ink-soft)] shrink-0"
                   />
-                  <span className="font-bold">No active vault</span>
+                  <span className="font-bold">No active wallet</span>
                 </div>
                 <p className="mt-1 text-xs font-medium text-[var(--sea-ink-soft)]">
-                  Create or import a vault to manage addresses, balances, and
-                  secure backups.
+                  Import a keystore, connect via WalletConnect, or use the
+                  Vultisig extension.
                 </p>
               </>
             )}
@@ -325,39 +228,22 @@ export function WalletManagerMenuContent({
             </span>
           )}
         </div>
-        {canExport ? (
-          <div className="grid grid-cols-2 items-start gap-3 mt-4">
-            <button
-              className="cacao-btn py-3 flex items-center justify-center gap-2 self-start"
-              onClick={onCreateVault}
-            >
-              <Plus size={14} />
-              Add Vault
-            </button>
-
-            <button
-              className="secondary-btn py-3 flex items-center justify-center gap-2"
-              onClick={onExportOpen}
-            >
-              <Download size={14} />
-              Export Vault
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 items-start gap-3 mt-4">
-            <button
-              className="cacao-btn py-3 flex items-center justify-center gap-2 self-start"
-              onClick={onCreateVault}
-            >
-              <Plus size={14} />
-              Add Vault
-            </button>
-            <p className="text-xs text-[var(--sea-ink-soft)]">
-              Create a new vault or import an existing one from setup. Export is
-              available for the active SDK vault.
-            </p>
-          </div>
-        )}
+        <div className="grid grid-cols-2 items-start gap-3 mt-4">
+          <button
+            className="cacao-btn py-3 flex items-center justify-center gap-2 self-start"
+            onClick={onImportKeystore}
+          >
+            <Plus size={14} />
+            Import Keystore
+          </button>
+          <button
+            className="secondary-btn py-3 flex items-center justify-center gap-2"
+            onClick={onConnectWallet}
+          >
+            <WalletCards size={14} />
+            Connect Wallet
+          </button>
+        </div>
       </div>
 
       {sessions.length > 0 && (
@@ -385,7 +271,7 @@ export function WalletManagerMenuContent({
                       )}
                     </span>
                     <span className="text-[10px] font-normal text-[var(--sea-ink-soft)] capitalize">
-                      {session.kind} {session.source === "sdk" ? "vault" : ""}
+                      {getSessionSourceLabel(session.source)}
                     </span>
                   </div>
                 </div>
@@ -460,16 +346,16 @@ export function WalletManagerMenuContent({
               )}
             </div>
           </div>
-          {activeSession.source === "sdk" ? (
+          {activeSession.source === "keystore" ? (
             <div className="grid grid-cols-2 gap-2">
               <button
-                onClick={onToggleVaultLock}
+                onClick={onToggleKeystoreLock}
                 className="p-2.5 rounded-lg text-xs font-bold bg-[var(--maya-teal)] text-[var(--bg-base)] shadow-[0_0_10px_rgba(26,154,141,0.2)] hover:scale-[1.02] disabled:opacity-50 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <LockKeyhole size={14} />
                 {activeSession.status === "locked"
-                  ? "Unlock Vault"
-                  : "Lock Vault"}
+                  ? "Unlock Wallet"
+                  : "Lock Wallet"}
               </button>
 
               <button
@@ -491,7 +377,7 @@ export function WalletManagerMenuContent({
                   className="p-2.5 rounded-lg text-xs font-bold bg-[var(--maya-teal)] text-[var(--bg-base)] shadow-[0_0_10px_rgba(26,154,141,0.2)] hover:scale-[1.02] disabled:opacity-50 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <WalletCards size={14} />
-                  Connect Extension
+                  {connectLabel}
                 </button>
               )}
 
@@ -512,11 +398,11 @@ export function WalletManagerMenuContent({
             No active session detected.
           </span>
           <button
-            onClick={onCreateVault}
+            onClick={onImportKeystore}
             className="w-full p-2.5 rounded-lg text-xs font-bold bg-[var(--maya-teal)] text-[var(--bg-base)] shadow-[0_0_10px_rgba(26,154,141,0.2)] hover:scale-[1.02] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
           >
             <ShieldCheck size={14} />
-            Add Vault
+            Import Keystore
           </button>
         </div>
       )}
@@ -574,10 +460,6 @@ export function WalletManager() {
   const [unlockPassword, setUnlockPassword] = useState("");
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [unlockError, setUnlockError] = useState("");
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [exportPassword, setExportPassword] = useState("");
-  const [isExporting, setIsExporting] = useState(false);
-  const [exportError, setExportError] = useState("");
 
   const availableChains = activeSession?.chains.length
     ? getSupportedSessionChains(activeSession.chains)
@@ -587,21 +469,21 @@ export function WalletManager() {
       ? state.activeChain
       : (availableChains[0] ?? activeSession?.chains[0] ?? Chain.MayaChain);
 
+  const sessionNotReady =
+    activeSession != null && activeSession.status !== "ready";
+  const canConnect = activeSession
+    ? activeSession.source === "extension"
+      ? sessionNotReady &&
+        wallet.canExecute("accounts.connect", {
+          sessionId: activeSession.id,
+        })
+      : activeSession.source === "walletconnect"
+        ? sessionNotReady
+        : false
+    : false;
   const canFetchData = wallet.canExecute("addresses.list", {
     sessionId: activeSession?.id,
   });
-  const canConnect =
-    activeSession?.source === "extension"
-      ? wallet.canExecute("accounts.connect", {
-          sessionId: activeSession.id,
-        })
-      : false;
-  const canExport =
-    activeSession?.source === "sdk"
-      ? wallet.canExecute("vault.export", {
-          sessionId: activeSession.id,
-        })
-      : false;
   const showDebugControls = shouldShowWalletManagerDebugControls(
     import.meta.env.DEV,
     typeof window !== "undefined" ? window.location.search : "",
@@ -628,20 +510,27 @@ export function WalletManager() {
     }
   }, [isOpen, unlockSessionId]);
 
-  useEffect(() => {
-    if (!isOpen && isExportModalOpen) {
-      setTimeout(() => {
-        setIsExportModalOpen(false);
-        setExportPassword("");
-        setExportError("");
-      }, 200);
-    }
-  }, [isOpen, isExportModalOpen]);
-
   async function runWalletAction(action: () => Promise<unknown>) {
     try {
       await action();
-    } catch {}
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Wallet action failed",
+      );
+    }
+  }
+
+  async function handleConnectWallet() {
+    if (!isWalletConnectConfigured()) {
+      toast.error(
+        "WalletConnect is not configured. Set VITE_WALLETCONNECT_PROJECT_ID (free at cloud.reown.com).",
+      );
+      return;
+    }
+
+    await runWalletAction(async () => {
+      await wallet.connectWalletConnect();
+    });
   }
 
   async function loadAllData() {
@@ -679,7 +568,7 @@ export function WalletManager() {
     setUnlockError("");
 
     try {
-      await wallet.execute("vault.unlock", {
+      await wallet.execute("keystore.unlock", {
         input: { password: unlockPassword },
         sessionId: unlockSessionId,
       });
@@ -705,33 +594,24 @@ export function WalletManager() {
     });
   }
 
-  async function handleExportSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!activeSession || activeSession.source !== "sdk" || !canExport) return;
+  async function connectWallet() {
+    if (!activeSession) {
+      await wallet.connectWalletConnect();
+      return;
+    }
 
-    setIsExporting(true);
-    setExportError("");
+    if (activeSession.source === "walletconnect") {
+      await wallet.connectWalletConnect();
+      return;
+    }
 
-    try {
-      const exported = await wallet.execute("vault.export", {
-        sessionId: activeSession.id,
-        input: {
-          password: exportPassword || undefined,
-        },
-      });
-
-      downloadWalletExportFile(exported);
-      setIsExportModalOpen(false);
-      setExportPassword("");
-    } catch (err: any) {
-      setExportError(err?.message || "Export failed. Please try again.");
-    } finally {
-      setIsExporting(false);
+    if (activeSession.source === "extension") {
+      await connectExtensionAccounts();
     }
   }
 
-  async function toggleVaultLock() {
-    if (!activeSession || activeSession.source !== "sdk") return;
+  async function toggleKeystoreLock() {
+    if (!activeSession || activeSession.source !== "keystore") return;
 
     if (activeSession.status === "locked") {
       setUnlockSessionId(activeSession.id);
@@ -740,14 +620,14 @@ export function WalletManager() {
       return;
     }
 
-    await wallet.execute("vault.lock", {
+    await wallet.execute("keystore.lock", {
       input: {},
       sessionId: activeSession.id,
     });
     await wallet.refreshSessions();
   }
 
-  function handleCreateVault() {
+  function handleImportKeystore() {
     setIsOpen(false);
     navigate({ to: "/vault-setup" });
   }
@@ -756,18 +636,6 @@ export function WalletManager() {
     setUnlockSessionId(null);
     setUnlockPassword("");
     setUnlockError("");
-  }
-
-  function handleOpenExport() {
-    setIsExportModalOpen(true);
-    setExportPassword("");
-    setExportError("");
-  }
-
-  function handleCloseExport() {
-    setIsExportModalOpen(false);
-    setExportPassword("");
-    setExportError("");
   }
 
   return (
@@ -790,7 +658,7 @@ export function WalletManager() {
         />
         {activeSession ? (
           <>
-            <span>{activeSession.label || "Vault"}</span>
+            <span>{activeSession.label || "Wallet"}</span>
             {activeSession.status === "locked" && (
               <LockKeyhole size={14} className="ml-1 opacity-50" />
             )}
@@ -800,7 +668,7 @@ export function WalletManager() {
             />
           </>
         ) : (
-          <span>Connect Vault</span>
+          <span>Connect Wallet</span>
         )}
       </button>
 
@@ -813,7 +681,6 @@ export function WalletManager() {
           actionChain={actionChain}
           canConnect={canConnect}
           canFetchData={canFetchData}
-          canExport={canExport}
           showDebugControls={showDebugControls}
           unlockSessionId={unlockSessionId}
           unlockPassword={unlockPassword}
@@ -822,15 +689,10 @@ export function WalletManager() {
           onUnlockPasswordChange={setUnlockPassword}
           onUnlockSubmit={handleUnlockSubmit}
           onUnlockClose={handleCloseUnlock}
-          isExportModalOpen={isExportModalOpen}
-          exportPassword={exportPassword}
-          isExporting={isExporting}
-          exportError={exportError}
-          onExportPasswordChange={setExportPassword}
-          onExportSubmit={handleExportSubmit}
-          onExportOpen={handleOpenExport}
-          onExportClose={handleCloseExport}
-          onCreateVault={handleCreateVault}
+          onImportKeystore={handleImportKeystore}
+          onConnectWallet={() => {
+            void handleConnectWallet();
+          }}
           onSessionClick={(sessionId, status) => {
             void handleSessionClick(sessionId, status);
           }}
@@ -838,13 +700,13 @@ export function WalletManager() {
             void runWalletAction(() => wallet.selectChain(chain));
           }}
           onConnect={() => {
-            void runWalletAction(connectExtensionAccounts);
+            void runWalletAction(connectWallet);
           }}
           onRefreshData={() => {
             void runWalletAction(loadAllData);
           }}
-          onToggleVaultLock={() => {
-            void runWalletAction(toggleVaultLock);
+          onToggleKeystoreLock={() => {
+            void runWalletAction(toggleKeystoreLock);
           }}
           onInitialize={() => {
             void runWalletAction(() => wallet.initialize());

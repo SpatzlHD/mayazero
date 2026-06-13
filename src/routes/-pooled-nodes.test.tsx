@@ -1,14 +1,15 @@
 /* @vitest-environment happy-dom */
 
+import { createInitializedTestManager, resetWalletTestMocks } from '#/wallet/test-mocks'
+import { createEmptyExtensionWindow, createFakeKeystoreRecord } from '#/wallet/test-utils'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { Chain } from '@vultisig/sdk'
+import { WalletChain as Chain } from '#/wallet/chain-types'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PooledNode } from '#/lib/pooled-nodes'
 import type { WalletActivityResponse } from '#/lib/cacaotracker-types'
 import { ImpersonationProvider } from '#/provider/ImpersonationProvider'
 import { SettingsProvider } from '#/provider/SettingsProvider'
 import { MayaWalletManager, MayaWalletProvider, type PooledNodeActionResult } from '#/wallet'
-import { createFakeSdkClient, createFakeVault, createMemoryStorage } from '#/wallet/test-utils'
 import { PooledNodesPage } from './pooled-nodes'
 
 afterEach(() => {
@@ -60,29 +61,26 @@ function makeNode(overrides: Partial<PooledNode> = {}): PooledNode {
 }
 
 async function createManager(options?: { mayaAddress?: string; withVault?: boolean }) {
-  const vault =
+  resetWalletTestMocks()
+  const keystore =
     options?.withVault === false
       ? undefined
-      : createFakeVault({
-          id: 'vault-pooled-route',
-          name: 'Vault Route',
-          chains: [Chain.MayaChain],
-          addresses: async () => ({
+      : createFakeKeystoreRecord({
+          id: 'keystore-pooled-route',
+          label: 'Keystore Route',
+          addresses: {
             [Chain.MayaChain]: options?.mayaAddress ?? 'maya1operator',
-          }),
+          },
         })
 
-  const manager = new MayaWalletManager({
-    sdk: createFakeSdkClient({
-      vaults: vault ? [vault] : [],
-      activeVaultId: vault?.id ?? null,
-    }).sdk,
-    prefsStorage: createMemoryStorage(),
+  const { manager } = await createInitializedTestManager({
+    extensionWindow: createEmptyExtensionWindow(),
+    keystores: keystore ? [keystore] : [],
+    unlockKeystores: Boolean(keystore),
   })
 
-  await manager.initialize()
-  if (vault) {
-    await manager.selectSession(vault.id)
+  if (keystore) {
+    await manager.selectSession(keystore.id)
   }
   return manager
 }
@@ -304,7 +302,7 @@ describe('pooled nodes route', () => {
       action: input.action,
       memo: `BOND:${input.nodeAddress}`,
       rawResult: {},
-      route: 'sdk',
+      route: 'keystore',
       txAmountBaseUnits: input.amountBaseUnits,
       txHash: 'maya-route-hash',
     } satisfies PooledNodeActionResult))

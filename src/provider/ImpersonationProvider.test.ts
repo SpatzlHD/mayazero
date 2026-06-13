@@ -1,4 +1,4 @@
-import { Chain } from "@vultisig/sdk";
+import { WalletChain as Chain } from "#/wallet/chain-types";
 import { describe, expect, it } from "vitest";
 import { createImpersonationSession } from "#/lib/impersonation";
 import { supportedWalletChains } from "#/wallet/chains";

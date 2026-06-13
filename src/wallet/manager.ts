@@ -1,15 +1,35 @@
 import {
-  createDefaultSdkClient,
   ExtensionWalletAdapter,
-  SdkVaultAdapter,
   type ExtensionWindowLike,
-  type ManagerOperationController,
-  type SdkClientLike,
-  type WalletSessionAdapter,
-} from './adapters'
+} from './extension-adapter'
+import { LocalKeystoreAdapter } from './keystore-adapter'
+import {
+  WalletConnectAdapter,
+  disconnectWalletConnectSession,
+} from './walletconnect-adapter'
+import {
+  listStoredKeystores,
+  deleteStoredKeystore,
+  importXChainKeystoreWallet,
+  importMnemonicKeystoreWallet,
+  getStoredKeystore,
+} from './keystore-store'
+import { deriveKeystoreAddresses } from './local-signer'
+import {
+  connectWalletConnect as connectWalletConnectSession,
+  getWalletConnectSnapshot,
+} from './walletconnect-client'
+import { walletConnectNamespaceForChain, walletChainToWalletConnectId } from './walletconnect-config'
+import type {
+  ManagerOperationController,
+  WalletSessionAdapter,
+} from './adapter-types'
 import { toChainCountBucket, trackAnalyticsEvent } from '#/analytics'
-import { canSwitchChainInExtension, getExtensionProviderKey } from './chains'
-import { supportedWalletChains } from './chains'
+import {
+  canSwitchChainInExtension,
+  getExtensionProviderKey,
+} from './chains'
+import { decryptXChainKeystoreMnemonic, normalizeMnemonic } from './import-utils'
 import { serializeWalletError, WalletSessionNotFoundError } from './errors'
 import type {
   MayaWalletState,
@@ -30,7 +50,6 @@ import type {
 type WalletPrefsStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 
 export type MayaWalletManagerOptions = {
-  sdk?: SdkClientLike
   extensionWindow?: ExtensionWindowLike
   prefsStorage?: WalletPrefsStorage
   storageKey?: string
@@ -55,30 +74,22 @@ const defaultState: MayaWalletState = {
 
 const defaultPrefs: WalletPreferences = {
   selectedSessionId: null,
-  preferredVaultId: null,
+  preferredKeystoreId: null,
   activeChain: null,
 }
 
 export class MayaWalletManager {
-  private readonly sdk: SdkClientLike
   private readonly extensionWindow: ExtensionWindowLike | undefined
   private readonly prefsStorage?: WalletPrefsStorage
   private readonly storageKey: string
   private readonly listeners = new Set<() => void>()
   private readonly adapters = new Map<string, WalletSessionAdapter>()
+  private readonly keystoreAdapters = new Map<string, LocalKeystoreAdapter>()
   private readonly prefs: WalletPreferences
   private initializePromise?: Promise<void>
-  private readonly ownsSdk: boolean
   private state: MayaWalletState
 
   constructor(options: MayaWalletManagerOptions = {}) {
-    this.sdk = options.sdk ?? createDefaultSdkClient({
-      passwordCache: { defaultTTL: 300000 },
-      onPasswordRequired: async (vaultId, vaultName) => {
-        return this.requestPassword(vaultId, vaultName)
-      }
-    })
-    this.ownsSdk = !options.sdk
     this.extensionWindow =
       options.extensionWindow ??
       (typeof window !== 'undefined'
@@ -103,30 +114,6 @@ export class MayaWalletManager {
     return () => this.listeners.delete(listener)
   }
 
-  requestPassword(vaultId: string, vaultName: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      this.patchState({
-        passwordRequest: { vaultId, vaultName, resolve, reject },
-      })
-    })
-  }
-
-  submitPassword(password: string): void {
-    const req = this.state.passwordRequest
-    if (req) {
-      req.resolve(password)
-      this.patchState({ passwordRequest: undefined })
-    }
-  }
-
-  cancelPasswordRequest(): void {
-    const req = this.state.passwordRequest
-    if (req) {
-      req.reject(new Error("Password request cancelled by user"))
-      this.patchState({ passwordRequest: undefined })
-    }
-  }
-
   async initialize(): Promise<void> {
     if (this.state.initialized) {
       return
@@ -138,11 +125,14 @@ export class MayaWalletManager {
         null,
         async () => {
           this.patchState({ initializing: true })
-          await this.sdk.initialize()
           await this.refreshSessions()
+          const legacyVaultDetected =
+            !this.prefs.legacyVaultMigrationDismissed &&
+            (await this.detectLegacyVultisigIndexedDb())
           this.patchState({
             initialized: true,
             initializing: false,
+            legacyVaultDetected,
           })
         },
       ).finally(() => {
@@ -158,9 +148,7 @@ export class MayaWalletManager {
       adapter.dispose?.()
     }
     this.adapters.clear()
-    if (this.ownsSdk) {
-      this.sdk.dispose()
-    }
+    this.keystoreAdapters.clear()
   }
 
   async refreshSessions(): Promise<WalletSession[]> {
@@ -180,11 +168,37 @@ export class MayaWalletManager {
         freshSessions.push(extensionSession)
       }
 
-      const vaults = await this.sdk.listVaults()
-      for (const vault of vaults) {
-        const adapter = new SdkVaultAdapter(vault)
+      const storedKeystores = await listStoredKeystores()
+      const storedKeystoreIds = new Set(storedKeystores.map((record) => record.id))
+      for (const record of storedKeystores) {
+        let adapter = this.keystoreAdapters.get(record.id)
+        if (!adapter) {
+          adapter = new LocalKeystoreAdapter(record)
+          this.keystoreAdapters.set(record.id, adapter)
+        }
         freshAdapters.set(adapter.id, adapter)
         freshSessions.push(await adapter.refreshSession())
+      }
+
+      for (const [keystoreId, adapter] of this.keystoreAdapters.entries()) {
+        if (!storedKeystoreIds.has(keystoreId)) {
+          adapter.lock()
+          this.keystoreAdapters.delete(keystoreId)
+        }
+      }
+
+      if (getWalletConnectSnapshot()) {
+        let walletConnectAdapter = this.adapters.get('walletconnect:session')
+        if (!(walletConnectAdapter instanceof WalletConnectAdapter)) {
+          walletConnectAdapter = new WalletConnectAdapter(() => {
+            void this.refreshSessions()
+          })
+        }
+        freshAdapters.set(walletConnectAdapter.id, walletConnectAdapter)
+        const walletConnectSession = await walletConnectAdapter.refreshSession()
+        if (walletConnectSession) {
+          freshSessions.push(walletConnectSession)
+        }
       }
 
       for (const previousAdapter of this.adapters.values()) {
@@ -211,13 +225,6 @@ export class MayaWalletManager {
       })
       this.persistPrefs()
 
-      if (activeSession?.source === 'sdk') {
-        const vault = vaults.find((candidate) => candidate.id === activeSession.id)
-        await this.sdk.setActiveVault(vault ?? null)
-      } else {
-        await this.sdk.setActiveVault(null)
-      }
-
       return freshSessions
     })
   }
@@ -229,14 +236,8 @@ export class MayaWalletManager {
     }
 
     this.prefs.selectedSessionId = sessionId
-    if (session.source === 'sdk') {
-      this.prefs.preferredVaultId = sessionId
-      const vault = (await this.sdk.listVaults()).find(
-        (candidate) => candidate.id === sessionId,
-      )
-      await this.sdk.setActiveVault(vault ?? null)
-    } else {
-      await this.sdk.setActiveVault(null)
+    if (session.source === 'keystore') {
+      this.prefs.preferredKeystoreId = sessionId
     }
 
     const activeChain = this.resolveActiveChain(session)
@@ -413,30 +414,53 @@ export class MayaWalletManager {
       return false
     }
 
-    if (session.source !== 'extension') {
-      return true
+    if (session.source === 'extension') {
+      const chain =
+        options?.chain ?? this.state.activeChain ?? session.chains[0] ?? null
+      if (!chain) {
+        return command === 'accounts.list' || command === 'addresses.list'
+      }
+
+      const providerKey = getExtensionProviderKey(chain)
+      if (!providerKey) {
+        return false
+      }
+
+      switch (command) {
+        case 'balance.get':
+        case 'balances.list':
+        case 'message.sign':
+          return providerKey === 'ethereum'
+        case 'chain.switch':
+          return canSwitchChainInExtension(chain)
+        default:
+          return true
+      }
     }
 
-    const chain = options?.chain ?? this.state.activeChain ?? session.chains[0] ?? null
-    if (!chain) {
-      return command === 'accounts.list' || command === 'addresses.list'
+    if (session.source === 'walletconnect') {
+      const chain =
+        options?.chain ?? this.state.activeChain ?? session.chains[0] ?? null
+      if (!chain) {
+        return command === 'accounts.list' || command === 'addresses.list'
+      }
+
+      switch (command) {
+        case 'balance.get':
+        case 'balances.list':
+        case 'message.sign':
+          return walletConnectNamespaceForChain(chain) === 'eip155'
+        case 'chain.switch':
+          return (
+            Boolean(walletChainToWalletConnectId(chain)) &&
+            canSwitchChainInExtension(chain)
+          )
+        default:
+          return true
+      }
     }
 
-    const providerKey = getExtensionProviderKey(chain)
-    if (!providerKey) {
-      return false
-    }
-
-    switch (command) {
-      case 'balance.get':
-      case 'balances.list':
-      case 'message.sign':
-        return providerKey === 'ethereum'
-      case 'chain.switch':
-        return canSwitchChainInExtension(chain)
-      default:
-        return true
-    }
+    return true
   }
 
   async execute<K extends WalletCommandName>(
@@ -485,266 +509,124 @@ export class MayaWalletManager {
     }
   }
 
-  async createFastVault(options: {
-    name: string
-    email: string
-    password: string
+  async importKeystoreFromFile(options: {
+    label: string
+    rawKeystore: string
+    keystorePassword: string
+    vaultPassword: string
     journeyId?: string
-    signal?: AbortSignal
-  }): Promise<{ vaultId: string }> {
+  }): Promise<{ keystoreId: string }> {
     return this.runManagerOperation(
-      'vault.create.fast',
-      null,
-      async (operation) => {
-      const vaultId = await this.sdk.createFastVault({
-        ...options,
-        onProgress: (step) => {
-          operation?.update({
-            progress: {
-              step: step.step,
-              message: step.message,
-              value: step.progress,
-            },
-          })
-        },
-      })
-
-      return { vaultId }
-      },
-      options.journeyId
-        ? {
-            id: options.journeyId,
-            stepKey: 'creating',
-          }
-        : undefined,
-    )
-  }
-
-  async createFastVaultFromSeedphrase(options: {
-    mnemonic: string
-    name: string
-    email: string
-    password: string
-    journeyId?: string
-    signal?: AbortSignal
-  }): Promise<{ vaultId: string }> {
-    const completeJourneyStep = (journeyId: string | undefined, stepKey: string, message?: string) => {
-      if (!journeyId) {
-        return
-      }
-
-      this.patchJourney(journeyId, (journey) => ({
-        steps: journey.steps.map((step) =>
-          step.key === stepKey
-            ? {
-                ...step,
-                status: 'success',
-                ...(message ? { message } : {}),
-              }
-            : step,
-        ),
-      }))
-    }
-
-    return this.runManagerOperation(
-      'vault.create.fast.import',
-      null,
-      async (operation) => {
-        operation?.update({
-          journeyStepKey: 'validating-seed',
-          progress: {
-            step: 'validating-seed',
-            message: 'Validating imported seedphrase.',
-            value: 0,
-          },
-        })
-
-        const validation = await this.sdk.validateSeedphrase(options.mnemonic)
-        if (!validation.valid) {
-          throw new Error(validation.error || 'Invalid seedphrase')
-        }
-        completeJourneyStep(options.journeyId, 'validating-seed', 'Seedphrase validated.')
-
-        const vaultId = await this.sdk.createFastVaultFromSeedphrase({
-          ...options,
-          discoverChains: true,
-          chainsToScan: supportedWalletChains,
-          onProgress: (step) => {
-            operation?.update({
-              journeyStepKey: 'creating',
-              progress: {
-                step: step.step,
-                message: step.message,
-                value: step.progress,
-              },
-            })
-          },
-          onChainDiscovery: (progress) => {
-            operation?.update({
-              journeyStepKey: 'discovering-chains',
-              progress: {
-                step: progress.phase,
-                message: progress.message,
-                value:
-                  progress.chainsTotal > 0
-                    ? Math.round((progress.chainsProcessed / progress.chainsTotal) * 100)
-                    : 0,
-                mode: 'chain-discovery',
-              },
-            })
-            if (progress.chainsProcessed >= progress.chainsTotal) {
-              completeJourneyStep(
-                options.journeyId,
-                'discovering-chains',
-                progress.message || 'Chain discovery completed.',
-              )
-            }
-          },
-        })
-
-        return { vaultId }
-      },
-      options.journeyId
-        ? {
-            id: options.journeyId,
-            stepKey: 'validating-seed',
-          }
-        : undefined,
-    )
-  }
-
-  async verifyFastVault(
-    vaultId: string,
-    code: string,
-    options?: { journeyId?: string },
-  ): Promise<{ vaultId: string }> {
-    return this.runManagerOperation(
-      'vault.verify.fast',
+      'keystore.import',
       null,
       async () => {
-      const vault = await this.sdk.verifyVault(vaultId, code)
-      await this.refreshSessions()
-      await this.selectSession(vault.id)
-      return { vaultId: vault.id }
-      },
-      options?.journeyId
-        ? {
-            id: options.journeyId,
-            stepKey: 'verifying',
-          }
-        : undefined,
-    )
-  }
+        const mnemonic = await decryptXChainKeystoreMnemonic(
+          options.rawKeystore,
+          options.keystorePassword,
+        )
+        let addresses
+        try {
+          addresses = await deriveKeystoreAddresses(mnemonic)
+        } finally {
+          mnemonic.replace(/./g, '\0')
+        }
 
-  async createSecureVault(options: {
-    name: string
-    password?: string
-    devices: number
-    threshold?: number
-    journeyId?: string
-    signal?: AbortSignal
-  }): Promise<{ vaultId: string; sessionId: string }> {
-    return this.runManagerOperation(
-      'vault.create.secure',
-      null,
-      async (operation) => {
-      const result = await this.sdk.createSecureVault({
-        ...options,
-        onProgress: (step) => {
-          operation?.update({
-            progress: {
-              step: step.step,
-              message: step.message,
-              value: step.progress,
-            },
-          })
-        },
-        onQRCodeReady: (qrPayload) => {
-          operation?.update({ qrPayload })
-        },
-        onDeviceJoined: (deviceId, joined, required) => {
-          operation?.update({
-            deviceJoin: { deviceId, joined, required },
-          })
-        },
-      })
-      await this.refreshSessions()
-      await this.selectSession(result.vault.id)
-      return { vaultId: result.vaultId, sessionId: result.sessionId }
+        const record = await importXChainKeystoreWallet({
+          label: options.label,
+          rawKeystore: options.rawKeystore,
+          keystorePassword: options.keystorePassword,
+          vaultPassword: options.vaultPassword,
+          addresses,
+        })
+        await this.refreshSessions()
+        await this.selectSession(record.id)
+        return { keystoreId: record.id }
       },
       options.journeyId
         ? {
             id: options.journeyId,
-            stepKey: 'creating-session',
+            stepKey: 'importing',
           }
         : undefined,
     )
   }
 
-  async joinSecureVault(
-    qrPayload: string,
-    options: {
-      mnemonic?: string
-      password?: string
-      devices?: number
-      usePhantomSolanaPath?: boolean
-      signal?: AbortSignal
-    },
-  ): Promise<{ vaultId: string }> {
-    return this.runManagerOperation('vault.join.secure', null, async (operation) => {
-      const result = await this.sdk.joinSecureVault(qrPayload, {
-        ...options,
-        onProgress: (step) => {
-          operation?.update({
-            progress: {
-              step: step.step,
-              message: step.message,
-              value: step.progress,
-            },
-          })
-        },
-        onDeviceJoined: (deviceId, joined, required) => {
-          operation?.update({
-            deviceJoin: { deviceId, joined, required },
-          })
-        },
-      })
-      await this.refreshSessions()
-      await this.selectSession(result.vault.id)
-      return { vaultId: result.vaultId }
-    })
+  async importKeystoreFromMnemonic(options: {
+    label: string
+    mnemonic: string
+    vaultPassword: string
+    journeyId?: string
+  }): Promise<{ keystoreId: string }> {
+    return this.runManagerOperation(
+      'keystore.import',
+      null,
+      async () => {
+        const normalizedMnemonic = normalizeMnemonic(options.mnemonic)
+        const addresses = await deriveKeystoreAddresses(normalizedMnemonic)
+        const record = await importMnemonicKeystoreWallet({
+          label: options.label,
+          mnemonic: normalizedMnemonic,
+          vaultPassword: options.vaultPassword,
+          addresses,
+        })
+        await this.refreshSessions()
+        await this.selectSession(record.id)
+        return { keystoreId: record.id }
+      },
+      options.journeyId
+        ? {
+            id: options.journeyId,
+            stepKey: 'importing',
+          }
+        : undefined,
+    )
   }
 
-  async importVault(
-    vultContent: string,
-    password?: string,
-  ): Promise<{ vaultId: string }> {
-    return this.runManagerOperation('vault.import', null, async () => {
-      const vault = await this.sdk.importVault(vultContent, password)
-      await this.refreshSessions()
-      await this.selectSession(vault.id)
-      return { vaultId: vault.id }
-    })
-  }
-
-  async deleteVault(vaultId: string): Promise<void> {
-    await this.runManagerOperation('vault.delete', vaultId, async () => {
-      const vault = (await this.sdk.listVaults()).find(
-        (candidate) => candidate.id === vaultId,
-      )
-      if (!vault) {
-        throw new WalletSessionNotFoundError(vaultId)
+  async deleteKeystore(sessionId: string): Promise<void> {
+    await this.runManagerOperation('keystore.delete', sessionId, async () => {
+      const record = await getStoredKeystore(sessionId)
+      if (!record) {
+        throw new WalletSessionNotFoundError(sessionId)
       }
 
-      await vault.delete()
-      if (this.prefs.preferredVaultId === vaultId) {
-        this.prefs.preferredVaultId = null
+      const adapter = this.keystoreAdapters.get(sessionId)
+      adapter?.lock()
+      this.keystoreAdapters.delete(sessionId)
+
+      await deleteStoredKeystore(sessionId)
+
+      if (this.prefs.preferredKeystoreId === sessionId) {
+        this.prefs.preferredKeystoreId = null
       }
-      if (this.prefs.selectedSessionId === vaultId) {
+      if (this.prefs.selectedSessionId === sessionId) {
         this.prefs.selectedSessionId = null
       }
+
       await this.refreshSessions()
     })
+  }
+
+  async connectWalletConnect(): Promise<void> {
+    await connectWalletConnectSession()
+    await this.refreshSessions()
+
+    const walletConnectSession = this.state.sessions.find(
+      (session) => session.id === 'walletconnect:session',
+    )
+    if (walletConnectSession) {
+      await this.selectSession(walletConnectSession.id)
+    }
+  }
+
+  async disconnectWalletConnect(): Promise<void> {
+    await disconnectWalletConnectSession()
+    await this.refreshSessions()
+  }
+
+  dismissLegacyVaultMigration(): void {
+    this.prefs.legacyVaultMigrationDismissed = true
+    this.patchState({ legacyVaultDetected: false })
+    this.persistPrefs()
   }
 
   private patchState(patch: Partial<MayaWalletState>): void {
@@ -857,7 +739,7 @@ export class MayaWalletManager {
       finalStatus && finalStatus !== 'success' ? finalStatus : undefined
 
     this.patchJourney(operation.journeyId, (journey) => {
-      let nextSteps = stepKey
+      const nextSteps = stepKey
         ? journey.steps.map((step) => {
             if (step.key !== stepKey) {
               return step
@@ -877,48 +759,6 @@ export class MayaWalletManager {
             }
           })
         : journey.steps
-
-      if (operation.name === 'vault.create.secure') {
-        if (patch.qrPayload) {
-          nextSteps = nextSteps.map((step) =>
-            step.key === 'scan-qr'
-              ? {
-                  ...step,
-                  status: 'attention',
-                  message: 'Scan the QR code in the tracker to join the vault.',
-                }
-              : step,
-          )
-        }
-
-        if (patch.deviceJoin) {
-          nextSteps = nextSteps.map((step) =>
-            step.key === 'devices-joined'
-              ? {
-                  ...step,
-                  status:
-                    patch.deviceJoin.joined >= patch.deviceJoin.required
-                      ? 'success'
-                      : 'active',
-                  message: `${patch.deviceJoin.joined} of ${patch.deviceJoin.required} devices joined.`,
-                }
-              : step,
-          )
-        }
-
-        if (patch.progress?.message) {
-          nextSteps = nextSteps.map((step) =>
-            step.key === 'keygen'
-              ? {
-                  ...step,
-                  status: patch.status === 'success' ? 'success' : 'active',
-                  message: patch.progress?.message,
-                  progress: patch.progress?.value,
-                }
-              : step,
-          )
-        }
-      }
 
       return {
         steps: nextSteps,
@@ -962,13 +802,6 @@ export class MayaWalletManager {
       case 'tx.broadcast.raw':
       case 'tx.send':
         return 'broadcasting'
-      case 'vault.create.fast':
-      case 'vault.create.fast.import':
-        return 'creating'
-      case 'vault.verify.fast':
-        return 'verifying'
-      case 'vault.create.secure':
-        return 'creating-session'
       default:
         return undefined
     }
@@ -1034,8 +867,7 @@ export class MayaWalletManager {
   ): Promise<string | null> {
     const preferredCandidates = [
       this.prefs.selectedSessionId,
-      this.prefs.preferredVaultId,
-      (await this.sdk.getActiveVault())?.id ?? null,
+      this.prefs.preferredKeystoreId,
       sessions[0]?.id ?? null,
     ].filter(Boolean) as string[]
 
@@ -1055,6 +887,22 @@ export class MayaWalletManager {
     const fallback = activeSession?.chains[0] ?? null
     this.prefs.activeChain = fallback
     return fallback
+  }
+
+  private async detectLegacyVultisigIndexedDb(): Promise<boolean> {
+    if (
+      typeof indexedDB === 'undefined' ||
+      typeof indexedDB.databases !== 'function'
+    ) {
+      return false
+    }
+
+    try {
+      const databases = await indexedDB.databases()
+      return databases.some((database) => database.name?.includes('vultisig'))
+    } catch {
+      return false
+    }
   }
 
   private applyCommandSideEffects<K extends WalletCommandName>(
@@ -1150,21 +998,8 @@ export class MayaWalletManager {
       return
     }
 
-    if (command === 'vault.rename') {
-      const output = result as WalletCommandResult<'vault.rename'>
-      this.patchState({
-        sessions: this.state.sessions.map((session) =>
-          session.id === sessionId
-            ? {
-                ...session,
-                label: output.name,
-                vaultMeta: session.vaultMeta
-                  ? { ...session.vaultMeta, name: output.name }
-                  : session.vaultMeta,
-              }
-            : session,
-        ),
-      })
+    if (command === 'keystore.lock') {
+      void this.refreshSessions()
     }
   }
 
@@ -1202,9 +1037,14 @@ export class MayaWalletManager {
     }
 
     try {
+      const parsed = JSON.parse(raw) as Partial<WalletPreferences> & {
+        preferredVaultId?: string | null
+      }
       return {
         ...defaultPrefs,
-        ...(JSON.parse(raw) as Partial<WalletPreferences>),
+        ...parsed,
+        preferredKeystoreId:
+          parsed.preferredKeystoreId ?? parsed.preferredVaultId ?? null,
       }
     } catch {
       this.prefsStorage?.removeItem(this.storageKey)
